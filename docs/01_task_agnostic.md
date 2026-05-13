@@ -51,7 +51,7 @@ flowchart LR
 
     subgraph CONSERVE [" Conservation "]
         direction LR
-        CONS_IDS["<b>1.3a</b> · BV-BRC protein families<br/><sub>PLFam (within-Kp) · PGFam (cross-species)</sub>"]:::method
+        CONS_IDS["<b>1.3a</b> · BV-BRC protein families<br/><sub>PLFam (within-Kp)<br/>PGFam (cross-species)</sub>"]:::method
         CONS_KP["<b>1.3b</b> · Within-Kp pan-genome class"]:::method
         CONS_XS["<b>1.3c</b> · Cross-species broad-spectrum"]:::method
         CONS_SEL["<b>1.3d</b> · Selectivity vs human"]:::method
@@ -68,7 +68,7 @@ flowchart LR
 
     SEQ --> ESM2(["<b>1.5</b> · ESM2 embeddings"]):::embedding
 
-    PAN  --> T(["Task-agnostic chunk"]):::result
+    PAN  --> T(["Task-agnostic annotation"]):::result
     INT  --> T
     PDB  --> T
     AF   --> T
@@ -83,24 +83,24 @@ flowchart LR
 
 | ID | Title | Description | Resources |
 | --- | --- | --- | --- |
-| **1.0** | Reference proteome | The *K. pneumoniae* HS11286 proteome (5,728 proteins) — anchor that every downstream track derives from. | UniProt **UP000007841** · `scripts/00_download_proteome.py` |
-| **1.1a** | PANTHER family / subfamily | Functional protein-family classification from PANTHER HMMs. | UniProt `xref_panther` · `scripts/01_annotate_panther.py` |
-| **1.1b** | InterPro domains | Domain-composition annotation. | UniProt `xref_interpro` |
-| **1.2a** | PDB coverage | Fraction of residues covered by experimentally-resolved PDB chains. | PDBe SIFTS bulk mapping · `scripts/02_structural_coverage.py` |
-| **1.2b** | AlphaFold pLDDT | Predicted-structure confidence summarised across the protein (high / confident / low residue fractions). | AlphaFold DB API · `scripts/02_structural_coverage.py` |
-| **1.3a** | BV-BRC protein families | PLFam (within-Kp) and PGFam (global) cluster IDs from the BV-BRC PATtyFam pan-genome system. | BV-BRC `genome_feature` table · `src/conservation.py` |
-| **1.3b** | Within-Kp pan-genome class | Is the gene core / soft-core / shell / cloud across *K. pneumoniae* strains? | BV-BRC PLFam genome counts (ID) · OrthoFinder / DIAMOND across a Kp reference panel (sequence) |
-| **1.3c** | Cross-species broad-spectrum | Phyletic spread across bacterial pathogens (ESKAPE-E) — broad-spectrum signal. | BV-BRC PGFam member counts · OrthoDB group sizes · BLAST against ESKAPE-E panel |
-| **1.3d** | Selectivity vs human | Does a close human ortholog exist? Inverse signal — high similarity is a safety red flag. | UniProt UP000005640 BLAST / DIAMOND · cross-kingdom OrthoDB / eggNOG |
-| **1.4** | Bibliometric / popularity | How well-studied the protein is, combining UniProt annotation depth and literature counts → `popularity_tier`: dark / studied / well_studied. | UniProt annotation fields · Europe PMC · `scripts/02_annotate_popularity.py` |
-| **1.5** | ESM2 embeddings | Standalone per-protein 1280-d language-model vector — kept separately, not joined into the task-agnostic chunk. | ESM2-650M (Meta) |
+| 1.0 | Reference proteome | The *K. pneumoniae* HS11286 proteome (5,728 proteins) — anchor that every downstream track derives from. | UniProt |
+| 1.1a | PANTHER family / subfamily | Functional protein-family classification from PANTHER HMMs. | UniProt, PANTHER |
+| 1.1b | InterPro domains | Domain-composition annotation. | UniProt, InterPro |
+| 1.2a | PDB coverage | Fraction of residues covered by experimentally-resolved PDB chains. | PDB, PDBe SIFTS |
+| 1.2b | AlphaFold pLDDT | Predicted-structure confidence summarised across the protein (high / confident / low residue fractions). | AlphaFold DB |
+| 1.3a | BV-BRC protein families | PLFam (within-Kp) and PGFam (global) cluster IDs from the BV-BRC PATtyFam pan-genome system. | BV-BRC |
+| 1.3b | Within-Kp pan-genome class | Is the gene core / soft-core / shell / cloud across *K. pneumoniae* strains? | BV-BRC, OrthoFinder / DIAMOND |
+| 1.3c | Cross-species broad-spectrum | Phyletic spread across bacterial pathogens (ESKAPE-E) — broad-spectrum signal. | BV-BRC, OrthoDB, BLAST |
+| 1.3d | Selectivity vs human | Does a close human ortholog exist? Inverse signal — high similarity is a safety red flag. | UniProt (human), OrthoDB, eggNOG |
+| 1.4 | Bibliometric / popularity | How well-studied the protein is, combining UniProt annotation depth and literature counts → tier: dark / studied / well_studied. | UniProt, Europe PMC |
+| 1.5 | ESM2 embeddings | Standalone per-protein 1280-d language-model vector — kept separately, not joined into the task-agnostic annotation. | ESM2-650M |
 
 The reference proteome (UniProt **UP000007841**, *K. pneumoniae* HS11286,
 5,728 proteins; columns: accession · gene_names · sequence) is produced by
 `scripts/00_download_proteome.py` (UniProt stream API →
-`data/raw/<slug>_proteome.tsv`). The **task-agnostic chunk** is the result of
-joining the nine non-standalone tracks above by UniProt accession (with
-`locus_tag` as the join key for BV-BRC-anchored tracks). Conservation is
+`data/raw/<slug>_proteome.tsv`). The **task-agnostic annotation** is the
+result of joining the nine non-standalone tracks above by UniProt accession
+(with `locus_tag` as the join key for BV-BRC-anchored tracks). Conservation is
 listed here because it is per-protein and task-agnostic; downstream sections
 (notably [essentiality](./04_essentiality.md)) treat it as a confidence
 modifier rather than a primary signal. The within-Kp pan-genome class also

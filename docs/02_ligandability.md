@@ -28,7 +28,7 @@ flowchart LR
     FAM("PANTHER + InterPro<br/><sub>from task-agnostic layer</sub>"):::tagnostic
     CONS("Cross-strain conservation<br/><sub>BV-BRC PATtyFams (from task-agnostic)</sub>"):::tagnostic
 
-    P --> ORTH["OrthoDB ortholog expansion<br/><sub>bacterial-level groups; pivot via SwissProt</sub><br/><sub>scripts/02_fetch_orthologs.py</sub>"]:::method
+    P --> ORTH["OrthoDB ortholog expansion<br/><sub>bacterial-level groups<br/>pivot via SwissProt</sub><br/><sub>scripts/02_fetch_orthologs.py</sub>"]:::method
     ORTH --> CHEM["ChEMBL bioactivity across orthologs<br/>Ki/Kd/IC50, pChEMBL ≥ 5 / ≥ 6<br/><sub>scripts/03_fetch_chembl_ligands.py</sub>"]:::method
 
     P --> STR
@@ -39,7 +39,7 @@ flowchart LR
     STR --> DIS["Disorder filter<br/><sub>AlphaFold pLDDT fractions</sub><br/><sub>(planned, negative signal)</sub>"]:::planned
     FAM --> PRIOR["Family / fold tractability prior<br/><sub>PANTHER + InterPro lookup</sub><br/><sub>(planned)</sub>"]:::planned
 
-    CHEM  --> SCORE(["Composite ligandability score → tier<br/><sub>known ligands · pocket · family prior − disorder</sub>"]):::result
+    CHEM  --> SCORE(["Composite ligandability score → tier<br/><sub>known ligands · pocket<br/>family prior − disorder</sub>"]):::result
     POCK  --> SCORE
     PRIOR --> SCORE
     DIS  -.->|"penalty"| SCORE

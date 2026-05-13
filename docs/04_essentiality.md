@@ -26,26 +26,26 @@ flowchart LR
 
     subgraph DIRECT [" Direct experimental evidence "]
         direction LR
-        TNS[("Kp Tn-seq screens<br/><sub>Eichelberger 2024 ECL8 ✓ loaded (3 flavors)</sub><br/><sub>Bachman 2015 KPPR1 · Ramage 2017 KPNIH1 — stubs</sub>")]:::dataset
-        CRI[("Kp CRISPRi screens<br/><sub>Zhu 2023 Mobile-CRISPRi-seq highlights ✓ loaded (8 genes)</sub>")]:::dataset
-        ECO[/"E. coli TraDIS<br/><sub>Goodall 2018 BW25113 (stub — feeds Ec-inference path)</sub>"\]:::stub
+        TNS[("Kp Tn-seq screens<br/><sub>Eichelberger 2024 ECL8<br/>✓ loaded (3 flavors)</sub><br/><sub>Bachman 2015 KPPR1<br/>Ramage 2017 KPNIH1<br/>— stubs</sub>")]:::dataset
+        CRI[("Kp CRISPRi screens<br/><sub>Zhu 2023 Mobile-CRISPRi-seq<br/>highlights ✓ loaded (8 genes)</sub>")]:::dataset
+        ECO[/"E. coli TraDIS<br/><sub>Goodall 2018 BW25113<br/>(stub — feeds Ec-inference path)</sub>"\]:::stub
     end
 
     DEG["DEG 15 / OGEE v2<br/><sub>consolidated essential-gene databases</sub><br/><sub>(planned)</sub>"]:::planned
     FBA["FBA / iYL1228 metabolic model<br/><sub>in silico single-gene knockout</sub><br/><sub>(planned)</sub>"]:::planned
-    ML["ML essentiality predictor<br/><sub>DeeplyEssential / ESM2-based</sub><br/><sub>(planned; ties to the task-agnostic ESM2 track)</sub>"]:::planned
+    ML["ML essentiality predictor<br/><sub>DeeplyEssential / ESM2-based</sub><br/><sub>(planned; ties to the<br/>task-agnostic ESM2 track)</sub>"]:::planned
 
-    TNS --> PARSE["<i>src/essentiality.py</i> · per-paper parsers<br/><sub>emit long-form rows: (gene_symbol, call, score, source, condition, flavor)</sub>"]:::method
+    TNS --> PARSE["<i>src/essentiality.py</i> · per-paper parsers<br/><sub>emit long-form rows:<br/>(gene_symbol, call, score,<br/>source, condition, flavor)</sub>"]:::method
     CRI --> PARSE
     ECO --> PARSE
     DEG -.-> PARSE
     FBA -.-> PARSE
     ML  -.-> PARSE
 
-    PARSE --> FLAV["Per-flavor consensus by gene_symbol<br/><sub>5 flavors: in_vitro · in_vivo_lung · in_vivo_urine · in_vivo_serum · vulnerability</sub><br/><sub>CALL_PRIORITY: essential ▶ fitness_defect ▶ unclear ▶ fitness_advantage ▶ non_essential</sub><br/><sub><i>src/assemble.py</i> · _join_flavor_block</sub>"]:::method
+    PARSE --> FLAV["Per-flavor consensus by gene_symbol<br/><sub>5 flavors: in_vitro · in_vivo_lung<br/>in_vivo_urine · in_vivo_serum<br/>vulnerability</sub><br/><sub>CALL_PRIORITY:<br/>essential ▶ fitness_defect ▶ unclear<br/>▶ fitness_advantage ▶ non_essential</sub><br/><sub><i>src/assemble.py</i> · _join_flavor_block</sub>"]:::method
 
     PARSE -->|"E. coli essentials"| ECINF["Kp ↔ Ec gene-symbol match<br/><sub><i>src/assemble.py</i> · _join_ec_inferred</sub>"]:::method
-    ECINF -.-> ORTHO_UP["Upgrade: OrthoDB-based Ec transfer<br/><sub>reuse the ligandability layer's OrthoDB pipeline</sub><br/><sub>(planned; lifts Ec coverage beyond ~18%)</sub>"]:::planned
+    ECINF -.-> ORTHO_UP["Upgrade: OrthoDB-based Ec transfer<br/><sub>reuse the ligandability layer's<br/>OrthoDB pipeline</sub><br/><sub>(planned; lifts Ec coverage<br/>beyond ~18%)</sub>"]:::planned
 
     CONS("Cross-strain conservation<br/><sub>BV-BRC PATtyFams (from task-agnostic)</sub>"):::tagnostic
 
