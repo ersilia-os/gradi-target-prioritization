@@ -1,7 +1,7 @@
 # Pipeline overview
 
 Diagrams describing the GraDi target-prioritization pipeline. The pipeline is
-documented as four sections, each in its own file under `docs/`:
+documented as five sections, each in its own file under `docs/`:
 
 1. [Task-agnostic per-protein annotation](./01_task_agnostic.md) — proteome →
    per-protein evidence consumed by all downstream axes.
@@ -11,6 +11,9 @@ documented as four sections, each in its own file under `docs/`:
    plausible Clp-protease substrate?
 4. [Essentiality / vulnerability assessment](./04_essentiality.md) — is the
    target required for fitness or survival?
+5. [Expression and localization](./05_expression_and_localization.md) — is
+   the target present in meaningful amounts and physically reachable by the
+   cytoplasmic Clp machinery?
 
 A final-ranking section will be added once the corresponding workstream comes
 online.

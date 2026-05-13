@@ -1,17 +1,6 @@
-# Degradability assessment (Clp proteases)
+# Degradability assessment
 
-Part 3 of the GraDi target-prioritization pipeline. See
-[`pipeline.md`](./pipeline.md) for the index and the diagram style legend.
-
-Degradability asks how susceptible the target is to bacterial Clp-protease
-degradation — directly informative for BacPROTAC design since the recruiter
-hands the substrate to ClpC/ClpX/ClpP for proteolysis. There is no
-proteome-wide Clp-substrate measurement for *K. pneumoniae*, so the score
-combines two evidence streams: rule-based degron motifs computed directly on
-each Kp sequence, plus experimental evidence transferred from *E. coli* K-12
-by gene-symbol orthology. Note that this layer does **not** consume the
-task-agnostic outputs (structures, families, embeddings) — it works directly
-on the raw sequence plus two curated reference TSVs.
+Combines rule-based degron motifs on each Kp sequence (modulated by AlphaFold structural exposure) with experimental Clp-substrate evidence transferred from *E. coli* K-12 (gene-symbol orthology) and from other bacteria (OrthoDB expansion) — to score how susceptible the target is to bacterial Clp-protease degradation.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%
@@ -25,58 +14,77 @@ flowchart LR
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
 
-    P{{"<i>K. pneumoniae</i> protein<br/><sub>UniProt accession<br/>sequence · gene_symbol</sub>"}}:::source
+    P["<i>Klebsiella pneumoniae</i> proteome"]:::source
 
-    P --> CTERM["C-terminal degrons<br/><sub>CM1 ssrA-like (-LAA family)<br/>CM2 MuA-like</sub><br/><sub>scripts/03_annotate_clp_degradability.py</sub>"]:::method
-    P --> NTERM["N-terminal degrons<br/><sub>N-end rule (L/F/Y/W at pos 2)<br/>Flynn NM1/2/3</sub><br/><sub>scripts/03_annotate_clp_degradability.py</sub>"]:::method
+    STR("AlphaFold pLDDT"):::tagnostic
+    EMB("ESM-2 embeddings"):::tagnostic
 
-    P --> ORTH["Gene-symbol → <i>E. coli</i> K-12 ortholog<br/><sub>direct symbol match<br/>(not OrthoDB — Flynn/Nagar evidence<br/>is E. coli-specific)</sub><br/><sub>scripts/03_annotate_clp_degradability.py</sub>"]:::method
-    ORTH --> FLYNN[("Flynn 2003 ClpXP/ClpAP trap census<br/><sub>data/raw/clp_substrates/flynn2003_ecoli_clp_substrates.tsv</sub>")]:::dataset
-    ORTH --> NAGAR[("Nagar 2021 <i>E. coli</i> half-lives<br/><sub>data/raw/clp_substrates/nagar2021_ecoli_halflives.tsv</sub>")]:::dataset
+    subgraph DEGRONS [" Sequence-based degrons "]
+        direction LR
+        CTERM["<b>3.1a</b> · C-terminal degrons"]:::method
+        NTERM["<b>3.1b</b> · N-terminal degrons"]:::method
+    end
 
-    P -.-> CLPK["ClpK paralog handling<br/><sub>Kp-specific heat-shock Clp<br/>no E. coli ortholog</sub><br/><sub>(planned)</sub>"]:::planned
-    P -.-> ESM2["ESM2-based degradability ML<br/><sub>per-protein embedding<br/>→ learned classifier</sub><br/><sub>(planned; see task-agnostic layer)</sub>"]:::planned
+    subgraph ECOLI [" <i>E. coli</i> evidence transfer "]
+        direction LR
+        ORTH["<b>3.2a</b> · Gene-symbol → <i>E. coli</i> K-12 ortholog"]:::method
+        FLYNN["<b>3.2b</b> · Flynn 2003 trap evidence"]:::method
+        NAGAR["<b>3.2c</b> · Nagar 2021 half-life"]:::method
+    end
 
-    CTERM --> SCORE(["Composite clp_degradability_score → tier<br/><sub>rule features (≤1.0)<br/>+ 0.4 if trapped<br/>+ 0.2/0.1 by t½ class</sub><br/><sub>src/degradability.py → src/assemble.py</sub>"]):::result
-    NTERM --> SCORE
-    FLYNN --> SCORE
-    NAGAR --> SCORE
-    CLPK -.-> SCORE
-    ESM2 -.-> SCORE
+    subgraph XBAC [" Cross-bacterial evidence transfer "]
+        direction LR
+        ORTH_XB["<b>3.3a</b> · OrthoDB cross-bacterial expansion"]:::method
+        XB_TRAP["<b>3.3b</b> · Pooled Clp-trap evidence<br/><sub>Caulobacter · Mtb · S. aureus</sub>"]:::method
+    end
 
-    SCORE -.-> NEXT["→ final target ranking<br/><sub>(covered in subsequent diagram)</sub>"]:::planned
+    P --> STR
+    P --> EMB
+    P --> CTERM
+    P --> NTERM
+    STR --> CTERM
+    STR --> NTERM
+    P --> ORTH
+    ORTH --> FLYNN
+    ORTH --> NAGAR
+    P --> ORTH_XB
+    ORTH_XB --> XB_TRAP
+
+    P --> CLPK["<b>3.4</b> · ClpK paralog handling"]:::method
+    EMB     --> ESM2ML["<b>3.5</b> · ESM2-based degradability ML<br/><sub>trained on pooled Clp-trap labels</sub>"]:::method
+    FLYNN   --> ESM2ML
+    NAGAR   --> ESM2ML
+    XB_TRAP --> ESM2ML
+
+    CTERM   --> SCORE(["Degradability annotation"]):::result
+    NTERM   --> SCORE
+    FLYNN   --> SCORE
+    NAGAR   --> SCORE
+    XB_TRAP --> SCORE
+    CLPK    --> SCORE
+    ESM2ML  --> SCORE
 ```
 
 ## Tracks
 
-| Track | Input | Resource | Script | Output |
-| --- | --- | --- | --- | --- |
-| C-terminal degrons | sequence | CM1 (ssrA-family) + CM2 (MuA-family) regex | `scripts/03_annotate_clp_degradability.py` | `cterm_ssra_like`, `cterm_mua_like` in `data/processed/klebsiella_pneumoniae_clp_degradability.tsv` |
-| N-terminal degrons | sequence | N-end rule + Flynn 2003 NM1/2/3 | `scripts/03_annotate_clp_degradability.py` | `nterm_destabilizing`, `nterm_nm1/2/3` |
-| Gene-symbol → *E. coli* ortholog | gene_symbol | local symbol match against `data/raw/escherichia_coli_proteome.tsv` | `scripts/03_annotate_clp_degradability.py` | `ecoli_ortholog_uniprot`, `ortholog_status` |
-| Flynn 2003 trap census | E. coli gene_symbol | curated from Flynn 2003 + Sauer/Baker reviews | `scripts/03_annotate_clp_degradability.py` | `ecoli_clp_trapped`, `ecoli_clp_class` |
-| Nagar 2021 half-lives | E. coli gene_symbol | curated from Nagar 2021 pulsed-SILAC | `scripts/03_annotate_clp_degradability.py` | `ecoli_halflife_class`, `ecoli_halflife_min` |
-| ClpK paralog handling | sequence + Kp-specific HMM | Klebsiella ClpK literature | _planned_ | _planned_ |
-| ESM2-based degradability ML | ESM2 embedding | re-train of Nagar 2021's 188-feature classifier | _planned_ | _planned_ |
+| ID | Title | Description | Resources |
+| --- | --- | --- | --- |
+| 3.1a | C-terminal degrons | Match ssrA-like (CM1, -LAA family) and MuA-like (CM2) C-terminal motifs on the sequence, downweighted when the C-terminus sits in a high-pLDDT (folded) region rather than an exposed disordered tail. | sequence regex (CM1, CM2), AlphaFold pLDDT |
+| 3.1b | N-terminal degrons | Apply the N-end rule (L/F/Y/W at position 2) and Flynn NM1/2/3 motifs, downweighted when the N-terminus is buried (high pLDDT) rather than exposed. | sequence regex, Flynn 2003 motif definitions, AlphaFold pLDDT |
+| 3.2a | Gene-symbol → *E. coli* ortholog | Look up each Kp gene symbol against the *E. coli* K-12 reference proteome — bridge step for the two paper-derived *E. coli* evidence streams below. | UniProt *E. coli* K-12 (UP000000625) |
+| 3.2b | Flynn 2003 trap evidence | Via the matched *E. coli* ortholog, flag whether the protein was trapped by ClpXP / ClpAP in Flynn et al.'s substrate-trap experiment. | Flynn 2003 |
+| 3.2c | Nagar 2021 half-life | Via the matched *E. coli* ortholog, transfer the half-life class from Nagar et al.'s pulsed-SILAC measurements. | Nagar 2021 |
+| 3.3a | OrthoDB cross-bacterial expansion | Expand each Kp protein into a bacterial-wide ortholog set via OrthoDB (mirroring §2.1a) so substrate-trap data from non-*E. coli* model species can be transferred. | OrthoDB |
+| 3.3b | Pooled cross-bacterial Clp-trap evidence | For each Kp protein, flag whether any of its bacterial orthologs appears in a Clp substrate-trap experiment in *C. crescentus* (Bhat 2013), *M. tuberculosis* ClpC1 (Lunge 2020) or *S. aureus* (Feng 2013) — phyletic breadth of trap evidence. | Bhat 2013, Lunge 2020, Feng 2013 |
+| 3.4 | ClpK paralog handling | *Klebsiella*-specific Clp heat-shock paralog (ClpK) with no *E. coli* ortholog — would need a dedicated rule set / HMM. | *Klebsiella* ClpK literature |
+| 3.5 | ESM2-based degradability ML | Train a classifier on per-protein ESM-2 embeddings (§1.5) using pooled Clp-trap and half-life labels (Flynn 2003 + Nagar 2021 + cross-bacterial traps) as supervision, then apply to each Kp protein. | ESM-2 embeddings (§1.5); Flynn 2003, Nagar 2021, cross-bacterial trap pool |
 
-Two architectural notes worth highlighting:
+## Key papers
 
-- **Why gene-symbol matching, not OrthoDB.** The two reference TSVs are
-  *E. coli K-12-specific* (Flynn 2003 and Nagar 2021 both used MG1655). A
-  bacterial-wide OrthoDB expansion (as used by the
-  [ligandability layer](./02_ligandability.md)) would not add evidence — the
-  labels only exist for E. coli. Simple symbol matching covers the ~18% of
-  HS11286 entries that carry a canonical gene symbol; the rest fall through
-  to the rule-based score alone.
-- **Why this layer doesn't consume task-agnostic outputs.** Clp recognition
-  is dominated by short linear motifs (terminal degrons) and biophysical
-  flexibility. The current v1 captures the motif signal directly from
-  sequence; structure-based / ESM2-based extensions are explicitly planned
-  (dashed) — they would close the loop back to the
-  [task-agnostic layer](./01_task_agnostic.md) once built.
-
----
-
-**Prev:** [Ligandability assessment](./02_ligandability.md) ·
-**Next:** [Essentiality / vulnerability assessment](./04_essentiality.md) ·
-[Task-agnostic per-protein annotation](./01_task_agnostic.md)
+| Paper | Description | Tracks |
+| --- | --- | --- |
+| [Flynn et al. 2003, *Mol. Cell*](https://doi.org/10.1016/S1097-2765(03)00060-1) | Proteomic discovery of ClpXP substrates in *E. coli*; defines the five recognition-signal classes (CM1/CM2 C-terminal, NM1/2/3 N-terminal) used by 3.1a/3.1b and supplies the trap census consumed by 3.2b. | 3.1a, 3.1b, 3.2b, 3.5 |
+| [Nagar et al. 2021, *mSystems*](https://doi.org/10.1128/msystems.01296-20) | Pulsed-SILAC measurement of half-lives across 1,602 *E. coli* proteins — source of the half-life class used by 3.2c and a supervision signal for 3.5. | 3.2c, 3.5 |
+| [Bhat et al. 2013, *Mol. Microbiol.*](https://doi.org/10.1111/mmi.12241) | ClpP-trap proteomic identification of substrates in *Caulobacter crescentus* — contributes to the pooled cross-bacterial evidence in 3.3b. | 3.3b, 3.5 |
+| [Lunge et al. 2020, *J. Biol. Chem.*](https://doi.org/10.1074/jbc.RA120.013456) | Identifies the substrate set of *M. tuberculosis* ClpC1 via proteomic profiling of ClpC1 knockdown strains and shows disordered termini as the dominant recognition signal — directly relevant for BacPROTAC-style ClpC1 recruitment. | 3.3b, 3.5 |
+| [Feng et al. 2013, *J. Proteome Res.*](https://doi.org/10.1021/pr300394r) | ClpPtrap substrate identification in *S. aureus*, including ClpXP- and ClpCP-specific subsets. | 3.3b, 3.5 |

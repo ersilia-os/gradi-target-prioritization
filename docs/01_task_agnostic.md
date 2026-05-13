@@ -1,19 +1,6 @@
 # Task-agnostic per-protein annotation
 
-Part 1 of the GraDi target-prioritization pipeline. See
-[`pipeline.md`](./pipeline.md) for the index and the diagram style legend.
-
-This layer produces per-protein evidence that is independent of the downstream
-prioritization axes. Each track below runs once per reference proteome and
-writes a TSV under `data/processed/` keyed by UniProt accession (or, for
-BV-BRC-anchored tracks, by locus tag). Nine tracks — structural annotation
-(PDB coverage + AlphaFold pLDDT), the family/domain pair (PANTHER +
-InterPro), conservation (BV-BRC protein families plus three planned flavors:
-within-Kp pan-genome, cross-species broad-spectrum, and selectivity vs
-human), and bibliometric popularity — are joined to form the task-agnostic
-annotation table that all task-specific scorers consume. ESM2 embeddings are
-kept as a separate per-protein artifact (a vector per protein), not as a
-column in the joined table.
+This layer produces general-purpose protein annotation not directly related to the PoI requirements.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%
@@ -95,20 +82,21 @@ flowchart LR
 | 1.4 | Bibliometric / popularity | How well-studied the protein is, combining UniProt annotation depth and literature counts → tier: dark / studied / well_studied. | UniProt, Europe PMC |
 | 1.5 | ESM2 embeddings | Standalone per-protein 1280-d language-model vector — kept separately, not joined into the task-agnostic annotation. | ESM2-650M |
 
-The reference proteome (UniProt **UP000007841**, *K. pneumoniae* HS11286,
-5,728 proteins; columns: accession · gene_names · sequence) is produced by
-`scripts/00_download_proteome.py` (UniProt stream API →
-`data/raw/<slug>_proteome.tsv`). The **task-agnostic annotation** is the
-result of joining the nine non-standalone tracks above by UniProt accession
-(with `locus_tag` as the join key for BV-BRC-anchored tracks). Conservation is
-listed here because it is per-protein and task-agnostic; downstream sections
-(notably [essentiality](./04_essentiality.md)) treat it as a confidence
-modifier rather than a primary signal. The within-Kp pan-genome class also
-acts as a strain-coverage filter, and selectivity-vs-human is an inverse
-signal carried into the final ranking as a safety axis.
+## Key resources
 
----
-
-**Next:** [Ligandability assessment](./02_ligandability.md) ·
-[Degradability assessment](./03_degradability.md) ·
-[Essentiality / vulnerability assessment](./04_essentiality.md)
+| Resource | Description | Tracks |
+| --- | --- | --- |
+| [UniProt](https://www.uniprot.org/) | Universal protein sequence and annotation knowledgebase; source of the reference proteome, gene names, cross-references and curation depth. | 1.0, 1.1a, 1.1b, 1.2a, 1.2b, 1.3d, 1.4 |
+| [PANTHER](https://www.pantherdb.org/) | Phylogeny-based protein family / subfamily classification built from HMMs. | 1.1a |
+| [InterPro](https://www.ebi.ac.uk/interpro/) | Integrated database of protein domains, families and functional sites from member signature databases. | 1.1b |
+| [RCSB PDB](https://www.rcsb.org/) | Archive of experimentally-determined 3D macromolecular structures. | 1.2a |
+| [PDBe SIFTS](https://www.ebi.ac.uk/pdbe/docs/sifts/) | Residue-level mapping between PDB chains and UniProt sequences. | 1.2a |
+| [AlphaFold DB](https://alphafold.ebi.ac.uk/) | EMBL-EBI archive of AlphaFold2-predicted structures with per-residue pLDDT confidence. | 1.2b |
+| [BV-BRC](https://www.bv-brc.org/) | Bacterial / viral bioinformatics resource (formerly PATRIC); supplies the PATtyFam protein families (PLFam, PGFam) and pan-genome context. | 1.3a, 1.3b, 1.3c |
+| [OrthoFinder](https://github.com/davidemms/OrthoFinder) | Tool for inferring orthogroups across a set of proteomes. | 1.3b |
+| [DIAMOND](https://github.com/bbuchfink/diamond) | Fast accelerated protein sequence aligner, BLAST-compatible; used as the search engine for ortholog detection. | 1.3b, 1.3c |
+| [OrthoDB](https://www.orthodb.org/) | Hierarchical catalog of orthologous gene groups across bacteria, eukaryotes and viruses. | 1.3c, 1.3d |
+| [NCBI BLAST](https://blast.ncbi.nlm.nih.gov/) | Sequence similarity search service against NCBI reference databases. | 1.3c |
+| [eggNOG](http://eggnog5.embl.de/) | Orthology resource with hierarchical functional annotation across taxa. | 1.3d |
+| [Europe PMC](https://europepmc.org/) | Open literature database (PubMed + preprints + full text) used for publication / mention counts. | 1.4 |
+| [ESM-2](https://github.com/facebookresearch/esm) | Meta AI protein language model; the 650M-parameter variant supplies the per-protein 1280-d embeddings. | 1.5 |

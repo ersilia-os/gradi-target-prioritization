@@ -91,5 +91,6 @@ Two architectural notes:
 ---
 
 **Prev:** [Degradability assessment](./03_degradability.md) ·
+**Next:** [Expression and localization](./05_expression_and_localization.md) ·
 [Task-agnostic per-protein annotation](./01_task_agnostic.md) ·
 [Ligandability assessment](./02_ligandability.md)
