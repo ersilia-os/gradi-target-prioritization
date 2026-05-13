@@ -14,7 +14,7 @@ extensions worth flagging.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','fontFamily':'Inter, system-ui, sans-serif'}}}%%
-flowchart TD
+flowchart LR
     classDef source    fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
@@ -24,9 +24,10 @@ flowchart TD
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
 
     subgraph DIRECT [" Direct experimental evidence "]
-        TNS["Kp Tn-seq screens<br/><sub>Eichelberger 2024 ECL8 ✓ loaded (3 flavors)</sub><br/><sub>Bachman 2015 KPPR1 · Ramage 2017 KPNIH1 — stubs</sub>"]:::dataset
-        CRI["Kp CRISPRi screens<br/><sub>Zhu 2023 Mobile-CRISPRi-seq highlights ✓ loaded (8 genes)</sub>"]:::dataset
-        ECO["E. coli TraDIS<br/><sub>Goodall 2018 BW25113 (stub — feeds Ec-inference path)</sub>"]:::stub
+        direction LR
+        TNS[("Kp Tn-seq screens<br/><sub>Eichelberger 2024 ECL8 ✓ loaded (3 flavors)</sub><br/><sub>Bachman 2015 KPPR1 · Ramage 2017 KPNIH1 — stubs</sub>")]:::dataset
+        CRI[("Kp CRISPRi screens<br/><sub>Zhu 2023 Mobile-CRISPRi-seq highlights ✓ loaded (8 genes)</sub>")]:::dataset
+        ECO[/"E. coli TraDIS<br/><sub>Goodall 2018 BW25113 (stub — feeds Ec-inference path)</sub>"\]:::stub
     end
 
     DEG["DEG 15 / OGEE v2<br/><sub>consolidated essential-gene databases</sub><br/><sub>(planned)</sub>"]:::planned
@@ -45,9 +46,9 @@ flowchart TD
     PARSE -->|"E. coli essentials"| ECINF["Kp ↔ Ec gene-symbol match<br/><sub><i>src/assemble.py</i> · _join_ec_inferred</sub>"]:::method
     ECINF -.-> ORTHO_UP["Upgrade: OrthoDB-based Ec transfer<br/><sub>reuse the ligandability layer's OrthoDB pipeline</sub><br/><sub>(planned; lifts Ec coverage beyond ~18%)</sub>"]:::planned
 
-    CONS["Cross-strain conservation<br/><sub>BV-BRC PATtyFams (from task-agnostic)</sub>"]:::tagnostic
+    CONS("Cross-strain conservation<br/><sub>BV-BRC PATtyFams (from task-agnostic)</sub>"):::tagnostic
 
-    FLAV  --> OUT["ess_*_call · score · sources<br/><sub>5 flavor triples + ess_Ec_inferred</sub>"]:::result
+    FLAV  --> OUT(["ess_*_call · score · sources<br/><sub>5 flavor triples + ess_Ec_inferred</sub>"]):::result
     ECINF --> OUT
     ORTHO_UP -.-> OUT
     CONS -.->|"confidence modifier (planned)"| OUT

@@ -15,7 +15,7 @@ on the raw sequence plus two curated reference TSVs.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','fontFamily':'Inter, system-ui, sans-serif'}}}%%
-flowchart TD
+flowchart LR
     classDef source    fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
@@ -24,19 +24,19 @@ flowchart TD
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
 
-    P["<i>K. pneumoniae</i> protein<br/><sub>UniProt accession · sequence · gene_symbol</sub>"]:::source
+    P{{"<i>K. pneumoniae</i> protein<br/><sub>UniProt accession · sequence · gene_symbol</sub>"}}:::source
 
     P --> CTERM["C-terminal degrons<br/><sub>CM1 ssrA-like (-LAA family), CM2 MuA-like</sub><br/><sub>scripts/03_annotate_clp_degradability.py</sub>"]:::method
     P --> NTERM["N-terminal degrons<br/><sub>N-end rule (L/F/Y/W at pos 2), Flynn NM1/2/3</sub><br/><sub>scripts/03_annotate_clp_degradability.py</sub>"]:::method
 
     P --> ORTH["Gene-symbol → <i>E. coli</i> K-12 ortholog<br/><sub>direct symbol match (not OrthoDB — Flynn/Nagar evidence is E. coli-specific)</sub><br/><sub>scripts/03_annotate_clp_degradability.py</sub>"]:::method
-    ORTH --> FLYNN["Flynn 2003 ClpXP/ClpAP trap census<br/><sub>data/raw/clp_substrates/flynn2003_ecoli_clp_substrates.tsv</sub>"]:::dataset
-    ORTH --> NAGAR["Nagar 2021 <i>E. coli</i> half-lives<br/><sub>data/raw/clp_substrates/nagar2021_ecoli_halflives.tsv</sub>"]:::dataset
+    ORTH --> FLYNN[("Flynn 2003 ClpXP/ClpAP trap census<br/><sub>data/raw/clp_substrates/flynn2003_ecoli_clp_substrates.tsv</sub>")]:::dataset
+    ORTH --> NAGAR[("Nagar 2021 <i>E. coli</i> half-lives<br/><sub>data/raw/clp_substrates/nagar2021_ecoli_halflives.tsv</sub>")]:::dataset
 
     P -.-> CLPK["ClpK paralog handling<br/><sub>Kp-specific heat-shock Clp; no E. coli ortholog</sub><br/><sub>(planned)</sub>"]:::planned
     P -.-> ESM2["ESM2-based degradability ML<br/><sub>per-protein embedding → learned classifier</sub><br/><sub>(planned; see task-agnostic layer)</sub>"]:::planned
 
-    CTERM --> SCORE["Composite clp_degradability_score → tier<br/><sub>rule features (≤1.0) + 0.4 if trapped + 0.2/0.1 by t½ class</sub><br/><sub>src/degradability.py → src/assemble.py</sub>"]:::result
+    CTERM --> SCORE(["Composite clp_degradability_score → tier<br/><sub>rule features (≤1.0) + 0.4 if trapped + 0.2/0.1 by t½ class</sub><br/><sub>src/degradability.py → src/assemble.py</sub>"]):::result
     NTERM --> SCORE
     FLYNN --> SCORE
     NAGAR --> SCORE

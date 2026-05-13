@@ -17,7 +17,7 @@ column in the joined table.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','fontFamily':'Inter, system-ui, sans-serif'}}}%%
-flowchart TD
+flowchart LR
     classDef source    fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
@@ -29,13 +29,15 @@ flowchart TD
     SRC["<b>1.0</b> · <i>K. pneumoniae</i> HS11286<br/>proteome (5,728 proteins)"]:::source
 
     subgraph FAMDOM [" Family &amp; domain annotation "]
+        direction LR
         PAN["<b>1.1a</b> · PANTHER family / subfamily"]:::method
-        INT["<b>1.1b</b> · InterPro domains"]:::planned
+        INT["<b>1.1b</b> · InterPro domains"]:::method
     end
     SRC --> PAN
     SRC --> INT
 
     subgraph STRUC [" Structural annotation "]
+        direction LR
         PDB["<b>1.2a</b> · PDB coverage"]:::method
         AF["<b>1.2b</b> · AlphaFold pLDDT"]:::method
     end
@@ -43,10 +45,11 @@ flowchart TD
     SRC --> AF
 
     subgraph CONSERVE [" Conservation "]
+        direction LR
         CONS_IDS["<b>1.3a</b> · BV-BRC PATtyFams"]:::method
-        CONS_KP["<b>1.3b</b> · Within-Kp pan-genome class"]:::planned
-        CONS_XS["<b>1.3c</b> · Cross-species broad-spectrum"]:::planned
-        CONS_SEL["<b>1.3d</b> · Selectivity vs human"]:::planned
+        CONS_KP["<b>1.3b</b> · Within-Kp pan-genome class"]:::method
+        CONS_XS["<b>1.3c</b> · Cross-species broad-spectrum"]:::method
+        CONS_SEL["<b>1.3d</b> · Selectivity vs human"]:::method
     end
     SRC --> CONS_IDS
     SRC --> CONS_KP
@@ -55,9 +58,7 @@ flowchart TD
 
     SRC --> POP["<b>1.4</b> · Bibliometric / popularity"]:::method
 
-    SRC --> ESM2["<b>1.5</b> · ESM2 embeddings <i>(standalone)</i>"]:::planned
-
-    PAN  --> T["Task-agnostic per-protein annotation table<br/><sub>joined by UniProt accession (locus_tag for BV-BRC)</sub>"]:::result
+    PAN  --> T(["Task-agnostic chunk"]):::result
     INT  --> T
     PDB  --> T
     AF   --> T
@@ -66,6 +67,13 @@ flowchart TD
     CONS_XS  --> T
     CONS_SEL --> T
     POP  --> T
+
+    subgraph STANDALONE [" Standalone output (not joined) "]
+        direction LR
+        ESM2["<b>1.5</b> · ESM2 embeddings"]:::method
+    end
+    SRC --> ESM2
+    T ~~~ ESM2
 ```
 
 ## Tracks
@@ -87,7 +95,9 @@ flowchart TD
 The reference proteome (UniProt **UP000007841**, *K. pneumoniae* HS11286,
 5,728 proteins; columns: accession · gene_names · sequence) is produced by
 `scripts/00_download_proteome.py` (UniProt stream API →
-`data/raw/<slug>_proteome.tsv`). Conservation is
+`data/raw/<slug>_proteome.tsv`). The **task-agnostic chunk** is the result of
+joining the nine non-standalone tracks above by UniProt accession (with
+`locus_tag` as the join key for BV-BRC-anchored tracks). Conservation is
 listed here because it is per-protein and task-agnostic; downstream sections
 (notably [essentiality](./04_essentiality.md)) treat it as a confidence
 modifier rather than a primary signal. The within-Kp pan-genome class also
