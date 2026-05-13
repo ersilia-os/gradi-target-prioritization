@@ -164,6 +164,32 @@ def summarize_activities(activities: list[dict]) -> dict[str, float]:
     }
 
 
+def load_chembl_uniprot_set(cache_path: Path = MAPPING_CACHE) -> set[str]:
+    """Return the set of UniProt accessions that have ANY ChEMBL target.
+
+    Downloads ChEMBL's ``chembl_uniprot_mapping.txt`` once and caches it.
+    Lets us skip ~99% of ortholog UniProts that aren't in ChEMBL at all.
+    """
+    if not cache_path.exists() or cache_path.stat().st_size == 0:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        req = urllib.request.Request(
+            CHEMBL_UNIPROT_MAPPING_URL, headers={"User-Agent": USER_AGENT}
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp, open(
+            cache_path, "wb"
+        ) as out:
+            out.write(resp.read())
+    accs: set[str] = set()
+    with open(cache_path, encoding="utf-8") as f:
+        for line in f:
+            if not line or line.startswith("#"):
+                continue
+            cells = line.rstrip("\n").split("\t")
+            if cells and cells[0]:
+                accs.add(cells[0])
+    return accs
+
+
 def load_uniprot_set(kp_proteome: Path, orthologs_tsv: Path) -> list[str]:
     """Return the deduplicated list of UniProt accessions to query."""
     accs: list[str] = []
@@ -235,7 +261,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    accs = load_uniprot_set(args.kp_proteome, args.orthologs)
+    full_accs = load_uniprot_set(args.kp_proteome, args.orthologs)
+    print(f"Loaded {len(full_accs)} UniProt accessions from Kp + orthologs")
+    chembl_universe = load_chembl_uniprot_set()
+    print(f"ChEMBL UniProt mapping covers {len(chembl_universe)} accessions")
+    accs = [a for a in full_accs if a in chembl_universe]
+    print(
+        f"After pre-filter: {len(accs)} accessions have ≥1 ChEMBL target "
+        f"(skipped {len(full_accs) - len(accs)} with no ChEMBL coverage)"
+    )
     if args.limit_uniprots:
         accs = accs[: args.limit_uniprots]
     print(f"Processing {len(accs)} UniProt accessions ...")

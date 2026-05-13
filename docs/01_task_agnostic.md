@@ -6,8 +6,12 @@ Part 1 of the GraDi target-prioritization pipeline. See
 This layer produces per-protein evidence that is independent of the downstream
 prioritization axes. Each track below runs once per reference proteome and
 writes a TSV under `data/processed/` keyed by UniProt accession (or, for
-BV-BRC conservation, by locus tag); the five outputs are joined to form the
-task-agnostic annotation table that all task-specific scorers consume.
+BV-BRC conservation, by locus tag). Six of these tracks — structural
+annotation (PDB coverage + AlphaFold pLDDT), the family/domain pair (PANTHER
++ InterPro), cross-strain conservation, and bibliometric popularity — are
+joined to form the task-agnostic annotation table that all task-specific
+scorers consume. ESM2 embeddings are kept as a separate per-protein artifact
+(a vector per protein), not as a column in the joined table.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','fontFamily':'Inter, system-ui, sans-serif'}}}%%
@@ -22,30 +26,44 @@ flowchart TD
 
     SRC["UniProt reference proteome<br/>UP000007841 — <i>K. pneumoniae</i> HS11286<br/>5,728 proteins<br/><sub>columns: accession · gene_names · sequence</sub>"]:::source
 
-    SRC --> ESM2["ESM2 embeddings<br/><sub>per-protein 1280-d vector</sub><br/><sub>(planned)</sub>"]:::planned
-    SRC --> STR["Structural coverage<br/>PDB (PDBe SIFTS) + AlphaFold pLDDT<br/><sub>scripts/02_structural_coverage.py</sub>"]:::method
-    SRC --> PAN["PANTHER family / subfamily<br/><sub>UniProt xref_panther</sub><br/><sub>scripts/01_annotate_panther.py</sub>"]:::method
-    SRC --> INT["InterPro domains<br/><sub>UniProt xref_interpro / InterProScan</sub><br/><sub>(planned)</sub>"]:::planned
-    SRC --> CONS["Cross-strain conservation<br/>BV-BRC PATtyFams (PLFam / PGFam)<br/><sub>data/raw/bvbrc/hs11286_features.tsv</sub><br/><sub>src/conservation.py</sub>"]:::method
+    SRC --> ESM2["ESM2 embeddings<br/><sub>per-protein 1280-d vector</sub><br/><sub>(planned · standalone output, not joined)</sub>"]:::planned
 
-    ESM2 --> T["Task-agnostic per-protein annotation table<br/><sub>joined by UniProt accession (locus_tag for BV-BRC)</sub>"]:::result
-    STR  --> T
+    subgraph STRUC [" Structural annotation "]
+        PDB["PDB coverage<br/><sub>PDBe SIFTS bulk mapping</sub><br/><sub>scripts/02_structural_coverage.py</sub>"]:::method
+        AF["AlphaFold pLDDT<br/><sub>AlphaFold DB per-prediction API</sub><br/><sub>scripts/02_structural_coverage.py</sub>"]:::method
+    end
+    SRC --> PDB
+    SRC --> AF
+
+    subgraph FAMDOM [" Family &amp; domain annotation "]
+        PAN["PANTHER family / subfamily<br/><sub>UniProt xref_panther</sub><br/><sub>scripts/01_annotate_panther.py</sub>"]:::method
+        INT["InterPro domains<br/><sub>UniProt xref_interpro / InterProScan</sub><br/><sub>(planned)</sub>"]:::planned
+    end
+    SRC --> PAN
+    SRC --> INT
+
+    SRC --> CONS["Cross-strain conservation<br/>BV-BRC PATtyFams (PLFam / PGFam)<br/><sub>data/raw/bvbrc/hs11286_features.tsv</sub><br/><sub>src/conservation.py</sub>"]:::method
+    SRC --> POP["Bibliometric / popularity<br/>UniProt annotation depth + Europe PMC counts<br/><sub>popularity_tier: dark · studied · well_studied</sub><br/><sub>scripts/02_annotate_popularity.py</sub>"]:::method
+
+    PDB  --> T["Task-agnostic per-protein annotation table<br/><sub>joined by UniProt accession (locus_tag for BV-BRC)</sub>"]:::result
+    AF   --> T
     PAN  --> T
     INT  --> T
     CONS --> T
-
-    T -.-> NEXT["→ task-specific layer:<br/>ligandability · degradability · essentiality<br/><sub>(covered in the other sections)</sub>"]:::planned
+    POP  --> T
 ```
 
 ## Tracks
 
 | Track | Input | Resource | Script | Output |
 | --- | --- | --- | --- | --- |
-| ESM2 embeddings | sequence | ESM2-650M (1280-d) | _planned_ | _planned_ |
-| Structural coverage | accession | PDBe SIFTS, AlphaFold DB | `scripts/02_structural_coverage.py` | `data/processed/<slug>_structural_coverage.tsv` |
-| PANTHER family / subfamily | UniProt xref | PANTHER HMM library | `scripts/01_annotate_panther.py` | `data/processed/<slug>_panther.tsv` |
-| InterPro domains | UniProt xref / sequence | InterPro / InterProScan | _planned_ | _planned_ |
+| ESM2 embeddings | sequence | ESM2-650M (1280-d) | _planned_ | _planned (standalone vector store)_ |
+| PDB coverage *(structural)* | accession | PDBe SIFTS bulk mapping | `scripts/02_structural_coverage.py` | `pdb_*` columns of `data/processed/<slug>_structural_coverage.tsv` |
+| AlphaFold pLDDT *(structural)* | accession | AlphaFold DB per-prediction API | `scripts/02_structural_coverage.py` | `afdb_*` columns of `data/processed/<slug>_structural_coverage.tsv` |
+| PANTHER family / subfamily *(family & domain)* | UniProt xref | PANTHER HMM library | `scripts/01_annotate_panther.py` | `data/processed/<slug>_panther.tsv` |
+| InterPro domains *(family & domain)* | UniProt xref / sequence | InterPro / InterProScan | _planned_ | _planned_ |
 | Cross-strain conservation | locus_tag | BV-BRC PATtyFams (PLFam / PGFam) | `src/conservation.py` | `plfam_id`, `pgfam_id`, `has_plfam` in the assembled table |
+| Bibliometric / popularity | accession + gene_symbol | UniProt annotation depth + Europe PMC search | `scripts/02_annotate_popularity.py` | `data/processed/<slug>_popularity.tsv` (incl. `popularity_tier`) |
 
 The reference proteome itself is produced by `scripts/00_download_proteome.py`
 (UniProt stream API → `data/raw/<slug>_proteome.tsv`). BV-BRC conservation is

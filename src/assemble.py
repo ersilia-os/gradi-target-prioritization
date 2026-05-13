@@ -34,6 +34,7 @@ from .conservation import load_bvbrc_features
 from .degradability import HEADLINE_COLUMNS as CLP_HEADLINE_COLUMNS
 from .degradability import load_clp_degradability
 from .essentiality import load_all
+from .ligandability import load_ligandability
 
 KP_PROTEOME = Path("data/raw/klebsiella_pneumoniae_proteome.tsv")
 EC_PROTEOME = Path("data/raw/escherichia_coli_proteome.tsv")
@@ -152,6 +153,9 @@ def build_annotation() -> pd.DataFrame:
         for c in CLP_HEADLINE_COLUMNS:
             anchor[c] = pd.NA
 
+    lig = load_ligandability()
+    anchor = anchor.merge(lig, how="left", on="kp_locus_tag")
+
     cols = [
         "kp_locus_tag", "kp_gene_symbol", "uniprot", "product", "chromosomal",
         "plfam_id", "pgfam_id", "has_plfam",
@@ -162,6 +166,11 @@ def build_annotation() -> pd.DataFrame:
         "ess_vulnerability_call", "ess_vulnerability_score", "ess_vulnerability_sources",
         "ess_Ec_inferred_call", "ess_Ec_inferred_via", "ess_Ec_inferred_sources",
         *CLP_HEADLINE_COLUMNS,
+        "lig_kp_chembl_any", "lig_kp_chembl_10um", "lig_kp_chembl_1um", "lig_kp_chembl_best_pchembl",
+        "lig_kp_bindingdb_any", "lig_kp_bindingdb_10um", "lig_kp_bindingdb_1um", "lig_kp_bindingdb_best_pchembl",
+        "lig_ortho_chembl_any", "lig_ortho_chembl_10um", "lig_ortho_chembl_1um", "lig_ortho_chembl_best_pchembl",
+        "lig_ortho_bindingdb_any", "lig_ortho_bindingdb_10um", "lig_ortho_bindingdb_1um", "lig_ortho_bindingdb_best_pchembl",
+        "ortholog_uniprots", "ortholog_species", "orthodb_group_ids",
     ]
     for c in cols:
         if c not in anchor.columns:
@@ -189,6 +198,14 @@ def main() -> None:
     ]:
         nonblank = (df[col] != "").sum()
         print(f"  {col}: {nonblank} non-blank rows")
+    for col, label in [
+        ("lig_kp_chembl_any", "Kp-direct ChEMBL"),
+        ("lig_kp_bindingdb_any", "Kp-direct BindingDB"),
+        ("lig_ortho_chembl_any", "Ortholog ChEMBL"),
+        ("lig_ortho_bindingdb_any", "Ortholog BindingDB"),
+    ]:
+        n = (pd.to_numeric(df[col], errors="coerce").fillna(0) > 0).sum()
+        print(f"  {label} (≥1 ligand): {n} rows")
 
 
 if __name__ == "__main__":
