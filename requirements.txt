@@ -1,0 +1,6 @@
+pandas>=2.2
+pyarrow>=15
+requests>=2.31
+biopython>=1.83
+tqdm>=4.66
+tenacity>=8.2

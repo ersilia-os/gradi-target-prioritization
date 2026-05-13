@@ -1,99 +1,39 @@
-# Ersilia's analysis template
+# Gr-ADI — Target prioritization for *K. pneumoniae* and *E. coli*
 
-This repository provides a structured template for setting up new research analysis in Ersilia.
+Computational target selection for the Gr-ADI project *"Exploring BacPROTACs as a new paradigm for antibacterial discovery"*, led by Prof. Erick Strauss (Stellenbosch University). This repository covers Ersilia's contribution to **WP1.1 — Target selection**: building a workflow that prioritises proteins of interest (PoI) in *Klebsiella pneumoniae* and *Escherichia coli* as candidates for targeted protein degradation (BacPROTACs).
 
 ## Background
 
-Replace this paragraph with a short description of the project. This description should explain the background or context of the project, specifying collaborators.
+Gr-ADI is a consortium-level effort to explore targeted protein degradation (TPD) as a new modality for antibacterial discovery against Gram-negative pathogens. Ersilia leads the computational target selection workflow, applying integrative chemo- and bioinformatic approaches to nominate degradable, druggable, and biologically meaningful targets in *K. pneumoniae* and *E. coli*. Ligand identification against the prioritized PoIs is handled in a separate workstream and is **out of scope** here.
 
-## Tracking details
+**Deliverable.** A one-off, prioritized list of PoIs for *K. pneumoniae* and *E. coli*.
 
-The project is is tracked in [GitHub](https://github.com/ersilia-os/) (mainly for code) and [EOSVC](https://github.com/ersilia-os/eosvc) (mainly for data):
+## Meetings
 
-* Tracked by Git and linked to a Github repository: only src, scripts and notebooks.
-* Tracked by DVC and linked to a public or private S3 bucket.
+- 26/05/14: [Meeting #1](https://docs.google.com/presentation/d/1ktqv42ylLPgQo6vBqlrP5tt2mJl2Mrk_qCTjA0cztTs/edit?usp=drivesdk). Kick-off meeting.
 
-## Repository structure
+## Prioritization criteria
 
-This repository is organized as follows:
+Targets are scored and ranked along complementary axes:
 
-```
-eos-analysis-template/
-│
-├── LICENSE
-├── README.md
-├── .gitignore
-├── install.sh
-├── requirements.txt
-│
-├── data/
-│   ├── raw/
-│   └── processed/
-│
-├── scripts/
-├── notebooks/
-├── assets/
-├── output/
-│   ├── results/
-│   └── plots/
-│
-├── src/
-├── tools/
-├── docs/
-├── tmp/
-│
-└── .git/
-```
+- **Essentiality / vulnerability** — is the target required for fitness or survival?
+- **Degradability** — structural and sequence features compatible with BacPROTAC-mediated degradation (e.g. engagement by ClpP/ClpC/ClpX machinery).
+- **Ligandability** — presence of tractable pockets for small-molecule recruiters.
+- **Novelty** — degree to which the target is unexplored relative to known antibacterial space.
+- **Expression and localization** — proteomics-based evidence (initial datasets from *S. aureus* treated with ADEP4 / ONC212; ideally extended to *E. coli* and *K. pneumoniae* through the consortium).
 
-- **data/**
-  - **raw/** → Original, untouched datasets  
-  - **processed/** → Cleaned and transformed datasets  
-
-- **scripts/** → Standalone scripts for preprocessing or automation  
-
-- **notebooks/** → Jupyter notebooks for exploration and prototyping  
-
-- **assets/** → Images, figures, and other static resources  
-
-- **output/**
-  - **results/** → Numerical results, logs, or text outputs  
-  - **plots/** → Visualizations and charts  
-
-- **src/** → Core source code and reusable modules  
-
-- **tools/** → Helper utilities and development tools  
-
-- **docs/** → Project documentation and reports  
-
-- **tmp/** → Temporary files or intermediate outputs  
-
-- **.git/** → Git metadata (version control)  
-
----
-
-📌 Empty folders are preserved with `.gitkeep` files so the structure remains consistent in Git.
-
----
-
-## Project motivation and goal
-
-Write a brief description about the scientific motivation and goal of the project. 
-
-## 🚀 Getting Started
-
-**Clone this repository**  
+## Getting started
 
 ```bash
-git clone <your-repo-url>
-cd eos-analysis-template
+git clone https://github.com/ersilia-os/gradi-target-prioritization
+cd gradi-target-prioritization
+bash install.sh
 ```
 
-## Using this repository
+Code is tracked in Git; `data/` and `output/` are tracked via [eosvc](https://github.com/ersilia-os/eosvc) (DVC + S3).
 
-This repository may contain data and outputs that are not stored in GitHub. You can use [eosvc](https://github.com/ersilia-os/eosvc) to download these files or, otherwise, simply download them and place them in the current folder following [this link](https://example.com).
+## About Ersilia
 
-## About the Ersilia Open Source Initiative
-
-The [Ersilia Open Source Initiative](https://ersilia.io) is a tech-nonprofit organization fueling sustainable research in the Global South. Ersilia's main asset is the [Ersilia Model Hub](https://github.com/ersilia-os/ersilia), an open-source repository of AI/ML models for antimicrobial drug discovery.
+The [Ersilia Open Source Initiative](https://ersilia.io) is a tech-nonprofit organization fueling sustainable research in the Global South.
 
 ![Ersilia Logo](assets/Ersilia_Brand.png)
