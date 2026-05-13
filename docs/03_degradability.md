@@ -14,11 +14,12 @@ task-agnostic outputs (structures, families, embeddings) — it works directly
 on the raw sequence plus two curated reference TSVs.
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','fontFamily':'Inter, system-ui, sans-serif'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%
 flowchart LR
     classDef source    fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
+    classDef embedding fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A,font-weight:bold
     classDef tagnostic fill:#DCA0DC,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A

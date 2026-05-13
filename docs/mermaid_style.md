@@ -24,10 +24,12 @@ never used as a fill, matching stylia's "ersilia" matplotlib style
 | `:::dataset` | cylinder | `id[("text")]` | yellow | `#FAD782` | Curated reference data file (Flynn 2003, Nagar 2021, ChEMBL export, …). "Data on disk." |
 | `:::tagnostic` | rounded rect | `id("text")` | pink | `#DCA0DC` | Pre-computed input reused across pipelines (from the task-agnostic layer). "Reusable input." |
 | `:::method` | rectangle | `id["text"]` | blue | `#8CC8FA` | Script / compute step (typically a `scripts/*.py` or `src/*.py` invocation). "Process." |
+| `:::embedding` | stadium (pill) | `id(["text"])` | blue | `#8CC8FA` | Sidecar / standalone artifact (e.g. ESM2 vector store) — a per-protein output produced by a compute step but **not joined** into the main annotation table. Shares the method fill (it *is* a computation) but uses the stadium shape (it *is* an endpoint). |
 | `:::result` | stadium (pill) | `id(["text"])` | mint | `#BEE6B4` | Output, score, sink. Bold text + thicker border. "Terminator." |
 | `:::stub` | parallelogram | `id[/"text"\]` | orange | `#FAA08C` | Parser exists in code, data file not yet staged. Dashed border. "In-progress." |
 | `:::planned` | rectangle, dashed | `id["text"]` | gray | `#D2D2D0` | Not yet implemented. Dashed border + muted text. "Future." |
 | (structural) | — | — | plum | `#50285A` | Borders, arrows, and text on light fills |
+| (cluster bg) | — | — | light gray | `#F0F0EE` | `subgraph` container background (lighter than `:::planned` so nested planned nodes still read) |
 
 **Default orientation is `flowchart LR`** (left-to-right). Slide aspect
 ratios are landscape; TD diagrams grow too tall to fit on a 16:9 slide
@@ -46,11 +48,12 @@ Start every Mermaid block with this exact preamble:
 
 ````markdown
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','fontFamily':'Inter, system-ui, sans-serif'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%
 flowchart LR
     classDef source    fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
+    classDef embedding fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A,font-weight:bold
     classDef tagnostic fill:#DCA0DC,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
@@ -65,11 +68,12 @@ flowchart LR
 All seven classes side by side, using both color and shape:
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','fontFamily':'Inter, system-ui, sans-serif'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%
 flowchart LR
     classDef source    fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
+    classDef embedding fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A,font-weight:bold
     classDef tagnostic fill:#DCA0DC,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
@@ -79,14 +83,16 @@ flowchart LR
     DS[("Curated reference TSV<br/><sub>:::dataset · cylinder</sub>")]:::dataset
     TA("Pre-computed task-agnostic input<br/><sub>:::tagnostic · rounded</sub>"):::tagnostic
     M["scripts/example.py<br/><sub>:::method · rectangle</sub>"]:::method
+    EMB(["Sidecar artifact (e.g. ESM2 vectors)<br/><sub>:::embedding · stadium, method blue</sub>"]):::embedding
     STUB[/"Parser exists, data not staged<br/><sub>:::stub · parallelogram</sub>"\]:::stub
     PL["Future track<br/><sub>:::planned · rect, dashed</sub>"]:::planned
-    R(["Composite score / output<br/><sub>:::result · stadium</sub>"]):::result
+    R(["Composite score / output<br/><sub>:::result · stadium, mint</sub>"]):::result
 
     SRC --> M
     DS  --> M
     TA  --> M
     M   --> R
+    SRC --> EMB
     STUB -.-> R
     PL  -.-> R
 ```
@@ -104,6 +110,7 @@ drawn from the existing pipeline diagrams:
 - *UniProt reference proteome UP000007841* → `SRC{{"UniProt …"}}:::source` (hexagon, purple).
 - *ESM2-based degradability ML (planned)* → `ML["ESM2 …"]:::planned` (rect dashed, gray).
 - *ClpK paralog handling (parser stub)* → `CLPK[/"ClpK …"\]:::stub` (parallelogram dashed, orange).
+- *ESM2 embeddings (standalone vector store)* → `ESM2(["ESM2 …"]):::embedding` (stadium, method blue) — same color as method but stadium shape signals it's a sidecar artifact, not a column joined into the main table.
 
 Edges follow the default plum line color; mark planned/stub edges with `-.->`
 (dotted) and implemented edges with `-->` (solid). The class on the *node*
