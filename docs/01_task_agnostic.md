@@ -27,6 +27,8 @@ flowchart LR
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
 
     SRC["<b>1.0</b> · <i>K. pneumoniae</i> HS11286<br/>proteome (5,728 proteins)"]:::source
+    SEQ["<i>sequence</i>"]:::dataset
+    SRC --> SEQ
 
     subgraph FAMDOM [" Family &amp; domain annotation "]
         direction LR
@@ -54,7 +56,7 @@ flowchart LR
     SRC --> CONS_IDS
     SRC --> CONS_KP
     SRC --> CONS_XS
-    SRC --> CONS_SEL
+    SEQ --> CONS_SEL
 
     SRC --> POP["<b>1.4</b> · Bibliometric / popularity"]:::method
 
@@ -68,11 +70,8 @@ flowchart LR
     CONS_SEL --> T
     POP  --> T
 
-    subgraph STANDALONE [" Standalone output (not joined) "]
-        direction LR
-        ESM2["<b>1.5</b> · ESM2 embeddings"]:::method
-    end
-    SRC --> ESM2
+    ESM2["<b>1.5</b> · ESM2 embeddings"]:::method
+    SEQ --> ESM2
     T ~~~ ESM2
 ```
 
