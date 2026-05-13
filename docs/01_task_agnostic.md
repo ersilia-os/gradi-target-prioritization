@@ -26,41 +26,41 @@ flowchart TD
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
 
-    SRC["UniProt reference proteome<br/>UP000007841 — <i>K. pneumoniae</i> HS11286<br/>5,728 proteins<br/><sub>columns: accession · gene_names · sequence</sub>"]:::source
-
-    SRC --> ESM2["ESM2 embeddings<br/><sub>per-protein 1280-d vector</sub><br/><sub>(planned · standalone output, not joined)</sub>"]:::planned
-
-    subgraph STRUC [" Structural annotation "]
-        PDB["PDB coverage<br/><sub>PDBe SIFTS bulk mapping</sub><br/><sub>scripts/02_structural_coverage.py</sub>"]:::method
-        AF["AlphaFold pLDDT<br/><sub>AlphaFold DB per-prediction API</sub><br/><sub>scripts/02_structural_coverage.py</sub>"]:::method
-    end
-    SRC --> PDB
-    SRC --> AF
+    SRC["<b>1.0</b> · <i>K. pneumoniae</i> HS11286<br/>proteome (5,728 proteins)"]:::source
 
     subgraph FAMDOM [" Family &amp; domain annotation "]
-        PAN["PANTHER family / subfamily<br/><sub>UniProt xref_panther</sub><br/><sub>scripts/01_annotate_panther.py</sub>"]:::method
-        INT["InterPro domains<br/><sub>UniProt xref_interpro / InterProScan</sub><br/><sub>(planned)</sub>"]:::planned
+        PAN["<b>1.1a</b> · PANTHER family / subfamily"]:::method
+        INT["<b>1.1b</b> · InterPro domains"]:::planned
     end
     SRC --> PAN
     SRC --> INT
 
+    subgraph STRUC [" Structural annotation "]
+        PDB["<b>1.2a</b> · PDB coverage"]:::method
+        AF["<b>1.2b</b> · AlphaFold pLDDT"]:::method
+    end
+    SRC --> PDB
+    SRC --> AF
+
     subgraph CONSERVE [" Conservation "]
-        CONS_IDS["BV-BRC PATtyFams<br/><sub>PLFam / PGFam IDs · has_plfam</sub><br/><sub>src/conservation.py · data/raw/bvbrc/hs11286_features.tsv</sub>"]:::method
-        CONS_KP["Within-Kp pan-genome class<br/><sub>core · soft-core · shell · cloud</sub><br/><sub>needs PLFam genome counts (BV-BRC bulk)</sub><br/><sub>(planned)</sub>"]:::planned
-        CONS_XS["Cross-species broad-spectrum<br/><sub>PGFam member counts + OrthoDB group sizes</sub><br/><sub>(planned · reuses Section 2's OrthoDB pull)</sub>"]:::planned
-        CONS_SEL["Selectivity vs human<br/><sub>human-ortholog presence + identity %</sub><br/><sub>(planned · inverse signal — high = safety red flag)</sub>"]:::planned
+        CONS_IDS["<b>1.3a</b> · BV-BRC PATtyFams"]:::method
+        CONS_KP["<b>1.3b</b> · Within-Kp pan-genome class"]:::planned
+        CONS_XS["<b>1.3c</b> · Cross-species broad-spectrum"]:::planned
+        CONS_SEL["<b>1.3d</b> · Selectivity vs human"]:::planned
     end
     SRC --> CONS_IDS
     SRC --> CONS_KP
     SRC --> CONS_XS
     SRC --> CONS_SEL
 
-    SRC --> POP["Bibliometric / popularity<br/>UniProt annotation depth + Europe PMC counts<br/><sub>popularity_tier: dark · studied · well_studied</sub><br/><sub>scripts/02_annotate_popularity.py</sub>"]:::method
+    SRC --> POP["<b>1.4</b> · Bibliometric / popularity"]:::method
 
-    PDB  --> T["Task-agnostic per-protein annotation table<br/><sub>joined by UniProt accession (locus_tag for BV-BRC)</sub>"]:::result
-    AF   --> T
-    PAN  --> T
+    SRC --> ESM2["<b>1.5</b> · ESM2 embeddings <i>(standalone)</i>"]:::planned
+
+    PAN  --> T["Task-agnostic per-protein annotation table<br/><sub>joined by UniProt accession (locus_tag for BV-BRC)</sub>"]:::result
     INT  --> T
+    PDB  --> T
+    AF   --> T
     CONS_IDS --> T
     CONS_KP  --> T
     CONS_XS  --> T
@@ -70,21 +70,29 @@ flowchart TD
 
 ## Tracks
 
-| Track | Input | Resource | Script | Output |
-| --- | --- | --- | --- | --- |
-| ESM2 embeddings | sequence | ESM2-650M (1280-d) | _planned_ | _planned (standalone vector store)_ |
-| PDB coverage *(structural)* | accession | PDBe SIFTS bulk mapping | `scripts/02_structural_coverage.py` | `pdb_*` columns of `data/processed/<slug>_structural_coverage.tsv` |
-| AlphaFold pLDDT *(structural)* | accession | AlphaFold DB per-prediction API | `scripts/02_structural_coverage.py` | `afdb_*` columns of `data/processed/<slug>_structural_coverage.tsv` |
-| PANTHER family / subfamily *(family & domain)* | UniProt xref | PANTHER HMM library | `scripts/01_annotate_panther.py` | `data/processed/<slug>_panther.tsv` |
-| InterPro domains *(family & domain)* | UniProt xref / sequence | InterPro / InterProScan | _planned_ | _planned_ |
-| Cross-strain conservation | locus_tag | BV-BRC PATtyFams (PLFam / PGFam) | `src/conservation.py` | `plfam_id`, `pgfam_id`, `has_plfam` in the assembled table |
-| Bibliometric / popularity | accession + gene_symbol | UniProt annotation depth + Europe PMC search | `scripts/02_annotate_popularity.py` | `data/processed/<slug>_popularity.tsv` (incl. `popularity_tier`) |
+| ID | Track | Input | Resource | Script | Output |
+| --- | --- | --- | --- | --- | --- |
+| **1.0** | *K. pneumoniae* HS11286 reference proteome | proteome ID | UniProt UP000007841 | `scripts/00_download_proteome.py` | `data/raw/<slug>_proteome.tsv` (accession · gene_names · sequence) |
+| **1.1a** | PANTHER family / subfamily | UniProt xref | PANTHER HMM library | `scripts/01_annotate_panther.py` | `data/processed/<slug>_panther.tsv` |
+| **1.1b** | InterPro domains | UniProt xref / sequence | InterPro / InterProScan | _planned_ | _planned_ |
+| **1.2a** | PDB coverage | accession | PDBe SIFTS bulk mapping | `scripts/02_structural_coverage.py` | `pdb_*` columns of `data/processed/<slug>_structural_coverage.tsv` |
+| **1.2b** | AlphaFold pLDDT | accession | AlphaFold DB per-prediction API | `scripts/02_structural_coverage.py` | `afdb_*` columns of `data/processed/<slug>_structural_coverage.tsv` |
+| **1.3a** | BV-BRC PATtyFams | locus_tag | BV-BRC `genome_feature` table | `src/conservation.py` | `plfam_id`, `pgfam_id`, `has_plfam` |
+| **1.3b** | Within-Kp pan-genome class | PLFam id | BV-BRC `kp_plfam_counts.tsv` (bulk query) | _planned_ | `kp_n_genomes`, `kp_conservation_class` (core / soft-core / shell / cloud) |
+| **1.3c** | Cross-species broad-spectrum | PGFam id / OrthoDB group | BV-BRC PGFam counts + OrthoDB sizes | _planned_ | `xs_n_species`, `xs_breadth_class` |
+| **1.3d** | Selectivity vs human | sequence | human proteome (UP000005640) BLAST/DIAMOND | _planned_ | `human_ortholog_uniprot`, `human_identity_pct` *(inverse signal)* |
+| **1.4** | Bibliometric / popularity | accession + gene_symbol | UniProt annotation depth + Europe PMC search | `scripts/02_annotate_popularity.py` | `popularity_tier`: dark / studied / well_studied — `data/processed/<slug>_popularity.tsv` |
+| **1.5** | ESM2 embeddings *(standalone)* | sequence | ESM2-650M (1280-d) | _planned_ | _planned (standalone vector store, not joined)_ |
 
-The reference proteome itself is produced by `scripts/00_download_proteome.py`
-(UniProt stream API → `data/raw/<slug>_proteome.tsv`). BV-BRC conservation is
+The reference proteome (UniProt **UP000007841**, *K. pneumoniae* HS11286,
+5,728 proteins; columns: accession · gene_names · sequence) is produced by
+`scripts/00_download_proteome.py` (UniProt stream API →
+`data/raw/<slug>_proteome.tsv`). Conservation is
 listed here because it is per-protein and task-agnostic; downstream sections
 (notably [essentiality](./04_essentiality.md)) treat it as a confidence
-modifier rather than a primary signal.
+modifier rather than a primary signal. The within-Kp pan-genome class also
+acts as a strain-coverage filter, and selectivity-vs-human is an inverse
+signal carried into the final ranking as a safety axis.
 
 ---
 
