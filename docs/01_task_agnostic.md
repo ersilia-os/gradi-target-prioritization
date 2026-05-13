@@ -28,37 +28,41 @@ flowchart LR
 
     SRC["<b>1.0</b> · <i>K. pneumoniae</i> HS11286<br/>proteome (5,728 proteins)"]:::source
     SEQ["<i>sequence</i>"]:::dataset
+    ID["<i>identifier</i>"]:::dataset
     SRC --> SEQ
+    SRC --> ID
 
     subgraph FAMDOM [" Family &amp; domain annotation "]
         direction LR
         PAN["<b>1.1a</b> · PANTHER family / subfamily"]:::method
         INT["<b>1.1b</b> · InterPro domains"]:::method
     end
-    SRC --> PAN
-    SRC --> INT
+    ID --> PAN
+    SEQ --> INT
 
     subgraph STRUC [" Structural annotation "]
         direction LR
         PDB["<b>1.2a</b> · PDB coverage"]:::method
         AF["<b>1.2b</b> · AlphaFold pLDDT"]:::method
     end
-    SRC --> PDB
-    SRC --> AF
+    ID --> PDB
+    ID --> AF
 
     subgraph CONSERVE [" Conservation "]
         direction LR
-        CONS_IDS["<b>1.3a</b> · BV-BRC PATtyFams"]:::method
+        CONS_IDS["<b>1.3a</b> · BV-BRC protein families<br/><sub>PLFam (within-Kp) · PGFam (cross-species)</sub>"]:::method
         CONS_KP["<b>1.3b</b> · Within-Kp pan-genome class"]:::method
         CONS_XS["<b>1.3c</b> · Cross-species broad-spectrum"]:::method
         CONS_SEL["<b>1.3d</b> · Selectivity vs human"]:::method
     end
-    SRC --> CONS_IDS
-    SRC --> CONS_KP
-    SRC --> CONS_XS
+    ID --> CONS_IDS
+    ID --> CONS_KP
+    ID --> CONS_XS
     SEQ --> CONS_SEL
 
-    SRC --> POP["<b>1.4</b> · Bibliometric / popularity"]:::method
+    ID --> POP["<b>1.4</b> · Bibliometric / popularity"]:::method
+
+    SEQ --> ESM2["<b>1.5</b> · ESM2 embeddings"]:::method
 
     PAN  --> T(["Task-agnostic chunk"]):::result
     INT  --> T
@@ -69,10 +73,6 @@ flowchart LR
     CONS_XS  --> T
     CONS_SEL --> T
     POP  --> T
-
-    ESM2["<b>1.5</b> · ESM2 embeddings"]:::method
-    SEQ --> ESM2
-    T ~~~ ESM2
 ```
 
 ## Tracks
