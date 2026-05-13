@@ -35,11 +35,16 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 
 CHEMBL_BASE = "https://www.ebi.ac.uk/chembl/api/data"
+CHEMBL_UNIPROT_MAPPING_URL = (
+    "https://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/"
+    "chembl_uniprot_mapping.txt"
+)
 
 PROCESSED_DIR = Path("data/processed")
 CACHE_DIR = Path("tmp/chembl_cache")
 KP_PROTEOME = Path("data/raw/klebsiella_pneumoniae_proteome.tsv")
 ORTHOLOGS_TSV = PROCESSED_DIR / "klebsiella_pneumoniae_orthodb_orthologs.tsv"
+MAPPING_CACHE = Path("tmp/chembl_uniprot_mapping.txt")
 
 USER_AGENT = "ersilia-gradi-target-prioritization (mailto:miquel@ersilia.io)"
 
