@@ -24,7 +24,7 @@ palette. Seven node classes:
 - `:::source` (purple) — anchor proteome / starting entity.
 - `:::dataset` (yellow) — curated reference data file (e.g. Flynn 2003, Nagar 2021).
 - `:::method` (blue) — script / compute step.
-- `:::result` (mint, bold) — output, score, or sink.
+- `:::result` (mint, thicker border) — output, score, or sink.
 - `:::tagnostic` (pink) — pre-computed input from the task-agnostic layer (Section 1).
 - `:::stub` (orange, dashed border) — parser exists in the codebase but the data file is not yet staged in `data/raw/`.
 - `:::planned` (gray, dashed border) — not yet implemented.

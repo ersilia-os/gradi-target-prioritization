@@ -25,7 +25,7 @@ never used as a fill, matching stylia's "ersilia" matplotlib style
 | `:::tagnostic` | rounded rect | `id("text")` | pink | `#DCA0DC` | Pre-computed input reused across pipelines (from the task-agnostic layer). "Reusable input." |
 | `:::method` | rectangle | `id["text"]` | blue | `#8CC8FA` | Script / compute step (typically a `scripts/*.py` or `src/*.py` invocation). "Process." |
 | `:::embedding` | stadium (pill) | `id(["text"])` | purple | `#AA96FA` | Sidecar / standalone artifact (e.g. ESM2 vector store) — a per-protein output produced by a compute step but **not joined** into the main annotation table. Shares the source fill (it derives from the proteome) but uses the stadium shape (it *is* an endpoint). |
-| `:::result` | stadium (pill) | `id(["text"])` | mint | `#BEE6B4` | Output, score, sink. Bold text + thicker border. "Terminator." |
+| `:::result` | stadium (pill) | `id(["text"])` | mint | `#BEE6B4` | Output, score, sink. Thicker border. "Terminator." |
 | `:::stub` | parallelogram | `id[/"text"\]` | orange | `#FAA08C` | Parser exists in code, data file not yet staged. Dashed border. "In-progress." |
 | `:::planned` | rectangle, dashed | `id["text"]` | gray | `#D2D2D0` | Not yet implemented. Dashed border + muted text. "Future." |
 | (structural) | — | — | plum | `#50285A` | Borders, arrows, and text on light fills |
@@ -54,7 +54,7 @@ flowchart LR
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef embedding fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
-    classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A,font-weight:bold
+    classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A
     classDef tagnostic fill:#DCA0DC,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
@@ -74,7 +74,7 @@ flowchart LR
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef embedding fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
-    classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A,font-weight:bold
+    classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A
     classDef tagnostic fill:#DCA0DC,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
@@ -105,7 +105,7 @@ drawn from the existing pipeline diagrams:
 - *Flynn 2003 ClpXP/ClpAP trap census* → `DS[("Flynn 2003 …")]:::dataset` (cylinder, yellow).
 - *Nagar 2021 E. coli half-lives* → `NAGAR[("Nagar 2021 …")]:::dataset`.
 - *scripts/03_annotate_clp_degradability.py* → `M["scripts/03_…"]:::method` (rectangle, blue).
-- *Composite `clp_degradability_score` → tier* → `R(["Composite score …"]):::result` (stadium, mint, bold).
+- *Composite `clp_degradability_score` → tier* → `R(["Composite score …"]):::result` (stadium, mint).
 - *Structures (PDB + AlphaFold) — from task-agnostic layer* → `TA("Structures …"):::tagnostic` (rounded, pink).
 - *UniProt reference proteome UP000007841* → `SRC{{"UniProt …"}}:::source` (hexagon, purple).
 - *ESM2-based degradability ML (planned)* → `ML["ESM2 …"]:::planned` (rect dashed, gray).

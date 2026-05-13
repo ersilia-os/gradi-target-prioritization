@@ -17,7 +17,7 @@ flowchart LR
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef embedding fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
-    classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A,font-weight:bold
+    classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A
     classDef tagnostic fill:#DCA0DC,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
