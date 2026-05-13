@@ -24,7 +24,7 @@ never used as a fill, matching stylia's "ersilia" matplotlib style
 | `:::dataset` | cylinder | `id[("text")]` | yellow | `#FAD782` | Curated reference data file (Flynn 2003, Nagar 2021, ChEMBL export, …). "Data on disk." |
 | `:::tagnostic` | rounded rect | `id("text")` | pink | `#DCA0DC` | Pre-computed input reused across pipelines (from the task-agnostic layer). "Reusable input." |
 | `:::method` | rectangle | `id["text"]` | blue | `#8CC8FA` | Script / compute step (typically a `scripts/*.py` or `src/*.py` invocation). "Process." |
-| `:::embedding` | stadium (pill) | `id(["text"])` | blue | `#8CC8FA` | Sidecar / standalone artifact (e.g. ESM2 vector store) — a per-protein output produced by a compute step but **not joined** into the main annotation table. Shares the method fill (it *is* a computation) but uses the stadium shape (it *is* an endpoint). |
+| `:::embedding` | stadium (pill) | `id(["text"])` | purple | `#AA96FA` | Sidecar / standalone artifact (e.g. ESM2 vector store) — a per-protein output produced by a compute step but **not joined** into the main annotation table. Shares the source fill (it derives from the proteome) but uses the stadium shape (it *is* an endpoint). |
 | `:::result` | stadium (pill) | `id(["text"])` | mint | `#BEE6B4` | Output, score, sink. Bold text + thicker border. "Terminator." |
 | `:::stub` | parallelogram | `id[/"text"\]` | orange | `#FAA08C` | Parser exists in code, data file not yet staged. Dashed border. "In-progress." |
 | `:::planned` | rectangle, dashed | `id["text"]` | gray | `#D2D2D0` | Not yet implemented. Dashed border + muted text. "Future." |
@@ -53,7 +53,7 @@ flowchart LR
     classDef source    fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
-    classDef embedding fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
+    classDef embedding fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A,font-weight:bold
     classDef tagnostic fill:#DCA0DC,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
@@ -73,7 +73,7 @@ flowchart LR
     classDef source    fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef dataset   fill:#FAD782,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef method    fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
-    classDef embedding fill:#8CC8FA,stroke:#50285A,stroke-width:1.5px,color:#50285A
+    classDef embedding fill:#AA96FA,stroke:#50285A,stroke-width:1.5px,color:#1F0F2E
     classDef result    fill:#BEE6B4,stroke:#50285A,stroke-width:2px,color:#50285A,font-weight:bold
     classDef tagnostic fill:#DCA0DC,stroke:#50285A,stroke-width:1.5px,color:#50285A
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
