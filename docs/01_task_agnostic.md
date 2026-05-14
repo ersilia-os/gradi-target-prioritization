@@ -101,21 +101,7 @@ flowchart LR
 | [Europe PMC](https://europepmc.org/) | Open literature database (PubMed + preprints + full text) used for publication / mention counts. | 1.4 |
 | [ESM-2](https://github.com/facebookresearch/esm) | Meta AI protein language model; the 650M-parameter variant supplies the per-protein 1280-d embeddings. | 1.5 |
 
-## Suggestions
-
-- **[DeepLocPro 1.0](https://academic.oup.com/bioinformatics/article/40/12/btae677/7900293)** — bacteria-trained subcellular-localization (6 classes); anchor at §5, cross-link here.
-- **[SignalP 6.0](https://www.nature.com/articles/s41587-021-01156-3) + LipoP** — five-class signal-peptide / lipoprotein detection (lipoprotein flag = "hard for BacPROTAC").
-- **[Foldseek](https://www.nature.com/articles/s41587-023-01773-0) + [ProstT5](https://academic.oup.com/nargab/article/6/4/lqae150/7901286)** — extend §1.2 from coverage to structural-neighbour-with-ligand search; ProstT5 fills in for sequences without an AlphaFold model.
-- **[PPanGGOLiN](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1007732)** — implements the planned §1.3b within-Kp pan-genome partition (core / persistent / shell / cloud).
-- **[eggNOG-mapper v2](https://academic.oup.com/mbe/article/38/12/5825/6379734)** — one pass for COG / KEGG / EC / GO and the human-ortholog flag (covers §1.3d).
-- **[MobiDB-lite](https://pmc.ncbi.nlm.nih.gov/articles/PMC7779018/)** — IDR consensus alongside pLDDT bins in §1.2b. Bacterial proteomes have low IDR content, so few proteins trigger.
-- **§1.5 ESM-2-650M → [SaProt-650M](https://github.com/westlake-repl/SaProt) or [ESM-C 600M](https://www.evolutionaryscale.ai/blog/esm-cambrian)** — SaProt's 3Di tokens are free given §1.2b structures.
-- **§1.2a PDB coverage → coverage + Foldseek neighbours** — SIFTS misses fold-similar ligand-bound entries.
-- **§1.3a BV-BRC PATtyFams: snapshot locally** — NIAID funding renewed Sept 2024 but treat as a third-party dependency.
-
 ## Output schema
-
-Columns produced by each track, keyed by `uniprot_accession`. List-typed fields are stored as `;`-joined strings in TSV.
 
 ### 1.0 · Reference proteome
 
@@ -211,3 +197,16 @@ Columns produced by each track, keyed by `uniprot_accession`. List-typed fields 
 | Column | Type | Cardinality | Description |
 | --- | --- | --- | --- |
 | `esm2_embedding` | float[1280] | one | Per-protein vector from ESM2-650M; stored separately (HDF5 / NPY keyed by `uniprot_accession`). |
+
+## Suggestions
+
+- **[DeepLocPro 1.0](https://academic.oup.com/bioinformatics/article/40/12/btae677/7900293)** — bacteria-trained subcellular-localization (6 classes); anchor at §5, cross-link here.
+- **[SignalP 6.0](https://www.nature.com/articles/s41587-021-01156-3) + LipoP** — five-class signal-peptide / lipoprotein detection (lipoprotein flag = "hard for BacPROTAC").
+- **[Foldseek](https://www.nature.com/articles/s41587-023-01773-0) + [ProstT5](https://academic.oup.com/nargab/article/6/4/lqae150/7901286)** — extend §1.2 from coverage to structural-neighbour-with-ligand search; ProstT5 fills in for sequences without an AlphaFold model.
+- **[PPanGGOLiN](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1007732)** — implements the planned §1.3b within-Kp pan-genome partition (core / persistent / shell / cloud).
+- **[eggNOG-mapper v2](https://academic.oup.com/mbe/article/38/12/5825/6379734)** — one pass for COG / KEGG / EC / GO and the human-ortholog flag (covers §1.3d).
+- **[MobiDB-lite](https://pmc.ncbi.nlm.nih.gov/articles/PMC7779018/)** — IDR consensus alongside pLDDT bins in §1.2b. Bacterial proteomes have low IDR content, so few proteins trigger.
+- **§1.5 ESM-2-650M → [SaProt-650M](https://github.com/westlake-repl/SaProt) or [ESM-C 600M](https://www.evolutionaryscale.ai/blog/esm-cambrian)** — SaProt's 3Di tokens are free given §1.2b structures.
+- **§1.2a PDB coverage → coverage + Foldseek neighbours** — SIFTS misses fold-similar ligand-bound entries.
+- **§1.3a BV-BRC PATtyFams: snapshot locally** — NIAID funding renewed Sept 2024 but treat as a third-party dependency.
+
