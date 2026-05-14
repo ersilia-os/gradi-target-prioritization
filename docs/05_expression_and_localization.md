@@ -1,6 +1,6 @@
 # Expression and localization
 
-Is the target present in meaningful amounts and physically reachable by the cytoplasmic Clp machinery?
+Evaluates if the target is present in meaningful amounts and physically reachable by the cytoplasmic Clp machinery.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%

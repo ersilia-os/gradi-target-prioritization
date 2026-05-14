@@ -1,6 +1,6 @@
 # Ligandability assessment
 
-Combines direct and ortholog-mediated ligand evidence (ChEMBL + BindingDB), structural ligand evidence (PDB co-crystals + AlphaFill) and pocket / binding-site prediction (AF2Bind, fpocket, P2Rank) — with predicted disorder as a negative signal — to score whether a small-molecule recruiter could engage the target.
+Combines direct and ortholog-mediated ligand evidence (ChEMBL + BindingDB), structural ligand evidence (PDB co-crystals + AlphaFill) and pocket / binding-site prediction (AF2Bind, fpocket, P2Rank) to score whether a small-molecule recruiter could engage the target.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%
@@ -18,17 +18,35 @@ flowchart LR
 
     STR("Structures (PDB + AlphaFold)"):::tagnostic
 
-    P --> ORTH["<b>2.1a</b> · OrthoDB ortholog expansion"]:::method
-    ORTH --> LIG["<b>2.1b</b> · ChEMBL + BindingDB<br/><sub>bioactivity</sub>"]:::method
+    subgraph BIOACT [" Binding affinity measurements "]
+        direction LR
+        ORTH["<b>2.1a</b> · OrthoDB ortholog expansion"]:::method
+        LIG["<b>2.1b</b> · ChEMBL + BindingDB<br/><sub>bioactivity</sub>"]:::method
+    end
+
+    subgraph STRLIG [" Structural ligand evidence "]
+        direction LR
+        COCR["<b>2.2a</b> · PDB co-crystals"]:::method
+        AFILL["<b>2.2b</b> · AlphaFill ligand transfer"]:::method
+    end
+
+    subgraph POCKETS [" Pocket / binding-site prediction "]
+        direction LR
+        BIND["<b>2.3a</b> · AF2Bind<br/><sub>binding-site prediction</sub>"]:::method
+        POCK["<b>2.3b</b> · fpocket / P2Rank<br/><sub>pocket detection</sub>"]:::method
+    end
+
+    P --> ORTH
+    ORTH --> LIG
     P --> LIG
 
     P --> STR
 
-    STR --> COCR["<b>2.2a</b> · PDB co-crystals"]:::method
-    STR --> AFILL["<b>2.2b</b> · AlphaFill ligand transfer"]:::method
+    STR --> COCR
+    STR --> AFILL
 
-    STR --> BIND["<b>2.3a</b> · AF2Bind<br/><sub>binding-site prediction</sub>"]:::method
-    STR --> POCK["<b>2.3b</b> · fpocket / P2Rank<br/><sub>pocket detection</sub>"]:::method
+    STR --> BIND
+    STR --> POCK
 
     STR --> DIS["<b>2.4</b> · Disorder filter"]:::method
 

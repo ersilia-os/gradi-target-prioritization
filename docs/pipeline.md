@@ -9,8 +9,8 @@ documented as five sections, each in its own file under `docs/`:
    recruiter engage the target?
 3. [Degradability assessment](./03_degradability.md) — is the target a
    plausible Clp-protease substrate?
-4. [Essentiality / vulnerability assessment](./04_essentiality.md) — is the
-   target required for fitness or survival?
+4. [Essentiality](./04_essentiality.md) — is the target required for fitness
+   or survival?
 5. [Expression and localization](./05_expression_and_localization.md) — is
    the target present in meaningful amounts and physically reachable by the
    cytoplasmic Clp machinery?

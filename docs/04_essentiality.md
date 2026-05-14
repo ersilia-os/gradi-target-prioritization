@@ -1,16 +1,6 @@
-# Essentiality / vulnerability assessment
+# Essentiality
 
-Part 4 of the GraDi target-prioritization pipeline. See
-[`pipeline.md`](./pipeline.md) for the index and the diagram style legend.
-
-Essentiality asks "is this target required for fitness or survival?";
-vulnerability sharpens it by asking "how much depletion is tolerated?" via
-graded CRISPRi knockdown. The layer combines two evidence pathways — direct
-*K. pneumoniae* measurements (Tn-seq, CRISPRi) and *E. coli* ortholog
-inference — into a per-condition consensus call. It is the most data-source-
-heavy axis: several papers contribute, with a mix of "data loaded today",
-"parser written but file not staged" stubs, and several "explore more"
-extensions worth flagging.
+Determine if the target is required for fitness or survival in Klebsiella pneumoniae.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%
@@ -24,73 +14,72 @@ flowchart LR
     classDef stub      fill:#FAA08C,stroke:#50285A,stroke-width:1.5px,stroke-dasharray:6 3,color:#50285A
     classDef planned   fill:#D2D2D0,stroke:#7A7A78,stroke-width:1px,stroke-dasharray:5 5,color:#5A5A58
 
+    P["<i>Klebsiella pneumoniae</i> proteome"]:::source
+
+    ORTHO("Cross-species orthologs"):::tagnostic
+
     subgraph DIRECT [" Direct experimental evidence "]
         direction LR
-        TNS[("Kp Tn-seq screens<br/><sub>Eichelberger 2024 ECL8<br/>✓ loaded (3 flavors)</sub><br/><sub>Bachman 2015 KPPR1<br/>Ramage 2017 KPNIH1<br/>— stubs</sub>")]:::dataset
-        CRI[("Kp CRISPRi screens<br/><sub>Zhu 2023 Mobile-CRISPRi-seq<br/>highlights ✓ loaded (8 genes)</sub>")]:::dataset
-        ECO[/"E. coli TraDIS<br/><sub>Goodall 2018 BW25113<br/>(stub — feeds Ec-inference path)</sub>"\]:::stub
+        TNS_IV["<b>4.1a</b> · Kp Tn-seq (in vitro)"]:::method
+        TNS_VV["<b>4.1b</b> · Kp Tn-seq (in vivo)"]:::method
+        CRI["<b>4.1c</b> · Kp CRISPRi"]:::method
     end
 
-    DEG["DEG 15 / OGEE v2<br/><sub>consolidated essential-gene databases</sub><br/><sub>(planned)</sub>"]:::planned
-    FBA["FBA / iYL1228 metabolic model<br/><sub>in silico single-gene knockout</sub><br/><sub>(planned)</sub>"]:::planned
-    ML["ML essentiality predictor<br/><sub>DeeplyEssential / ESM2-based</sub><br/><sub>(planned; ties to the<br/>task-agnostic ESM2 track)</sub>"]:::planned
+    ECINF["<b>4.2a</b> · <i>E. coli</i> essentiality transfer"]:::method
 
-    TNS --> PARSE["<i>src/essentiality.py</i> · per-paper parsers<br/><sub>emit long-form rows:<br/>(gene_symbol, call, score,<br/>source, condition, flavor)</sub>"]:::method
-    CRI --> PARSE
-    ECO --> PARSE
-    DEG -.-> PARSE
-    FBA -.-> PARSE
-    ML  -.-> PARSE
+    subgraph PRED [" Computational predictions "]
+        direction LR
+        PLM["<b>4.3a</b> · ProteomeLM-Ess"]:::method
+        GEP["<b>4.3b</b> · Geptop 2.0"]:::method
+        DEEP["<b>4.3c</b> · DeeplyEssential"]:::method
+        FBA["<b>4.3d</b> · FBA on iYL1228"]:::method
+    end
 
-    PARSE --> FLAV["Per-flavor consensus by gene_symbol<br/><sub>5 flavors: in_vitro · in_vivo_lung<br/>in_vivo_urine · in_vivo_serum<br/>vulnerability</sub><br/><sub>CALL_PRIORITY:<br/>essential ▶ fitness_defect ▶ unclear<br/>▶ fitness_advantage ▶ non_essential</sub><br/><sub><i>src/assemble.py</i> · _join_flavor_block</sub>"]:::method
+    P --> TNS_IV
+    P --> TNS_VV
+    P --> CRI
+    ORTHO --> ECINF
+    P --> PLM
+    P --> GEP
+    P --> DEEP
+    P --> FBA
 
-    PARSE -->|"E. coli essentials"| ECINF["Kp ↔ Ec gene-symbol match<br/><sub><i>src/assemble.py</i> · _join_ec_inferred</sub>"]:::method
-    ECINF -.-> ORTHO_UP["Upgrade: OrthoDB-based Ec transfer<br/><sub>reuse the ligandability layer's<br/>OrthoDB pipeline</sub><br/><sub>(planned; lifts Ec coverage<br/>beyond ~18%)</sub>"]:::planned
-
-    CONS("Cross-strain conservation<br/><sub>BV-BRC PATtyFams (from task-agnostic)</sub>"):::tagnostic
-
-    FLAV  --> OUT(["ess_*_call · score · sources<br/><sub>5 flavor triples + ess_Ec_inferred</sub>"]):::result
-    ECINF --> OUT
-    ORTHO_UP -.-> OUT
-    CONS -.->|"confidence modifier (planned)"| OUT
-
-    OUT -.-> NEXT["→ final target ranking<br/><sub>(covered in subsequent diagram)</sub>"]:::planned
+    TNS_IV --> T(["Essentiality annotation"]):::result
+    TNS_VV --> T
+    CRI    --> T
+    ECINF  --> T
+    PLM    --> T
+    GEP    --> T
+    DEEP   --> T
+    FBA    --> T
 ```
 
 ## Tracks
 
-| Track | Source(s) | Condition / flavor | Status | Output columns |
-| --- | --- | --- | --- | --- |
-| Kp Tn-seq (in vitro) | Eichelberger 2024 ECL8; Ramage 2017 KPNIH1 (stub) | `in_vitro_essential` | loaded + stub | `ess_in_vitro_*` |
-| Kp Tn-seq (in vivo lung) | Bachman 2015 KPPR1 (stub) | `in_vivo_lung` | stub | `ess_in_vivo_lung_*` |
-| Kp Tn-seq (in vivo urine) | Eichelberger 2024 | `in_vivo_urine` | loaded | `ess_in_vivo_urine_*` |
-| Kp Tn-seq (in vivo serum) | Eichelberger 2024 | `in_vivo_serum` | loaded | `ess_in_vivo_serum_*` |
-| Kp CRISPRi vulnerability | Zhu 2023 (highlights) | `vulnerability_crispri` | loaded (8 genes) | `ess_vulnerability_*` |
-| E. coli ortholog inference | Goodall 2018 (stub) → `_join_ec_inferred` | `in_vitro_essential_Ec` | stub | `ess_Ec_inferred_call/via/sources` |
-| DEG / OGEE consolidated DBs | DEG 15, OGEE v2 | cross-validation | _planned_ | _planned_ |
-| FBA in silico knockout | iYL1228 (or newer) | computational | _planned_ | _planned_ |
-| ML essentiality predictor | DeeplyEssential / ESM2-based | computational | _planned_ | _planned_ |
-| OrthoDB-based Ec transfer | OrthoDB groups (from ligandability layer) | upgrade of `_join_ec_inferred` | _planned_ | replaces `via=gene-symbol match` |
+| ID | Title | Description | Resources |
+| --- | --- | --- | --- |
+| 4.1a | Kp Tn-seq (in vitro) | Transposon-insertion essentiality in laboratory media (LB) and under antibiotic stress; deepest available Kp essentiality calls. | Short 2024 (ECL8), Cain 2017 (NJST258 ST258) |
+| 4.1b | Kp Tn-seq (in vivo) | Fitness in animal infection models — lung, urine, blood, spleen, liver — yielding niche-specific essentiality. | Bachman 2015, Paczosa 2020, Mike & Bachman 2023, Bachman 2025 (all KPPR1) |
+| 4.1c | Kp CRISPRi | Mobile-CRISPRi-seq with graded knockdown across ~870 conditionally-essential genes in KPPR1S. | Jana 2023 |
+| 4.2a | *E. coli* essentiality transfer | Keio + TraDIS three-way consensus (Keio ∩ PEC ∩ Goodall) lifted onto Kp via ortholog. | Goodall 2018, Keio (Baba 2006) |
+| 4.3a | ProteomeLM-Ess | Whole-proteome transformer with supervised essentiality head; LM-based bacterial SOTA, trained on OGEE v3. | Bitbol Lab 2025 |
+| 4.3b | Geptop 2.0 | Orthology + phylogeny-based essentiality scoring on a proteome FASTA. | Wen et al. 2019 |
+| 4.3c | DeeplyEssential | DNA + protein deep neural network trained on DEG. | Hasan & Lonardi 2020 |
+| 4.3d | FBA on iYL1228 | In silico single-gene knockout on a Kp genome-scale metabolic reconstruction. | Liao et al. 2011 |
 
-Two architectural notes:
+## Key resources
 
-- **Consensus priority is intentional.** `CALL_PRIORITY`
-  (`essential > fitness_defect > unclear > fitness_advantage > non_essential`)
-  means a single "essential" call wins over any number of weaker calls. This
-  is deliberately optimistic: a target seen as essential under one condition
-  by one source is flagged, even if other conditions disagree — the
-  downstream final-ranking step is responsible for weighting per-condition
-  specificity.
-- **The Ec-inference path uses simple symbol matching today.**
-  `_join_ec_inferred` does a lowercase gene-symbol intersection between Kp
-  `kp_gene_symbol` and the E. coli essentiality table. Since only ~18% of
-  HS11286 entries carry a canonical gene symbol, an OrthoDB-based upgrade
-  (reusing the [ligandability layer's](./02_ligandability.md) pipeline) is
-  queued as the highest-leverage extension here.
-
----
-
-**Prev:** [Degradability assessment](./03_degradability.md) ·
-**Next:** [Expression and localization](./05_expression_and_localization.md) ·
-[Task-agnostic per-protein annotation](./01_task_agnostic.md) ·
-[Ligandability assessment](./02_ligandability.md)
+| Resource | Description | Tracks |
+| --- | --- | --- |
+| [Short et al. 2024 (eLife)](https://doi.org/10.7554/eLife.88971.3) | ECL8 TraDIS, >554k unique insertions, LB / urine / serum. | 4.1a |
+| [Cain et al. 2017 (Sci Rep)](https://www.nature.com/articles/srep42483) | NJST258 "secondary resistome" under colistin / imipenem / ciprofloxacin. | 4.1a |
+| [Bachman et al. 2015 (mBio)](https://journals.asm.org/doi/10.1128/mbio.00775-15) | KPPR1 InSeq in C57BL/6 mouse pneumonia. | 4.1b |
+| [Paczosa et al. 2020 (IAI)](https://pubmed.ncbi.nlm.nih.gov/31988174/) | KPPR1 lung fitness in WT vs neutropenic hosts. | 4.1b |
+| [Mike & Bachman 2023 (PLoS Pathog)](https://pmc.ncbi.nlm.nih.gov/articles/PMC10381055/) | KPPR1 tissue-specific fitness across blood, spleen, liver, lung. | 4.1b |
+| [Bachman et al. 2025 (Nat Commun)](https://www.nature.com/articles/s41467-025-56095-3) | KPPR1 bacteremic dissemination Tn-seq. | 4.1b |
+| [Jana et al. 2023 (AEM)](https://journals.asm.org/doi/10.1128/aem.00956-23) | Mobile-CRISPRi-seq for conditionally-essential Kp genes. | 4.1c |
+| [Goodall et al. 2018 (mBio)](https://journals.asm.org/doi/10.1128/mbio.02096-17) | *E. coli* BW25113 TraDIS + Keio + PEC consensus essential set. | 4.2a |
+| [ProteomeLM](https://github.com/Bitbol-Lab/ProteomeLM) | Whole-proteome transformer; `-Ess` head trained on OGEE v3. | 4.3a |
+| [Geptop 2.0](http://cefg.uestc.cn/geptop) | Web server + standalone for phylogeny-aware essentiality. | 4.3b |
+| [DeeplyEssential](https://github.com/ucrbioinfo/DeeplyEssential) | DNA + protein deep-NN essentiality predictor. | 4.3c |
+| [Liao et al. 2011 (iYL1228)](https://pubmed.ncbi.nlm.nih.gov/21478289/) | Genome-scale metabolic reconstruction of *K. pneumoniae* MGH 78578; supports in silico knockouts. | 4.3d |

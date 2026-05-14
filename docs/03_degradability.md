@@ -1,6 +1,6 @@
 # Degradability assessment
 
-Combines rule-based degron motifs on each Kp sequence (modulated by AlphaFold structural exposure) with experimental Clp-substrate evidence transferred from *E. coli* K-12 (gene-symbol orthology) and from other bacteria (OrthoDB expansion) — to score how susceptible the target is to bacterial Clp-protease degradation.
+Combines rule-based degron motifs on each Kp sequence (modulated by AlphaFold structural exposure) with experimental Clp-substrate evidence transferred from *E. coli* K-12 (gene-symbol orthology) and from other bacteria (OrthoDB expansion) to score how susceptible the target is to bacterial Clp-protease degradation.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#FAD782','primaryBorderColor':'#50285A','primaryTextColor':'#50285A','lineColor':'#50285A','secondaryColor':'#8CC8FA','tertiaryColor':'#BEE6B4','clusterBkg':'#F0F0EE','clusterBorder':'#B0B0AE','titleColor':'#50285A','fontFamily':'Inter, system-ui, sans-serif'}}}%%
