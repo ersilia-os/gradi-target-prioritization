@@ -103,29 +103,111 @@ flowchart LR
 
 ## Suggestions
 
-_Audit findings from a 2026-05 literature review; not yet wired into the diagram or Tracks table._
+- **[DeepLocPro 1.0](https://academic.oup.com/bioinformatics/article/40/12/btae677/7900293)** — bacteria-trained subcellular-localization (6 classes); anchor at §5, cross-link here.
+- **[SignalP 6.0](https://www.nature.com/articles/s41587-021-01156-3) + LipoP** — five-class signal-peptide / lipoprotein detection (lipoprotein flag = "hard for BacPROTAC").
+- **[Foldseek](https://www.nature.com/articles/s41587-023-01773-0) + [ProstT5](https://academic.oup.com/nargab/article/6/4/lqae150/7901286)** — extend §1.2 from coverage to structural-neighbour-with-ligand search; ProstT5 fills in for sequences without an AlphaFold model.
+- **[PPanGGOLiN](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1007732)** — implements the planned §1.3b within-Kp pan-genome partition (core / persistent / shell / cloud).
+- **[eggNOG-mapper v2](https://academic.oup.com/mbe/article/38/12/5825/6379734)** — one pass for COG / KEGG / EC / GO and the human-ortholog flag (covers §1.3d).
+- **[MobiDB-lite](https://pmc.ncbi.nlm.nih.gov/articles/PMC7779018/)** — IDR consensus alongside pLDDT bins in §1.2b. Bacterial proteomes have low IDR content, so few proteins trigger.
+- **§1.5 ESM-2-650M → [SaProt-650M](https://github.com/westlake-repl/SaProt) or [ESM-C 600M](https://www.evolutionaryscale.ai/blog/esm-cambrian)** — SaProt's 3Di tokens are free given §1.2b structures.
+- **§1.2a PDB coverage → coverage + Foldseek neighbours** — SIFTS misses fold-similar ligand-bound entries.
+- **§1.3a BV-BRC PATtyFams: snapshot locally** — NIAID funding renewed Sept 2024 but treat as a third-party dependency.
 
-### Add
+## Output schema
 
-- **[DeepLocPro 1.0](https://academic.oup.com/bioinformatics/article/40/12/btae677/7900293)** — bacteria-trained subcellular-localization predictor (6 classes, calibrated probabilities). UniProt subcellular fields are sparse or `By similarity` for HS11286. Anchored in §5; flagged here only as a cross-link.
-- **[SignalP 6.0](https://www.nature.com/articles/s41587-021-01156-3) + LipoP** — five-class signal-peptide / lipoprotein detection. Lipoprotein flag = "hard for BacPROTAC". Pairs with localization.
-- **[Foldseek](https://www.nature.com/articles/s41587-023-01773-0) + [ProstT5](https://academic.oup.com/nargab/article/6/4/lqae150/7901286)** — extend §1.2 from "does a structure exist?" to "is there a structural neighbour with a ligand co-crystal?". 3Di tokens make sub-Å search BLAST-cheap; ProstT5 supplies tokens for sequences without an AlphaFold model.
-- **[PPanGGOLiN](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1007732)** ([GitHub](https://github.com/labgem/PPanGGOLiN)) — would implement the planned §1.3b within-Kp pan-genome partition. HMM/MRF-based, principled core / persistent / shell / cloud splits, scales to ~10⁴ Kp genomes.
-- **[eggNOG-mapper v2](https://academic.oup.com/mbe/article/38/12/5825/6379734)** — one pass delivers COG functional category, KEGG / EC / GO, *and* the human-ortholog flag. Would implement §1.3d selectivity-vs-human without a bespoke RBH-BLAST workflow.
-- **[MobiDB-lite consensus disorder](https://pmc.ncbi.nlm.nih.gov/articles/PMC7779018/)** — refine §1.2b to emit an IDR consensus call alongside raw pLDDT bins. pLDDT &lt; 50 conflates true disorder with poor MSA coverage and short flexible linkers. *Bacterial note:* bacterial proteomes have lower IDR content than eukaryotes, so a smaller fraction of the proteome will trigger it — still informative for the cases that do.
+Columns produced by each track, keyed by `uniprot_accession`. List-typed fields are stored as `;`-joined strings in TSV.
 
-### Upgrade
+### 1.0 · Reference proteome
 
-- **§1.5 ESM-2-650M → [SaProt-650M](https://github.com/westlake-repl/SaProt)** (ICLR 2024 #1 on ProteinGym) or **[ESM-C 600M](https://www.evolutionaryscale.ai/blog/esm-cambrian)**. SaProt fuses 3Di structure tokens with sequence — free upgrade because §1.2b already supplies the structures. Skip only if a downstream classifier is already trained against ESM-2's 1280-d space.
-- **§1.2a PDB coverage → "structural coverage + Foldseek neighbours"** — SIFTS only flags identity-mapped coverage; Foldseek vs the PDB-ligand-bound subset gives a much stronger BacPROTAC-relevant signal.
-- **§1.3a BV-BRC PATtyFams: keep, snapshot locally.** NIAID BRC funding renewed Sept 2024 — data is current, but cache PLFam / PGFam tables to insulate against future outages.
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `uniprot_accession` | string (PK) | one | UniProt AC, e.g. `A6T570`. |
+| `locus_tag` | string | one | `KPHS_xxxxx` locus tag from the HS11286 assembly. |
+| `gene_symbol` | string, nullable | one | Canonical gene symbol; blank for ~82% of HS11286. |
+| `protein_name` | string | one | UniProt recommended protein name. |
+| `sequence` | string | one | Amino-acid sequence. |
+| `sequence_length` | int | one | Residue count. |
 
-### Skip
+### 1.1a · PANTHER family / subfamily
 
-- [Pharos / TCRD](https://pharos.nih.gov/) (human-only).
-- CDD / Pfam-HMMER direct (InterPro already integrates them).
-- GearNet / MSA-Transformer / ESM-3-multimodal (weaker or overkill vs SaProt / ESM-C).
-- [CARD](https://card.mcmaster.ca/) / [MEGARes](https://www.meglab.org/megares/) / TTD as a §1 axis (resistance / human-target catalogs, wrong scope).
-- HHrepID / coiled-coil predictors (niche; InterPro covers it).
-- DeepTMHMM as a §1 track (duplicative with §5).
-- Bacterial PTM predictors (limited training data).
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `panther_family_id` | string, nullable | one | `PTHRxxxxx`. |
+| `panther_family_name` | string, nullable | one | Human-readable family name. |
+| `panther_subfamily_id` | string, nullable | one | `PTHRxxxxx:SFx`. |
+| `panther_subfamily_name` | string, nullable | one | Human-readable subfamily name. |
+
+### 1.1b · InterPro domains
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `interpro_ids` | list[string] | many | Domain / family / site IPR accessions. |
+| `interpro_names` | list[string] | many | Parallel names for the above. |
+| `interpro_n_domains` | int | one | Count of distinct InterPro hits. |
+| `pfam_ids` | list[string] | many | Pfam subset of InterPro hits. |
+
+### 1.2a · PDB coverage
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `pdb_ids` | list[string] | many | PDB chain IDs covering this UniProt. |
+| `pdb_n_chains` | int | one | Count of covering chains. |
+| `pdb_coverage_fraction` | float, [0,1] | one | Fraction of residues covered by any PDB chain. |
+| `pdb_best_resolution_A` | float, nullable | one | Best resolution among covering chains, Å. |
+| `pdb_has_holo` | bool | one | True if any covering structure has a small-molecule ligand bound. |
+
+### 1.2b · AlphaFold pLDDT
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `af_mean_plddt` | float, [0,100] | one | Mean per-residue pLDDT. |
+| `af_frac_high_plddt` | float, [0,1] | one | Fraction of residues with pLDDT > 70 (confident). |
+| `af_frac_very_high_plddt` | float, [0,1] | one | Fraction with pLDDT > 90 (very confident). |
+| `af_frac_low_plddt` | float, [0,1] | one | Fraction with pLDDT < 50 — proxy for disorder. |
+
+### 1.3a · BV-BRC protein families
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `plfam_id` | string, nullable | one | Within-Kp PATtyFam local cluster ID. |
+| `pgfam_id` | string, nullable | one | Global PATtyFam cluster ID. |
+
+### 1.3b · Within-Kp pan-genome class
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `kp_pangenome_class` | categorical | one | `core` / `soft_core` / `shell` / `cloud`. |
+| `kp_pangenome_frac` | float, [0,1] | one | Fraction of reference Kp strains carrying an ortholog. |
+| `kp_n_strains_containing` | int | one | Numerator of the above for traceability. |
+
+### 1.3c · Cross-species broad-spectrum
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `broad_spectrum_score` | float, [0,1] | one | Normalised phyletic breadth across ESKAPE-E pathogens. |
+| `broad_spectrum_n_pathogens` | int | one | Pathogens (of ESKAPE-E) with an ortholog. |
+| `broad_spectrum_pathogens` | list[string] | many | Which pathogens. |
+
+### 1.3d · Selectivity vs human
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `human_ortholog_uniprot` | string, nullable | one | Closest human ortholog AC (blank if none). |
+| `human_ortholog_pident` | float, [0,100], nullable | one | Sequence identity, %. |
+| `human_ortholog_evalue` | float, nullable | one | BLAST E-value to closest human ortholog. |
+| `is_selective_vs_human` | bool | one | `pident < 30%` or no ortholog (threshold TBD). |
+
+### 1.4 · Bibliometric / popularity
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `popularity_tier` | categorical | one | `dark` / `studied` / `well_studied`. |
+| `n_europepmc_hits` | int | one | Europe PMC mention count for the protein / gene. |
+| `n_uniprot_pubs` | int | one | Publications cited by UniProt for this entry. |
+| `uniprot_annotation_score` | int, 1–5 | one | UniProt's annotation-completeness score (stars). |
+
+### 1.5 · ESM2 embeddings (sidecar — not joined into the main table)
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `esm2_embedding` | float[1280] | one | Per-protein vector from ESM2-650M; stored separately (HDF5 / NPY keyed by `uniprot_accession`). |

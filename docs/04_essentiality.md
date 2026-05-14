@@ -86,25 +86,14 @@ flowchart LR
 
 ## Suggestions
 
-_Audit findings from a 2026-05 literature review; not yet wired into the diagram or Tracks table. Single highest-leverage reframing: from binary essentiality to graded **vulnerability**. BacPROTACs don't knock out — they produce kinetically-controlled, often-incomplete depletion. A target that is "essential" in Tn-seq but tolerates 70% knockdown without growth defect is a poor BacPROTAC target; one that drops fitness sharply at 50% depletion is excellent._
-
-### Add
-
-- **Vulnerability score (graded) as new track 4.4** — refit the [Jana 2023](https://journals.asm.org/doi/10.1128/aem.00956-23) mobile-CRISPRi titration data already in §4.1c into a per-gene vulnerability index, modelled on the [Bosch & Rock 2021 *Cell* Mtb vulnerability index](https://pmc.ncbi.nlm.nih.gov/articles/PMC8382161/) (max fitness cost, sensitivity to partial knockdown, phenotypic lag). Reanalysis of in-hand data; biggest single shift in target ranking.
-- **[Enterobacteriaceae TraDIS compendium](https://pubmed.ncbi.nlm.nih.gov/39207104/)** (Ghomi / Jung / Barquist 2024, [data](https://github.com/Gardner-BinfLab/Enterobacteriaceae-TraDIS)) — 13 high-density TIS libraries across *Escherichia / Salmonella / Klebsiella / Citrobacter / Enterobacter* with explicit modelling of essentiality turnover (~⅓ of essential genes switch across genera). Upgrades §4.2a from *E. coli*-only lift to graded consensus.
-- **Broad-spectrum vulnerability transfer (new 4.2c)** — pool [Wang / Geisinger 2023 *eLife*](https://pubmed.ncbi.nlm.nih.gov/38126769/) (*A. baumannii* CRISPRi), [Poulsen 2019 *PNAS*](https://www.pnas.org/doi/10.1073/pnas.1900570116) (*P. aeruginosa* FiTnEss) and *Mtb* [Bosch 2021](https://pmc.ncbi.nlm.nih.gov/articles/PMC8382161/) vulnerability scores via OrthoDB lift. Richer than Geptop 2.0's pure-phylogeny score.
-- **Hypervirulent Kp Tn-seq in [*Galleria mellonella*](https://www.frontiersin.org/journals/cellular-and-infection-microbiology/articles/10.3389/fcimb.2025.1643224/full)** (Lin 2025; also [Insua 2021 MDR cKp](https://pubmed.ncbi.nlm.nih.gov/33512418/)). Breaks the KPPR1 monoculture in §4.1b — adds hvKp-specific in-vivo essentiality.
-- **[OGEE v3](https://academic.oup.com/nar/article/49/D1/D998/5934414) (bacterial subset) + [DEG 15](http://origin.tubic.org/deg/) direct ortholog lookup** as new **4.3e**. Restrict to the bacterial subset (DEG-Bacteria, OGEE bacterial organisms). ProteomeLM-Ess uses OGEE; DeeplyEssential uses DEG — a direct lookup gives a non-ML interpretable baseline and audits when ProteomeLM is parroting its training set.
-- **Synthetic-lethality / redundancy flag (new 4.5)** — informed by [Liu / van Opijnen 2024 *Nat Microbiol*](https://www.nature.com/articles/s41564-024-01759-x) CRISPRi–TnSeq genetic-interaction framework (*S. pneumoniae*). For BacPROTACs, partial degradation only becomes lethal if no buffering paralog exists. Approximate via [STRING](https://string-db.org/) / KEGG / paralog detection until a Kp dataset arrives.
-- **Watch-item: [InducTn-seq](https://pubmed.ncbi.nlm.nih.gov/40148565/)** (Christen 2025) — inducible Tn mutagenesis bypassing the in-vivo bottleneck. No Kp dataset yet but the framework will produce one within project horizon.
-
-### Upgrade
-
-- **Integration framework**: replace implicit vote-counting with a weighted ensemble + calibration against the Jana vulnerability score as ground truth. Emit a graded 0–1 vulnerability rather than a binary call.
-- **§4.1c (Jana CRISPRi)**: change the output from "list of conditionally-essential genes" to "per-gene vulnerability index" via depletion-curve refit.
-- **§4.2a (*E. coli* lift)**: keep Keio ∩ PEC ∩ Goodall as the strict tier, overlay Enterobacteriaceae TraDIS for graded confidence.
-- **§4.3a (ProteomeLM-Ess)**: log the OGEE training overlap so we can detect parroting vs genuine generalisation when comparing to the new §4.3e direct lookup.
-
-### Skip
-
-- [PATRIC / BV-BRC](https://www.bv-brc.org/) essentiality calls (funding instability), [KleTy](https://klety.dmicrobe.cn/) / [EnteroBase](https://enterobase.warwick.ac.uk/) (typing only), NPEpredictor / "EpilogeneEss" (no maintained tool), STRING-degree-centrality essentiality (weak vs ProteomeLM-Ess; correlated with conservation already captured), CEG / pan-bacterial compilations (subsumed by OGEE v3 + Enterobacteriaceae TraDIS), zebrafish-Kp (limited data, defer).
+- **Graded vulnerability score (new 4.4)** — refit [Jana 2023](https://journals.asm.org/doi/10.1128/aem.00956-23) CRISPRi titration as per-gene vulnerability, à la [Bosch & Rock 2021](https://pmc.ncbi.nlm.nih.gov/articles/PMC8382161/) (max fitness cost, partial-knockdown sensitivity, phenotypic lag). Reanalysis of in-hand data; biggest single shift in target ranking.
+- **[Enterobacteriaceae TraDIS compendium](https://pubmed.ncbi.nlm.nih.gov/39207104/)** ([data](https://github.com/Gardner-BinfLab/Enterobacteriaceae-TraDIS)) — 13 TIS libraries across *Escherichia / Salmonella / Klebsiella / Citrobacter / Enterobacter*; upgrades §4.2a from *E. coli*-only to graded consensus.
+- **Broad-spectrum vulnerability transfer (new 4.2c)** — pool [Wang / Geisinger 2023](https://pubmed.ncbi.nlm.nih.gov/38126769/) (*A. baumannii* CRISPRi), [Poulsen 2019](https://www.pnas.org/doi/10.1073/pnas.1900570116) (*P. aeruginosa* FiTnEss), [Bosch 2021](https://pmc.ncbi.nlm.nih.gov/articles/PMC8382161/) (*Mtb*) via OrthoDB. Richer than Geptop 2.0's phylogeny score.
+- **hvKp Tn-seq in *Galleria*** — [Lin 2025](https://www.frontiersin.org/journals/cellular-and-infection-microbiology/articles/10.3389/fcimb.2025.1643224/full); also [Insua 2021](https://pubmed.ncbi.nlm.nih.gov/33512418/) (MDR cKp). Breaks the KPPR1 monoculture in §4.1b.
+- **[OGEE v3](https://academic.oup.com/nar/article/49/D1/D998/5934414) (bacterial subset) + [DEG 15](http://origin.tubic.org/deg/) direct ortholog lookup** — new 4.3e; non-ML baseline that audits ProteomeLM training-set parroting.
+- **Synthetic-lethality / redundancy flag (new 4.5)** — informed by [Liu / van Opijnen 2024](https://www.nature.com/articles/s41564-024-01759-x); approximate via [STRING](https://string-db.org/) / KEGG / paralog detection until a Kp dataset exists.
+- **Watch-item: [InducTn-seq](https://pubmed.ncbi.nlm.nih.gov/40148565/)** (Christen 2025) — in-vivo Tn-seq bypassing the bottleneck; no Kp dataset yet.
+- **Integration framework**: replace vote-counting with weighted ensemble + calibration against the Jana vulnerability score; emit a graded 0–1 vulnerability, not a binary call.
+- **§4.1c (Jana CRISPRi)**: change output from "conditionally-essential gene list" to per-gene vulnerability index via depletion-curve refit.
+- **§4.2a (*E. coli* lift)**: keep Keio ∩ PEC ∩ Goodall as strict tier, overlay Enterobacteriaceae TraDIS for graded confidence.
+- **§4.3a (ProteomeLM-Ess)**: log OGEE training overlap to detect parroting vs generalisation against the new 4.3e direct lookup.

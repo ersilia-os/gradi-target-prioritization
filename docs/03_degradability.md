@@ -91,22 +91,11 @@ flowchart LR
 
 ## Suggestions
 
-_Audit findings from a 2026-05 literature review; not yet wired into the diagram or Tracks table. The two biggest gaps are biological, not ML: (a) the diagram implicitly assumes Kp carries the full E. coli adaptor stack — it should be a checked feature; (b) the dominant in-vivo source of ssrA tags is rare-codon-driven tmRNA tagging, not intrinsic CM1 motifs._
-
-### Add
-
-- **Adaptor-presence gate (SspB / ClpS / RssB)** as new **3.0 "adaptor census"** boolean feature set. Without ClpS, the N-end rule (§3.1b) is essentially mute; without SspB, ssrA delivery is degraded. Sources: [Wang et al. 2007 *Genes Dev*](https://www.genesdev.org/cgi/doi/10.1101/gad.1546207) (ClpS modulatory role) and the Schmitz / Sauer ClpS structural literature.
-- **tmRNA-tagging propensity** as new **3.1c**. Combine (a) rare-codon density in the last ~50 nt of the CDS, (b) [RNAfold (ViennaRNA)](https://www.tbi.univie.ac.at/RNA/) MFE in a sliding window across the stop codon, (c) internal Shine-Dalgarno-like aSD hits. [Hayes & Sauer 2002 *PNAS*](https://www.pnas.org/doi/10.1073/pnas.052707199): rare-codon clusters drive tmRNA tagging far more than intrinsic CM1 motifs.
-- **σ32 (RpoH) + σS (RpoS) regulon membership** as a low-cost binary co-variate via *E. coli* ortholog ([Nonaka 2006](https://genesdev.cshlp.org/content/20/13/1776.full): σ32 regulon mapping; cross-reference [RegulonDB](https://regulondb.ccg.unam.mx/)). Slots in §3.2 alongside Flynn / Nagar.
-- **Extend §3.3b pool**: [Ziemski 2021 *FEBS J*](https://febs.onlinelibrary.wiley.com/doi/10.1111/febs.15335) (Mtb ClpCP genome-wide BACTH, 25/67 TA antitoxins as substrates) and the [Graham 2013 *S. aureus* ClpC trap](https://jb.asm.org/content/195/19/4506) (complements Feng's ClpP trap). Apply per-paper weights.
-
-### Upgrade
-
-- **§3.4 ClpK: reframe from black box to "disaggregase modifier".** The [Ballim / Achilonu 2025 bioRxiv](https://www.biorxiv.org/content/10.1101/2025.11.28.691151v1.full) places ClpK closest to ClpB (44.3% identity) — a disaggregase, not a degron-recogniser. No characterised substrate motif; no cyclomarin-style NTD pocket mapped. Treat ClpK presence as a *modifier* (higher solubility under stress → harder to degrade), not as a parallel CM1 / CM2 track.
-- **§3.5 ESM-2 → [SaProt](https://www.biorxiv.org/content/10.1101/2023.10.01.560349v1)** (preferred — exposure intrinsic to its 3Di tokens) or [ESM-C 600M](https://www.evolutionaryscale.ai/blog/esm-cambrian). Multi-task across Flynn + Bhat + Lunge + Feng + Graham + Ziemski + Nagar pooled labels with per-paper bias terms. Hold out one organism for ortholog generalisation check.
-- **§3.1a / §3.1b: adaptor-gated weights.** A CM1 hit on a genome without SspB should contribute zero; N-end-rule hits with no ClpS should be zero. Combine the new §3.0 census with the §3.1 score.
-- **§3.2c Nagar half-life caveat**: [Olivares / Sauer](https://www.nature.com/articles/nrmicro.2015.20) reviews caution that ~half of short-half-life proteins in *E. coli* are Lon substrates, not ClpXP. Either narrow the label (Nagar contributes only when Flynn agrees) or carry a Lon-overlap covariate.
-
-### Skip
-
-- CtsR regulon (Gram-positive only), McsB phospho-Arg pathway (Gram+ only), Bachair / TerminFinder / DegPred / [UbiBrowser](http://ubibrowser.bio-it.cn/) (eukaryotic / unmaintained), [Degronopedia](https://degronopedia.com/) (no bacterial extension), MecA / YpbH / YjbH adaptors (Gram+ only). Lon / FtsH / HslUV other proteases: mention as a covariate caveat in §3.0 but don't expand scope.
+- **Adaptor census (SspB / ClpS / RssB)** — new 3.0 boolean feature; without ClpS the N-end rule (§3.1b) is mute, without SspB ssrA delivery is degraded. [Wang 2007 *Genes Dev*](https://www.genesdev.org/cgi/doi/10.1101/gad.1546207).
+- **tmRNA-tagging propensity** — new 3.1c: rare-codon density at the 3′ end + [RNAfold](https://www.tbi.univie.ac.at/RNA/) MFE across the stop codon + internal aSD hits. [Hayes & Sauer 2002 *PNAS*](https://www.pnas.org/doi/10.1073/pnas.052707199): rare codons drive tmRNA tagging more than CM1 motifs.
+- **σ32 / σS regulon membership** — binary covariate via *E. coli* ortholog ([Nonaka 2006](https://genesdev.cshlp.org/content/20/13/1776.full), [RegulonDB](https://regulondb.ccg.unam.mx/)).
+- **Extend §3.3b trap pool**: [Ziemski 2021 *FEBS J*](https://febs.onlinelibrary.wiley.com/doi/10.1111/febs.15335) (Mtb ClpCP, 25/67 TA antitoxins) + [Graham 2013 *S. aureus* ClpC trap](https://jb.asm.org/content/195/19/4506); per-paper weights.
+- **§3.4 ClpK: reframe as disaggregase modifier, not a degron channel** — [Ballim / Achilonu 2025](https://www.biorxiv.org/content/10.1101/2025.11.28.691151v1.full) shows ClpK ≈ ClpB (44.3% identity); no characterised substrate motif.
+- **§3.5 ESM-2 → [SaProt](https://www.biorxiv.org/content/10.1101/2023.10.01.560349v1) or [ESM-C 600M](https://www.evolutionaryscale.ai/blog/esm-cambrian)**; multi-task across all pooled traps with per-paper bias terms.
+- **§3.1a / §3.1b: adaptor-gated weights** — CM1 hits with no SspB and N-end-rule hits with no ClpS contribute zero.
+- **§3.2c Nagar caveat**: [Olivares / Sauer](https://www.nature.com/articles/nrmicro.2015.20) — ~half of *E. coli* short-half-life proteins are Lon, not ClpXP. Either gate Nagar on Flynn agreement or carry a Lon-overlap covariate.

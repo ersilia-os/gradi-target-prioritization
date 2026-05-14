@@ -68,24 +68,13 @@ flowchart LR
 
 ## Suggestions
 
-_Audit findings from a 2026-05 literature review; not yet wired into the diagram or Tracks table. Two biggest gaps: (a) the structural-accessibility / TM-topology layer is absent, (b) condition-specific in-vivo Kp expression is PaxDb-baseline only. The §5 sink also conflates target-side Clp-accessibility with recruiter-side delivery — these should be separated architecturally._
-
-### Add
-
-- **[DeepTMHMM](https://www.biorxiv.org/content/10.1101/2022.04.08.487609v1)** as new **5.1d**. Resolves "buried in lipid bilayer vs cytoplasmic domain" — the missing axis for Clp accessibility. Covers α-helical TM, β-barrels and signal peptide in one pass. PSORTb / DeepLocPro give compartment but not how much of the protein faces the cytoplasm.
-- **[SignalP 6.0](https://services.healthtech.dtu.dk/services/SignalP-6.0/) + [LipoP](https://services.healthtech.dtu.dk/services/LipoP-1.0/)** as new **5.1e**. Discriminates Sec/SPI vs Sec/SPII lipoprotein vs Tat — fixes PSORTb's recurring mis-bin of OM-lipoproteins as periplasmic. Resolves the four-way OM-lipo / IM-lipo / periplasmic-soluble / cytoplasmic split.
-- **Structure-derived surface exposure (new track 5.3)** — [DSSP](https://swift.cmbi.umcn.nl/gv/dssp/) / SASA on AlphaFold + per-target pocket druggability number. AF2-derived RSA correlates ~0.815 with native; the 2025 ["pocketome universe"](https://www.cell.com/cell/fulltext/S0092-8674(22)00593-1) approach already runs this proteome-wide for 11 species. Currently absent.
-- **Condition-specific / in-vivo Kp expression (new 5.2d)** — curated [PRIDE](https://www.ebi.ac.uk/pride/) Kp datasets (e.g. [PXD047744](https://www.ebi.ac.uk/pride/archive/projects/PXD047744)), colistin / meropenem / serum-stress proteomics, Tn-seq fitness in lung ([Bachman 2015 *mBio*](https://journals.asm.org/doi/10.1128/mbio.00775-15)) and urine + serum ([Short 2024 *eLife*](https://elifesciences.org/articles/88971)). PaxDb baseline is the wrong endpoint for an infection drug — niche-expressed targets are missed.
-- **[PRED-TMBB2](https://academic.oup.com/bioinformatics/article/32/17/i665/2450774) β-barrel cross-check** (5.1d sibling) — orthogonal call for OM β-barrels (MCC 0.92). A β-barrel mis-call as cytoplasmic is the worst-case error.
-- **Mtb cyclomarin / ecumicin + B. subtilis ADEP proteomics → §5.2b** — mechanistically closer to BacPROTAC than ADEP4 (recruits ClpC, doesn't just dysregulate ClpP). See the [BacPROTAC Gram-negative review (Front Chem 2024)](https://www.frontiersin.org/journals/chemistry/articles/10.3389/fchem.2024.1358539/full).
-
-### Upgrade
-
-- **§5.1b PSORTb 3.0: keep, but cross-check the lipoprotein call with SignalP 6.0 + LipoP.** PSORTb's lipoprotein call is its weakest point.
-- **Compose an explicit "Clp-accessibility score"** in the §5 sink rather than vote-counting: cytoplasmic = 1.0, IM with ≥30% cytoplasmic domain = 0.6, periplasmic-soluble = 0.2, IM-mostly = 0.2, OM-lipoprotein / β-barrel / extracellular = 0.0.
-- **§5.2 normalisation: harmonise on [iBAQ](https://www.nature.com/articles/nature10098)** across §5.2a / 5.2b / 5.2c before ortholog lift; tag per-organism evidence quality (*S. aureus* and *E. coli* transfers have very different reliability).
-- **Architectural — split the §5 sink** into two sinks: target-side Clp-accessibility vs compound-side recruiter delivery. The latter ([eNTRy rules](https://www.nature.com/articles/nature22308), OmpF / OmpC porins, AcrAB-TolC efflux, siderophore conjugation) is a compound property, not a target property.
-
-### Skip
-
-- [MULocDeep](http://mu-loc.org/), SCLpred-EMS, [TargetP-2.0](https://services.healthtech.dtu.dk/services/TargetP-2.0/) (eukaryotic-biased), [CELLO 2.5](http://cello.life.nctu.edu.tw/) / [BUSCA](http://busca.biocomp.unibo.it/) / [LocTree3](https://rostlab.org/services/loctree3/) (superseded), [Phobius](https://phobius.sbc.su.se/) / MEMSAT-SVM / TOPCONS / TMbed / DeepTMpred (DeepTMHMM covers it), BOMP / BetaTM / BOCTOPUS2 (PRED-TMBB2 better), [ProteomicsDB](https://www.proteomicsdb.org/) / MaxQB (human-centric — PaxDb + direct PRIDE pulls are right for bacteria), standalone transcriptomics (proteomics + Tn-seq more directly answers "is the protein there"; transcriptomics adds noise).
+- **[DeepTMHMM](https://www.biorxiv.org/content/10.1101/2022.04.08.487609v1)** — new 5.1d; resolves "buried in lipid bilayer vs cytoplasmic domain", covers α-helical TM + β-barrels + SP in one pass.
+- **[SignalP 6.0](https://services.healthtech.dtu.dk/services/SignalP-6.0/) + [LipoP](https://services.healthtech.dtu.dk/services/LipoP-1.0/)** — new 5.1e; fixes PSORTb's mis-bin of OM-lipoproteins as periplasmic.
+- **Structure-derived surface exposure (new 5.3)** — [DSSP](https://swift.cmbi.umcn.nl/gv/dssp/) / SASA on AlphaFold; AF2 RSA ~0.815 ρ to native ([pocketome universe 2025](https://www.cell.com/cell/fulltext/S0092-8674(22)00593-1)).
+- **Condition-specific Kp expression (new 5.2d)** — curated [PRIDE](https://www.ebi.ac.uk/pride/) datasets ([PXD047744](https://www.ebi.ac.uk/pride/archive/projects/PXD047744)), colistin / meropenem / serum-stress proteomics, lung ([Bachman 2015](https://journals.asm.org/doi/10.1128/mbio.00775-15)) and urine+serum ([Short 2024](https://elifesciences.org/articles/88971)) Tn-seq fitness. PaxDb misses niche-expressed targets.
+- **[PRED-TMBB2](https://academic.oup.com/bioinformatics/article/32/17/i665/2450774) β-barrel cross-check** — sibling to 5.1d; β-barrel mis-call as cytoplasmic is the worst-case error.
+- **Mtb cyclomarin / ecumicin + B. subtilis ADEP proteomics → §5.2b** — closer to BacPROTAC than ADEP4 (recruits ClpC). [Front Chem 2024 BacPROTAC Gram-negative review](https://www.frontiersin.org/journals/chemistry/articles/10.3389/fchem.2024.1358539/full).
+- **§5.1b PSORTb**: cross-check the lipoprotein call with SignalP 6.0 + LipoP.
+- **Sink: explicit Clp-accessibility score** — cytoplasmic 1.0 / IM with ≥30% cyto-domain 0.6 / periplasmic-soluble 0.2 / IM-mostly 0.2 / OM-lipo / β-barrel / extracellular 0.0.
+- **§5.2 normalisation: harmonise on [iBAQ](https://www.nature.com/articles/nature10098)** before ortholog lift; tag per-organism evidence quality.
+- **Architectural: split the §5 sink** into target-side Clp-accessibility vs compound-side recruiter delivery ([eNTRy rules](https://www.nature.com/articles/nature22308), porins, efflux).
