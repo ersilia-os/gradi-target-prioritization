@@ -100,3 +100,32 @@ flowchart LR
 | [eggNOG](http://eggnog5.embl.de/) | Orthology resource with hierarchical functional annotation across taxa. | 1.3d |
 | [Europe PMC](https://europepmc.org/) | Open literature database (PubMed + preprints + full text) used for publication / mention counts. | 1.4 |
 | [ESM-2](https://github.com/facebookresearch/esm) | Meta AI protein language model; the 650M-parameter variant supplies the per-protein 1280-d embeddings. | 1.5 |
+
+## Suggestions
+
+_Audit findings from a 2026-05 literature review; not yet wired into the diagram or Tracks table._
+
+### Add
+
+- **[DeepLocPro 1.0](https://academic.oup.com/bioinformatics/article/40/12/btae677/7900293)** — bacteria-trained subcellular-localization predictor (6 classes, calibrated probabilities). UniProt subcellular fields are sparse or `By similarity` for HS11286. Anchored in §5; flagged here only as a cross-link.
+- **[SignalP 6.0](https://www.nature.com/articles/s41587-021-01156-3) + LipoP** — five-class signal-peptide / lipoprotein detection. Lipoprotein flag = "hard for BacPROTAC". Pairs with localization.
+- **[Foldseek](https://www.nature.com/articles/s41587-023-01773-0) + [ProstT5](https://academic.oup.com/nargab/article/6/4/lqae150/7901286)** — extend §1.2 from "does a structure exist?" to "is there a structural neighbour with a ligand co-crystal?". 3Di tokens make sub-Å search BLAST-cheap; ProstT5 supplies tokens for sequences without an AlphaFold model.
+- **[PPanGGOLiN](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1007732)** ([GitHub](https://github.com/labgem/PPanGGOLiN)) — would implement the planned §1.3b within-Kp pan-genome partition. HMM/MRF-based, principled core / persistent / shell / cloud splits, scales to ~10⁴ Kp genomes.
+- **[eggNOG-mapper v2](https://academic.oup.com/mbe/article/38/12/5825/6379734)** — one pass delivers COG functional category, KEGG / EC / GO, *and* the human-ortholog flag. Would implement §1.3d selectivity-vs-human without a bespoke RBH-BLAST workflow.
+- **[MobiDB-lite consensus disorder](https://pmc.ncbi.nlm.nih.gov/articles/PMC7779018/)** — refine §1.2b to emit an IDR consensus call alongside raw pLDDT bins. pLDDT &lt; 50 conflates true disorder with poor MSA coverage and short flexible linkers. *Bacterial note:* bacterial proteomes have lower IDR content than eukaryotes, so a smaller fraction of the proteome will trigger it — still informative for the cases that do.
+
+### Upgrade
+
+- **§1.5 ESM-2-650M → [SaProt-650M](https://github.com/westlake-repl/SaProt)** (ICLR 2024 #1 on ProteinGym) or **[ESM-C 600M](https://www.evolutionaryscale.ai/blog/esm-cambrian)**. SaProt fuses 3Di structure tokens with sequence — free upgrade because §1.2b already supplies the structures. Skip only if a downstream classifier is already trained against ESM-2's 1280-d space.
+- **§1.2a PDB coverage → "structural coverage + Foldseek neighbours"** — SIFTS only flags identity-mapped coverage; Foldseek vs the PDB-ligand-bound subset gives a much stronger BacPROTAC-relevant signal.
+- **§1.3a BV-BRC PATtyFams: keep, snapshot locally.** NIAID BRC funding renewed Sept 2024 — data is current, but cache PLFam / PGFam tables to insulate against future outages.
+
+### Skip
+
+- [Pharos / TCRD](https://pharos.nih.gov/) (human-only).
+- CDD / Pfam-HMMER direct (InterPro already integrates them).
+- GearNet / MSA-Transformer / ESM-3-multimodal (weaker or overkill vs SaProt / ESM-C).
+- [CARD](https://card.mcmaster.ca/) / [MEGARes](https://www.meglab.org/megares/) / TTD as a §1 axis (resistance / human-target catalogs, wrong scope).
+- HHrepID / coiled-coil predictors (niche; InterPro covers it).
+- DeepTMHMM as a §1 track (duplicative with §5).
+- Bacterial PTM predictors (limited training data).
