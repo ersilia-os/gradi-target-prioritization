@@ -18,6 +18,22 @@ Consequence: when adding datasets or generated results, write them under `data/`
 
 `access.json` declares the visibility of `data` and `output` for eosvc (`"public"` or otherwise). Update it if access requirements change.
 
+## Identifier convention
+
+Always use **UniProt identifiers** (UniProt accessions, e.g. `P12345`) as the canonical identifier for proteins and genes in **every** dataset — both `data/` inputs and `output/` results. When a source provides only other identifiers (gene symbols, Ensembl/Entrez/RefSeq IDs, etc.), map them to UniProt accessions and use the UniProt accession as the primary key. Original identifiers may be retained as additional columns for provenance, but they must not replace the UniProt accession.
+
+## Anchor strain
+
+The single *K. pneumoniae* anchor strain is **HS11286** (UniProt proteome `UP000007841`; NCBI `GCF_000240185.1`; locus-tag prefix `KPHS_*`; 5,728 proteins). It is the **only** *K. pneumoniae* proteome UniProt flags as a "Reference and representative proteome", so it has the most complete annotation and the cleanest cross-references. The FASTA lives at `data/raw/proteome/UP000007841_HS11286.fasta` (fetch with `scripts/fetch_proteome_hs11286.py`).
+
+Why not the alternatives:
+- **ATCC 43816 / KPPR1** (the originally suggested strain) is popular only in mouse *in-vivo* essentiality work, not annotation — it has no curated UniProt reference proteome. Avoid it as the anchor.
+- **MGH 78578** is the *historical* reference and holds most of the species' reviewed (Swiss-Prot) entries, but reviewed coverage is not a meaningful strain criterion here: across *all* K. pneumoniae strains there are only ~960 reviewed vs ~187k unreviewed entries (~0.5%), and reviewed annotation propagates across strains via orthology anyway.
+
+**Mapping rule:** resolve all orthology and identifier mappings **onto HS11286** whenever a corresponding ortholog exists. Evidence and data from other strains (e.g. KPPR1, KPNIH1, ECL8 essentiality; *E. coli* K-12 orthology) should be carried as annotations on the HS11286 protein (keyed by its UniProt accession), preserving the source strain/ID as provenance columns rather than as a separate primary key. Note `KPHS_*` is a locus tag, not a UniProt accession — keep both, but the UniProt accession is canonical (see *Identifier convention*).
+
+Resources keyed at the **species** level (e.g. ChEMBL, taxid 573) are strain-agnostic; the anchor-strain choice does not affect them.
+
 ## Directory contract
 
 The template prescribes specific roles — keep new files in the right bucket:

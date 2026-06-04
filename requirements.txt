@@ -4,3 +4,16 @@ requests>=2.31
 biopython>=1.83
 tqdm>=4.66
 tenacity>=8.2
+
+# Protein language model embeddings (scripts/01_esmc_embeddings.py)
+torch>=2.2
+esm>=3.1   # EvolutionaryScale ESM-C local inference
+httpx>=0.27  # required by esm.sdk (not auto-installed by esm)
+
+# Embedding projection / visualization (scripts/02_esm_projection.py, 03_projection_sweep.py)
+umap-learn>=0.5
+matplotlib>=3.8
+plotly>=5.20
+openTSNE>=1.0   # fast t-SNE with cosine + multiscale affinities
+pacmap>=0.9     # structure-preserving projection
+colorcet>=3.0   # glasbey categorical palettes for many-family coloring
