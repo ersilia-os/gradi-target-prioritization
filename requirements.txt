@@ -15,3 +15,7 @@ openTSNE>=1.0   # multiscale + cosine t-SNE (the projection)
 umap-learn>=0.5  # used to derive coherent cluster colors
 matplotlib>=3.8
 colorcet>=3.0   # glasbey categorical palette for many-family coloring
+matplotlib-venn>=1.1  # for downstream plotting of the 3-way orthology tables (03c outputs)
+
+# AlphaFold structural annotation (scripts/06_alphafold_structure.py)
+networkx>=3.0   # PAE-graph community detection for domain segmentation

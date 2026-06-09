@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-This repo is currently a freshly-instantiated copy of the Ersilia analysis template (`eos-analysis-template`). There is no project code, no dependencies declared in `requirements.txt`, and no logic in `install.sh` — these are empty placeholders awaiting the actual project work. `scripts/`, `notebooks/`, and `src/` (not yet created) are expected destinations for new code. The repo name implies the eventual analysis will be a **target prioritization** project for the **GraDi** collaboration.
+Active **target-prioritization** analysis for the **GraDi** collaboration: a per-protein
+annotation/prioritization pipeline anchored on *K. pneumoniae* HS11286, with *E. coli* K-12 and
+human as comparison organisms. `scripts/` holds a numbered pipeline (fetch proteomes →
+language-model embeddings & 2D maps → family/structure annotation → cross-species orthology); the
+five prioritization axes are specified in `docs/01_…`–`docs/05_…`. `data/` and `output/` are
+organized **organism-first** (see *Directory contract*), and `requirements.txt` / `install.sh`
+are populated (see *Setup*).
 
 ## Two-track persistence: Git vs. eosvc
 
@@ -24,7 +30,7 @@ Always use **UniProt identifiers** (UniProt accessions, e.g. `P12345`) as the ca
 
 ## Anchor strain
 
-The single *K. pneumoniae* anchor strain is **HS11286** (UniProt proteome `UP000007841`; NCBI `GCF_000240185.1`; locus-tag prefix `KPHS_*`; 5,728 proteins). It is the **only** *K. pneumoniae* proteome UniProt flags as a "Reference and representative proteome", so it has the most complete annotation and the cleanest cross-references. The FASTA lives at `data/raw/proteome/UP000007841_HS11286.fasta` (fetch with `scripts/fetch_proteome_hs11286.py`).
+The single *K. pneumoniae* anchor strain is **HS11286** (UniProt proteome `UP000007841`; NCBI `GCF_000240185.1`; locus-tag prefix `KPHS_*`; 5,728 proteins). It is the **only** *K. pneumoniae* proteome UniProt flags as a "Reference and representative proteome", so it has the most complete annotation and the cleanest cross-references. The FASTA lives at `data/raw/kpneumoniae/proteome/UP000007841_HS11286.fasta` (fetch with `scripts/00a_fetch_proteomes.py`, which also fetches the E. coli K-12 `UP000000625` and human `UP000005640` reference proteomes used for orthology/selectivity).
 
 Why not the alternatives:
 - **ATCC 43816 / KPPR1** (the originally suggested strain) is popular only in mouse *in-vivo* essentiality work, not annotation — it has no curated UniProt reference proteome. Avoid it as the anchor.
@@ -36,15 +42,61 @@ Resources keyed at the **species** level (e.g. ChEMBL, taxid 573) are strain-agn
 
 ## Directory contract
 
-The template prescribes specific roles — keep new files in the right bucket:
+The two eosvc-tracked trees keep their template roles, but are organized **organism-first**:
 
-- `data/raw/` — original, untouched inputs. `data/processed/` — cleaned/transformed derivatives.
-- `output/results/` — numerical results, logs, text outputs. `output/plots/` — figures.
-- `scripts/` — standalone preprocessing/automation scripts.
-- `notebooks/` — Jupyter exploration and prototyping.
-- `src/` — reusable modules (directory not yet created; create when needed).
-- `assets/` — static resources (images, figures used in docs).
+- `data/raw/` — original, untouched inputs.  `data/processed/` — cleaned/transformed derivatives.
+- `output/results/` — numerical results, logs, text.  `output/plots/` — figures.
+
+Inside each of those four, content is bucketed **by organism, then by data type**:
+- `kpneumoniae/`, `ecoli/`, `human/` — the focal organisms. E.g. `data/raw/kpneumoniae/proteome/`,
+  `data/raw/kpneumoniae/{interpro,panther}/`, `data/processed/kpneumoniae/{embeddings,families,alphafold}/`,
+  `output/{results,plots}/kpneumoniae/`. (Per-organism subfolders are created as each track is run,
+  so not every organism has every subfolder yet.)
+- `other/` — cross-/multi-species inputs that aren't a single focal organism; e.g. the orthology
+  panel and its OrthoFinder run live in `data/{raw,processed}/other/orthology/`.
+- `legacy/` — parked pre-reorganization material; exempt from the organism scheme — don't extend it.
+
+Code/doc buckets: `scripts/` (numbered pipeline, below), `notebooks/` (exploration), `src/`
+(reusable modules), `assets/` (static resources), `docs/` (the five prioritization-axis specs
+`01_…`–`05_…` plus per-step logs).
+
+### Pipeline (`scripts/`)
+
+Numbered so the stage is obvious; the `0Nx` letter groups variants of a stage. Run with the
+`gradi` env unless noted. Per-organism scripts take `--organism {kpneumoniae,ecoli}` (a few
+also `human`); they default to `kpneumoniae`.
+
+- `00a_fetch_proteomes.py` — fetch the kp/ecoli/human reference proteomes from UniProt (FASTA + TSV).
+- `00b_proteome_descriptors.py` — 2×2 descriptor overview figure for the three proteomes.
+- `01a_esmc_embeddings.py` — ESM-C 600M per-protein embeddings (NPZ).
+- `01b_esmc_projections.py` — 2D openTSNE map of the embeddings (PNG; single faded stylia hue per organism).
+- `01c_esmatlas_coords.py` — absolute Biohub ESM Atlas coordinates.
+- `01d_esm_projections.py` — 2×2 plot comparing relative (openTSNE) vs absolute (Atlas) projections.
+- `02a_interpro_annotation.py` / `02b_panther_annotation.py` — InterPro / PANTHER family annotation.
+- `02c_family_plots.py` — family-overview barplots (kp + ecoli).
+- `03a_orthology_general.py` — cross-species ortholog "synonym" table for any focal anchor (`--organism`;
+  OrthoFinder + DIAMOND; needs the **`gradi-ortho`** env).
+- `03b_general_orthology_plots.py` — per-anchor 2×2 overview of the 03a orthology mapping
+  (`--organism`; writes `output/plots/03b_general_orthology_{kp,ec}.png`).
+- `03c_orthology_focused.py` — focused 3-way orthology of kp × ecoli × human (OrthoFinder). Writes
+  TABLES only (orthogroup-membership/Venn data, per-protein selectivity categories, broad-spectrum+
+  human-selective shortlist, RBH %identity); plotting is done downstream from these tables.
+- `04a_alphafold_structures.py` — AlphaFold model availability / pLDDT / domain summary.
+- `04b_alphafold_plots.py` — plots of the AlphaFold structural annotation.
+- `04c_pdb_coverage.py` — experimental PDB structure coverage per protein (PDBe SIFTS).
+- `04d_pdb_plots.py` — plots of the PDB structural-coverage annotation.
 
 ## Setup
 
-`install.sh` and `requirements.txt` are intentionally empty; populate them as dependencies are introduced. No build, lint, or test commands are configured yet — when adding them, document them here.
+Two conda environments (commands documented in `install.sh`):
+
+- **`gradi`** (Python 3.11) — the main env for everything except orthology:
+  `conda create -y -n gradi python=3.11 && conda activate gradi && bash install.sh`
+  (`install.sh` runs `pip install -r requirements.txt`: pandas, pyarrow, requests, biopython,
+  torch, esm, openTSNE, umap-learn, matplotlib, colorcet, networkx, …).
+- **`gradi-ortho`** (osx-64 bioconda; runs under Rosetta on Apple Silicon) — OrthoFinder + DIAMOND
+  for the orthology scripts (`03a_orthology_general.py`, `03c_orthology_focused.py`) only.
+  Created via micromamba; see the command block in `install.sh`.
+
+Do NOT use the machine's default `python3` (it resolves to an unrelated `ersilia` env). No build,
+lint, or test commands are configured yet — document them here when added.

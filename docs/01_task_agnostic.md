@@ -134,22 +134,47 @@ flowchart LR
 
 ### 1.2a · PDB coverage
 
-| Column | Type | Cardinality | Description |
-| --- | --- | --- | --- |
-| `pdb_ids` | list[string] | many | PDB chain IDs covering this UniProt. |
-| `pdb_n_chains` | int | one | Count of covering chains. |
-| `pdb_coverage_fraction` | float, [0,1] | one | Fraction of residues covered by any PDB chain. |
-| `pdb_best_resolution_A` | float, nullable | one | Best resolution among covering chains, Å. |
-| `pdb_has_holo` | bool | one | True if any covering structure has a small-molecule ligand bound. |
-
-### 1.2b · AlphaFold pLDDT
+Implemented by `scripts/04c_pdb_coverage.py` (run per organism via `--organism kpneumoniae|ecoli`) → `output/results/<organism>/<prefix>_pdb_coverage.csv`. Source is **PDBe SIFTS**: per-protein covering structures come from the `best_structures` endpoint (batched POST; gives per-structure UniProt residue ranges + coverage + resolution + method), and apo/holo from `ligand_monomers/{pdb_id}` (404 = apo; otherwise bound monomers filtered against a water/ion/cryo-additive ignore-list). Raw responses cached under `data/processed/<organism>/pdb/{best_structures,ligands}/`. Coverage is **range-based** (UniProt-mapped residue segments). Most of the proteome has no experimental structure: **K. pneumoniae 30 / 5,728 (0.5%)**, **E. coli K-12 1,779 / 4,403 (40.4%)** — among those, median union coverage ≈ 1.00.
 
 | Column | Type | Cardinality | Description |
 | --- | --- | --- | --- |
+| `pdb_has_structure` | bool | one | Any experimental PDB structure maps to this UniProt. |
+| `pdb_n_structures` | int | one | Number of distinct covering PDB entries. |
+| `pdb_n_chains` | int | one | Number of covering (entry, chain) mappings. |
+| `pdb_ids` | list[string] | many | `;`-joined covering PDB IDs. |
+| `pdb_best_id`, `pdb_best_chain` | string | one | Best structure (max single-structure coverage, ties broken by resolution) and a representative chain. |
+| `pdb_coverage_union` | float, [0,1] | one | Fraction of the UniProt sequence covered by the union of all covering structures. |
+| `pdb_coverage_best_single` | float, [0,1] | one | Coverage of the single best structure (`≤ pdb_coverage_union`). |
+| `pdb_best_resolution_A` | float, nullable | one | Best (lowest) resolution among covering structures, Å (null for NMR-only). |
+| `pdb_best_method` | string | one | Experimental method of the best-resolution structure. |
+| `pdb_has_holo` | bool | one | Any covering structure has a non-trivial bound ligand. |
+| `pdb_holo_ids` | list[string] | many | `;`-joined covering PDB IDs that are holo. |
+| `pdb_ligands` | list[string] | many | `;`-joined real (non-ignored) ligand chem-comp IDs across covering structures. |
+| `pdb_apo_holo_per_structure` | string | many | `;`-joined `pdbid:LIG1|LIG2` or `pdbid:apo` per covering entry. |
+
+### 1.2b · AlphaFold structural quality
+
+Implemented by `scripts/04a_alphafold_structures.py` (run per organism via `--organism kpneumoniae|ecoli`) → `output/results/<organism>/<prefix>_alphafold_structure.csv`. Models + PAE are pulled fresh from the [AlphaFold DB API](https://alphafold.ebi.ac.uk/api/prediction/) and cached under `data/processed/<organism>/alphafold/{cif,pae,pred}/` for reuse by later structural tracks (§2 pockets, §3 degron exposure). **Monomer only** — AFDB holds single-chain models and does not predict oligomeric state, so monomer-vs-multimer is a separate track. Coverage: K. pneumoniae **5,727 / 5,728** (only `A0A0H3GQF9`, 3,163 aa, exceeds AFDB's ~2,700-residue limit); E. coli K-12 **4,371 / 4,403** (the 32 misses are demerged/recently-added accessions or oversized chains absent from the current AFDB release). Both proteomes show the same structure: median mean-pLDDT ≈ 91 and ≈ 45% multidomain.
+
+Two confidence axes: **pLDDT** (local, read straight from the AFDB-precomputed fractions) and **PAE** (relative-position confidence, clustered into structural domains via the `pae_to_domains` graph approach — Louvain at resolution 0.3, calibrated so compact low-PAE chains resolve to one domain).
+
+| Column | Type | Cardinality | Description |
+| --- | --- | --- | --- |
+| `af_available` | bool | one | AFDB model exists for this accession. |
+| `af_model_id`, `af_model_version` | string, int | one | e.g. `AF-<acc>-F1`, version 6. |
+| `af_modeled_len` | int | one | Residues covered by the model. |
+| `af_is_complex` | bool | one | Always False (AFDB monomer models) — documents the monomer-only caveat. |
 | `af_mean_plddt` | float, [0,100] | one | Mean per-residue pLDDT. |
-| `af_frac_high_plddt` | float, [0,1] | one | Fraction of residues with pLDDT > 70 (confident). |
-| `af_frac_very_high_plddt` | float, [0,1] | one | Fraction with pLDDT > 90 (very confident). |
-| `af_frac_low_plddt` | float, [0,1] | one | Fraction with pLDDT < 50 — proxy for disorder. |
+| `af_frac_high_plddt` | float, [0,1] | one | Fraction with pLDDT > 70 (= confident + very-high). |
+| `af_frac_very_high_plddt` | float, [0,1] | one | Fraction with pLDDT ≥ 90. |
+| `af_frac_confident_plddt` | float, [0,1] | one | Fraction with pLDDT 70–90. |
+| `af_frac_low_plddt` | float, [0,1] | one | Fraction with pLDDT 50–70. |
+| `af_frac_very_low_plddt` | float, [0,1] | one | Fraction with pLDDT < 50 — proxy for disorder. |
+| `af_pae_max`, `af_pae_mean` | float | one | Max / mean Predicted Aligned Error (Å). |
+| `af_n_domains` | int | one | PAE-clustered structural domains (≥10 residues each). |
+| `af_largest_domain_frac` | float, [0,1] | one | Largest domain size / modeled length. |
+| `af_interdomain_pae_mean` | float, nullable | one | Mean PAE between distinct domains (high ⇒ uncertain relative orientation); NaN if single-domain. |
+| `af_is_multidomain` | bool | one | `af_n_domains ≥ 2` (46% of the proteome). |
 
 ### 1.3a · BV-BRC protein families
 
@@ -197,6 +222,14 @@ flowchart LR
 | Column | Type | Cardinality | Description |
 | --- | --- | --- | --- |
 | `esm2_embedding` | float[1280] | one | Per-protein vector from ESM2-650M; stored separately (HDF5 / NPY keyed by `uniprot_accession`). |
+
+> **Implementation note.** The embeddings actually computed for this proteome are **ESM-C 600M** (mean-pooled, 1152-d), stored at `data/processed/embeddings/kp_esmc600m_embeddings.npz` keyed by `uniprot_accession` (per the §1.5 → ESM-C suggestion below).
+
+#### 1.5b · Absolute ESM Atlas coordinates
+
+`scripts/03_esmatlas_coords.py` downloads the **absolute (x, y) coordinates each protein occupies in the [Biohub ESM Atlas](https://biohub.ai/esm/protein/atlas)** (ESMC + ESMFold2 global UMAP of the protein universe) and writes `output/results/kp_esmatlas_coords.csv` (`uniprot_accession`, `protein_hash`, `atlas_x`, `atlas_y`, `matched`, `source`, `atlas_api`) plus `output/plots/kp_esmatlas_projection.png`.
+
+These are the atlas's **own** coordinates, not a local re-projection. The atlas keys every protein by `protein_hash = md5(sequence)` (verified), and its web app serves coordinates from a public, unauthenticated endpoint: `POST https://biohub.ai/esm/protein/api/v1alpha1/umap/coords/by-hash` with body `{"protein_hashes": [...≤10...]}`, returning `{"by_hash": {hash: [x, y]}}` in absolute world space (~0–1024; cf. the `umap/manifest` `transform`, `space_size=1024`). The script hashes each proteome sequence, batches the lookups (10/request, concurrent), and re-queries any misses — the atlas folds some proteins **on demand**, so a hash can be omitted on first request and appear once folded. Coverage: **5,727 / 5,728** proteins located; the lone miss (`A0A0H3GQF9`, 3,163 aa) is absent from the atlas (HTTP 404). `source = biohub_esm_atlas_absolute` in every matched row.
 
 ## Suggestions
 
