@@ -76,10 +76,18 @@ def main() -> None:
     ax.set_yscale("log")
     ax.legend(fontsize=SS, frameon=False)
 
+    # organism's own ground-truth essential set (reused by the agreement, calibration & sensitivity panels)
+    if org == "kpneumoniae":
+        direct = d.get("kp_ess_in_vitro_call", pd.Series(index=d.index)).astype(str).eq("essential")
+        dlabel = "Kp ECL8-essential"
+    else:
+        direct = d["ec_ess"].fillna(False).astype(bool)
+        dlabel = "E. coli EcoGene-essential"
+
     # ---- panel 2: ProteomeLM vs Geptop agreement ----
     ax = axs.next()
-    for lab, mask, c in [("E. coli-essential", d["ec_ess"], ORG_COLOR[prefix]),
-                         ("other", ~d["ec_ess"], "#C9C9C7")]:
+    for lab, mask, c in [(dlabel, direct, ORG_COLOR[prefix]),
+                         ("other", ~direct, "#C9C9C7")]:
         s = d[mask]
         ax.scatter(s["gep"], s["plm"], s=6, alpha=0.5 if lab == "other" else 0.8,
                    color=c, linewidths=0, rasterized=True, label=lab)
@@ -115,28 +123,22 @@ def main() -> None:
                  title=f"Predictor consensus — {orgname}")
     ax.set_yscale("log"); ax.margins(y=0.2)
 
-    # ---- panel 5: ProteomeLM calibration vs E. coli labels ----
+    # ---- panel 5: ProteomeLM calibration vs the organism's own essential set ----
     ax = axs.next()
     bins = np.linspace(0, 1, 11)
     mid = (bins[:-1] + bins[1:]) / 2
     frac = []
     for lo, hi in zip(bins[:-1], bins[1:]):
         m = (d["plm"] >= lo) & (d["plm"] < hi)
-        frac.append(d.loc[m, "ec_ess"].mean() if m.sum() else np.nan)
+        frac.append(direct[m].mean() if m.sum() else np.nan)
     ax.plot([0, 1], [0, 1], ls=":", color="#999")
     ax.plot(mid, frac, "-o", color=PLM_C, ms=4)
-    stylia.label(ax, xlabel="ProteomeLM score", ylabel="observed E. coli-essential frac",
+    stylia.label(ax, xlabel="ProteomeLM score", ylabel=f"observed {dlabel} frac",
                  title=f"ProteomeLM calibration — {orgname}")
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
 
     # ---- panel 6: predictors vs the direct experimental call ----
     ax = axs.next()
-    if org == "kpneumoniae":
-        direct = d.get("kp_ess_in_vitro_call", pd.Series(index=d.index)).astype(str).eq("essential")
-        dlabel = "Kp ECL8-essential"
-    else:
-        direct = d["ec_ess"]
-        dlabel = "E. coli EcoGene-essential"
     grp = d[direct]
     labels = ["ProteomeLM", "Geptop", "FBA"]
     recovered = [
