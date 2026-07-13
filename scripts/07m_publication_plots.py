@@ -40,6 +40,16 @@ CRISPRI_C = "#E64B35"
 JANA = E.essentiality_raw_dir("kpneumoniae", "jana2023_crispri") / "aem.00956-23-s0001.xlsx"
 MB = E.essentiality_raw_dir("kpneumoniae", "mikebachman2023_KPPR1") / "ppat.1011233.s011.xlsx"
 
+# compact genome tick labels for the cross-species heatmap (the full names are too long rotated)
+GENOME_ABBR = {
+    "K. pneumoniae ECL8": "Kp ECL8", "K. pneumoniae RH201207": "Kp RH201207",
+    "E. coli BW25113": "Ec BW25113", "E. coli EC958": "Ec EC958",
+    "E. coli NCTC13441": "Ec NCTC13441", "C. rodentium ICC168": "Cr ICC168",
+    "S. Typhi Ty2": "S.Ty Ty2", "S. Tm A130": "S.Tm A130", "S. Tm D23580": "S.Tm D23580",
+    "S. Tm SL3261": "S.Tm SL3261", "S. Tm SL1344": "S.Tm SL1344",
+    "S. Enteritidis P125109": "S.Ent P125109",
+}
+
 
 def _note(ax, msg):
     ax.text(0.5, 0.5, msg, transform=ax.transAxes, ha="center", va="center", color="#999", fontsize=SS)
@@ -167,7 +177,8 @@ def main() -> None:
            if len(var) > N_HEATMAP else range(len(var)))
     sel = var.iloc[idx]
     ax.imshow(sel[ess_cols].astype(float).to_numpy(), aspect="auto", cmap="Reds", vmin=0, vmax=1, interpolation="nearest")
-    ax.set_xticks(range(len(genomes))); ax.set_xticklabels(genomes, rotation=90, fontsize=SS)
+    ax.set_xticks(range(len(genomes)))
+    ax.set_xticklabels([GENOME_ABBR.get(g, g) for g in genomes], rotation=90, fontsize=SS)
     ax.set_yticks(range(len(sel))); ax.set_yticklabels(sel["g"], fontsize=SS)
     # title states this is a representative slice of ALL genes essential in >=1 genome
     stylia.label(ax, xlabel="", ylabel="",
@@ -192,13 +203,18 @@ def main() -> None:
         fn = lib["Function"].dropna().astype(str).str.strip()
         fn = fn[~fn.str.lower().isin(["", "nan", "-"])]
         vc = fn.value_counts().head(8).iloc[::-1]
-        bars = ax.barh(range(len(vc)), vc.to_numpy(), color=CRISPRI_C)
-        ax.bar_label(bars, padding=2, fontsize=SS)
-        ax.set_yticks(range(len(vc)))
-        ax.set_yticklabels([s if len(s) < 34 else s[:32] + "…" for s in vc.index], fontsize=SS)
+        yy = np.arange(len(vc))
+        # thin bars with the full COG category name placed ABOVE each bar (inline) — the categories are
+        # too long for y-tick labels; count sits at the bar end.
+        bars = ax.barh(yy, vc.to_numpy(), height=0.42, color=CRISPRI_C)
+        ax.bar_label(bars, padding=3, fontsize=SS)
+        ax.set_yticks([])
+        for i, cat in enumerate(vc.index):
+            ax.text(0, i + 0.28, cat, ha="left", va="bottom", fontsize=SS, color="#333")
+        ax.set_ylim(-0.6, len(vc) - 0.1)
+        ax.set_xlim(0, vc.max() * 1.15)
         stylia.label(ax, xlabel="genes in 870-gene CRISPRi library", ylabel="",
                      title=f"CRISPRi library by function — {orgname}")
-        ax.margins(x=0.14)
     else:
         _note(ax, "method concordance")
         stylia.label(ax, xlabel="", ylabel="", title=f"Method concordance — {orgname}")
