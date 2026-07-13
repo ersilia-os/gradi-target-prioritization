@@ -81,44 +81,45 @@ def main() -> None:
     d = load(org)
     d["gene_lab"] = d.apply(_label, axis=1)
     has_xy = d["tsne_x"].notna() & d["tsne_y"].notna()
+    pr = d[has_xy & d["is_prime"]]  # prime targets (with map coords); reused across panels
 
     stylia.set_format("slide")
     fig, axs = stylia.create_figure(2, 3, width=1.0, height=0.5625)
 
-    # ---- panel 1: global essentiality score, reverse-cumulative + top targets labelled ----
+    # ---- panel 1: ranked essentiality score (rank on x, score on y); top genes labelled at the tail ----
     ax = axs.next()
-    sc = d["essentiality_score"].to_numpy()
-    xs = np.linspace(0, 1, 200)
-    ys = np.array([(sc >= x).sum() for x in xs])
-    ax.plot(xs, ys, color=ESS_C, lw=2)
-    ax.fill_between(xs, ys, where=(xs >= 0.6), color=ESS_C, alpha=0.18)
-    ax.set_yscale("log")
-    ax.set_ylim(1, len(d))
-    ax.axvline(0.6, color="#999", ls=":", lw=1)
-    stylia.label(ax, xlabel="essentiality score", ylabel="proteins with score ≥ x",
-                 title=f"Global essentiality score — {orgname}")
-    # list the top targets as a clean ordered column in the shaded tail (no leader lines -> no clutter);
-    # prime targets in red, others dark. They all sit at score≈1, so a vertical list reads cleanly.
-    top = d.sort_values("essentiality_score", ascending=False).head(10).reset_index(drop=True)
-    ys_lab = np.geomspace(len(d) * 0.5, 3, len(top))
-    for i, r in top.iterrows():
-        ax.text(0.635, ys_lab[i], r["gene_lab"], fontsize=SS, va="center", ha="left",
-                color=PRIME_C if r["is_prime"] else "#333")
+    srt = d.sort_values("essentiality_score", ascending=True).reset_index(drop=True)
+    srt["rank"] = np.arange(1, len(srt) + 1)
+    N = len(srt)
+    ax.plot(srt["rank"], srt["essentiality_score"], color=ESS_C, lw=2)
+    ax.fill_between(srt["rank"], srt["essentiality_score"],
+                    where=(srt["essentiality_score"] >= 0.6), color=ESS_C, alpha=0.16)
+    ax.set_xlim(0, N * 1.02); ax.set_ylim(0, 1.05)
+    # label the top-10 (upper-right tail) with thin leader lines to a vertical stack (no overlap)
+    top = srt.tail(10).iloc[::-1]  # highest score first
+    lab_x = N * 0.50
+    ys_lab = np.linspace(0.96, 0.42, len(top))
+    for i, (_, r) in enumerate(top.iterrows()):
+        ax.annotate(r["gene_lab"], xy=(r["rank"], r["essentiality_score"]),
+                    xytext=(lab_x, ys_lab[i]), fontsize=SS, va="center", ha="right",
+                    color=PRIME_C if r["is_prime"] else "#333",
+                    arrowprops=dict(arrowstyle="-", color="#BBB", lw=0.5))
+    stylia.label(ax, xlabel="protein rank", ylabel="essentiality score",
+                 title=f"Ranked essentiality score — {orgname}")
 
-    # ---- panel 2: prioritization on the ESM-C map ----
+    # ---- panel 2: essential vs studiedness (neglected-yet-essential = opportunity) ----
     ax = axs.next()
-    ax.scatter(d.loc[has_xy, "tsne_x"], d.loc[has_xy, "tsne_y"], s=4, alpha=0.28,
-               color="#D8D8D6", linewidths=0, rasterized=True, label="all proteins")
-    es = d[has_xy & d["is_essential"] & ~d["is_prime"]]
-    ax.scatter(es["tsne_x"], es["tsne_y"], s=7, alpha=0.7, color=ESS_C, linewidths=0,
-               rasterized=True, label="essential")
-    pr = d[has_xy & d["is_prime"]]
-    ax.scatter(pr["tsne_x"], pr["tsne_y"], s=26, color=PRIME_C, marker="*", linewidths=0,
-               rasterized=True, label=f"prime ({int(d['is_prime'].sum())})")
-    ax.set_xticks([]); ax.set_yticks([])
-    stylia.label(ax, xlabel="ESM-C dim 1", ylabel="ESM-C dim 2",
-                 title=f"Prioritization map — {orgname}")
-    ax.legend(fontsize=SS, frameon=False, markerscale=1.4, loc="best")
+    sub = d[d["popularity_score"].notna()]
+    ax.scatter(sub["essentiality_score"], sub["popularity_score"], s=4, alpha=0.22,
+               color="#C9C9C7", linewidths=0, rasterized=True)
+    prs = sub[sub["is_prime"]]
+    ax.scatter(prs["essentiality_score"], prs["popularity_score"], s=12, alpha=0.85,
+               color=PRIME_C, linewidths=0, rasterized=True)
+    px = round(float(sub["popularity_score"].quantile(0.33)), 2)
+    ax.axhline(px, color="#999", ls=":", lw=1); ax.axvline(0.6, color="#999", ls=":", lw=1)
+    ax.set_xlim(0, 1.02); ax.set_ylim(0, 1.0)
+    stylia.label(ax, xlabel="essentiality score", ylabel="studiedness",
+                 title=f"Neglected & essential — {orgname}")
 
     # ---- panel 3: essential vs ligandable ----
     ax = axs.next()
@@ -132,39 +133,33 @@ def main() -> None:
                  title=f"Essential & ligandable — {orgname}")
     ax.legend(fontsize=SS, frameon=False, loc="lower left")
 
-    # ---- panel 4: essential vs studiedness (neglected-yet-essential = opportunity) ----
+    # ---- panel 4: prioritization on the ESM-C map ----
     ax = axs.next()
-    sub = d[d["popularity_score"].notna()]
-    ax.scatter(sub["essentiality_score"], sub["popularity_score"], s=4, alpha=0.22,
-               color="#C9C9C7", linewidths=0, rasterized=True)
-    prs = sub[sub["is_prime"]]
-    ax.scatter(prs["essentiality_score"], prs["popularity_score"], s=12, alpha=0.85,
-               color=PRIME_C, linewidths=0, rasterized=True)
-    px = round(float(sub["popularity_score"].quantile(0.33)), 2)
-    ax.axhline(px, color="#999", ls=":", lw=1); ax.axvline(0.6, color="#999", ls=":", lw=1)
-    opp = prs[(prs["popularity_score"] <= px) & (prs["essentiality_score"] >= 0.6)] \
-        .sort_values("essentiality_score", ascending=False)
-    for _, r in opp.head(6).iterrows():
-        ax.annotate(r["gene_lab"], (r["essentiality_score"], r["popularity_score"]),
-                    fontsize=SS, color="#7a2417", xytext=(2, 2), textcoords="offset points")
-    ax.set_xlim(0, 1.02); ax.set_ylim(0, 1.0)
-    stylia.label(ax, xlabel="essentiality score", ylabel="studiedness",
-                 title=f"Neglected & essential — {orgname}")
+    ax.scatter(d.loc[has_xy, "tsne_x"], d.loc[has_xy, "tsne_y"], s=4, alpha=0.28,
+               color="#D8D8D6", linewidths=0, rasterized=True, label="all proteins")
+    es = d[has_xy & d["is_essential"] & ~d["is_prime"]]
+    ax.scatter(es["tsne_x"], es["tsne_y"], s=7, alpha=0.7, color=ESS_C, linewidths=0,
+               rasterized=True, label="essential")
+    ax.scatter(pr["tsne_x"], pr["tsne_y"], s=26, color=PRIME_C, marker="*", linewidths=0,
+               rasterized=True, label=f"prime ({int(d['is_prime'].sum())})")
+    ax.set_xticks([]); ax.set_yticks([])
+    stylia.label(ax, xlabel="ESM-C dim 1", ylabel="ESM-C dim 2",
+                 title=f"Prioritization map — {orgname}")
+    ax.legend(fontsize=SS, frameon=False, markerscale=1.4, loc="best")
 
-    # ---- panel 5: target-profile scorecard (top prime targets × evidence axes) ----
+    # ---- panel 5: top prime targets (lollipop, ranked by essentiality × ligandability) ----
     ax = axs.next()
-    axes_cols = [("experimental", "evidence_experimental"), ("conservation", "entero_pct_essential"),
-                 ("predictor", "evidence_predictor"), ("essentiality", "essentiality_score"),
-                 ("ligandability", "ligandability_score"), ("studiedness", "popularity_score")]
     pr2 = d[d["is_prime"]].copy()
-    pr2["rank"] = pr2["essentiality_score"].fillna(0) * pr2["ligandability_score"].fillna(0)
-    pr2 = pr2.sort_values("rank", ascending=False).head(15)
-    M = np.vstack([pd.to_numeric(pr2[c], errors="coerce").fillna(0).clip(0, 1).to_numpy()
-                   for _, c in axes_cols]).T
-    ax.imshow(M, aspect="auto", cmap="YlGnBu", vmin=0, vmax=1, interpolation="nearest")
-    ax.set_xticks(range(len(axes_cols))); ax.set_xticklabels([a for a, _ in axes_cols], rotation=90, fontsize=SS)
-    ax.set_yticks(range(len(pr2))); ax.set_yticklabels(pr2["gene_lab"], fontsize=SS)
-    stylia.label(ax, xlabel="", ylabel="", title=f"Top prime-target scorecard — {orgname}")
+    pr2["priority"] = (pr2["essentiality_score"].fillna(0) * pr2["ligandability_score"].fillna(0)).round(3)
+    pr2 = pr2.sort_values("priority", ascending=True).tail(15)
+    yy = np.arange(len(pr2))
+    ax.hlines(yy, 0, pr2["priority"], color="#D8D8D6", lw=1.6, zorder=1)
+    ax.scatter(pr2["priority"], yy, s=46, color=PRIME_C, zorder=3, linewidths=0)
+    ax.set_yticks(yy); ax.set_yticklabels(pr2["gene_lab"], fontsize=SS)
+    ax.set_ylim(-0.7, len(pr2) - 0.3)
+    ax.set_xlim(0, float(pr2["priority"].max()) * 1.12)
+    stylia.label(ax, xlabel="priority  (essentiality × ligandability)", ylabel="",
+                 title=f"Top prime targets — {orgname}")
 
     # ---- panel 6: prioritization funnel ----
     ax = axs.next()
