@@ -80,14 +80,14 @@ def ecoli_panels(axs):
     ax.margins(x=0.12)
 
     # panel 2: drug × gene sensitivity heatmap (top sensitized genes)
+    # Cap rows to what fits at the deck-standard font (SS) rather than shrinking the labels.
     ax = axs.next()
-    top_genes = drug_min.min(axis=1).nsmallest(28).index
-    M = drug_min.loc[top_genes]
+    top_genes = drug_min.min(axis=1).nsmallest(15).index
     order = nsens.index[::-1]
-    M = M[order]
-    im = ax.imshow(M.to_numpy(), aspect="auto", cmap="RdBu", vmin=-6, vmax=6, interpolation="nearest")
-    ax.set_xticks(range(len(order))); ax.set_xticklabels(order, rotation=90, fontsize=5)
-    ax.set_yticks(range(len(top_genes))); ax.set_yticklabels(d.loc[top_genes, "g"], fontsize=5)
+    M = drug_min.loc[top_genes, order]
+    ax.imshow(M.to_numpy(), aspect="auto", cmap="RdBu", vmin=-6, vmax=6, interpolation="nearest")
+    ax.set_xticks(range(len(order))); ax.set_xticklabels(order, rotation=90, fontsize=SS)
+    ax.set_yticks(range(len(top_genes))); ax.set_yticklabels(d.loc[top_genes, "g"], fontsize=SS)
     stylia.label(ax, xlabel="", ylabel="", title=f"Drug × gene sensitivity (RB-TnSeq) — {orgname}")
 
     # panel 3: most condition-variable genes (widest fitness range)
@@ -99,11 +99,19 @@ def ecoli_panels(axs):
     stylia.label(ax, xlabel="fitness range across conditions", ylabel="",
                  title=f"Most condition-variable genes — {orgname}")
 
-    # panel 4: constitutive vs condition-specific (min fitness vs # conditions with defect)
+    # panel 4: constitutive vs condition-specific (min fitness vs # conditions with defect).
+    # Colour by MEAN fitness across all conditions — an orthogonal third dimension that captures the
+    # distinction itself: a deep min with a near-zero mean = condition-specific; a low mean = broadly
+    # required. Only genes with any defect are shown, sorted so the most-vulnerable plot on top.
     ax = axs.next()
-    minf = F.min(axis=1); ndef = (F < DEFECT).sum(axis=1)
-    ax.scatter(ndef, minf, s=6, alpha=0.4, color="#C9C9C7", linewidths=0, rasterized=True)
+    minf = F.min(axis=1); ndef = (F < DEFECT).sum(axis=1); meanf = F.mean(axis=1)
+    keep = (ndef > 0) | (minf < DEFECT)
+    o = meanf[keep].sort_values(ascending=False).index  # draw most-vulnerable (lowest mean) last = on top
+    sc = ax.scatter(ndef[o], minf[o], c=meanf[o], s=12, alpha=0.85, cmap="viridis",
+                    linewidths=0, rasterized=True)
     ax.set_xscale("symlog")
+    cb = ax.figure.colorbar(sc, ax=ax, fraction=0.046, pad=0.02)
+    cb.set_label("mean fitness (all conditions)", fontsize=SS); cb.ax.tick_params(labelsize=SS)
     stylia.label(ax, xlabel="# conditions with strong defect", ylabel="strongest fitness (min)",
                  title=f"Constitutive vs conditional — {orgname}")
 
