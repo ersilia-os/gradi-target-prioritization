@@ -274,7 +274,7 @@ the E. coli-specific bridges and the scoring constants.
 
 ## 7. Figures (the gallery)
 
-Five stylia slides per organism (16:9, 2×3 panels, NPG palette). Kp accent = NPG red, E. coli = cyan.
+Four stylia slides per organism (16:9, 2×3 panels, NPG palette). Kp accent = NPG red, E. coli = cyan.
 Each is `output/plots/07{i,j,k,m,o}_*_{kp,ec}.png`.
 
 ### 7.1 `07m` — Published essentiality screens (experimental, no predictions)
@@ -299,14 +299,17 @@ specific.
 Score distributions; ProteomeLM–Geptop agreement; FBA metabolic knockouts; predictor consensus;
 ProteomeLM calibration vs the curated labels; per-predictor sensitivity to the direct experimental calls.
 
-### 7.4 `07j` — Graded composite summary
-Evidence sources; tiers; sub-score coverage; the composite score histogram (by tier); evidence
-convergence (# independent sources per essential gene); top essential targets.
-
-### 7.5 `07k` — Cross-axis prioritization
-Essentiality on the ESM-C protein-universe map; essential-and-ligandable scatter (prime set); broad-
-spectrum conservation; the prime target set on the map; neglected-but-essential (vs 05a bibliometric
-studiedness); top prime antibacterial targets (essentiality × ligandability, shaded by studiedness).
+### 7.4 `07k` — Target prioritization (synthesis)
+The single synthesis slide (the former composite-summary `07j` and landscape slides were merged here;
+`07j` is retired). Six panels: (1) **global essentiality score** as a reverse-cumulative curve with the
+top-10 genes listed down the sparse tail; (2) **prioritization map** — the ESM-C protein-universe map
+with all / essential / prime layers; (3) **essential vs ligandable** scatter (prime highlighted);
+(4) **neglected vs essential** — essentiality vs 05a studiedness (understudied essentials = opportunities);
+(5) **top prime-target scorecard** — top ~15 prime targets × six evidence axes (experimental,
+conservation, predictor, essentiality, ligandability, studiedness) as a heatmap; (6) **prioritization
+funnel** — all → essential → broad-spectrum-selective → ligandable = prime (√-scaled widths). Output
+`07k_prioritization_{kp,ec}.png`. The gallery therefore has **four** slides per organism (07m · 07o ·
+07i · 07k).
 
 ---
 

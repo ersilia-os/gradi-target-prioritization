@@ -7,7 +7,9 @@ per the spec's "graded vulnerability, not a binary call" directive.
 
 ## Pipeline
 `07a` fetch → `07b` Kp experimental · `07c` E. coli transfer → `07d` ProteomeLM · `07e` Geptop ·
-`07f` FBA · `07g` DeeplyEssential(deferred) → `07h` merge → `07i/07j/07k` plots. `src/essentiality.py`
+`07f` FBA · `07g` DeeplyEssential(deferred) → `07h` merge → `07i` (predictors) · `07k` (6-panel target-
+prioritization synthesis) · `07m` (publications) · `07o` (conditions) plots — 4 slides/organism; the old
+`07j` composite-summary slide is retired (folded into `07k`). `src/essentiality.py`
 reuses the ligandability helpers (`from src import ligandability as L`) and adds the locus-tag /
 gene-symbol bridges, the DIAMOND-by-sequence strain mapper, and the scoring constants.
 
