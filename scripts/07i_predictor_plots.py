@@ -86,7 +86,6 @@ def main() -> None:
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
     stylia.label(ax, xlabel="Geptop score", ylabel="ProteomeLM score", title=f"Predictor agreement — {orgname}")
     r = d[["gep", "plm"]].corr().iloc[0, 1]
-    ax.text(0.05, 0.92, f"r = {r:.2f}", transform=ax.transAxes, fontsize=SS, color="#555")
     ax.legend(fontsize=SS, frameon=False, loc="lower right")
 
     # ---- panel 3: FBA metabolic knockouts ----
@@ -151,8 +150,6 @@ def main() -> None:
     ax.set_ylim(0, 1)
     stylia.label(ax, xlabel="", ylabel=f"frac of {dlabel} recovered",
                  title=f"Predictor sensitivity — {orgname}")
-    ax.text(0.5, -0.28, f"n = {int(direct.sum())} {dlabel} genes",
-            transform=ax.transAxes, ha="center", va="top", color="#777", fontsize=SS)
 
     out = REPO_ROOT / "output" / "plots" / f"07i_predictors_{prefix}.png"
     out.parent.mkdir(parents=True, exist_ok=True)

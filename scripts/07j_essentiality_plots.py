@@ -86,8 +86,6 @@ def main() -> None:
     ax.set_xticks(range(3)); ax.set_xticklabels([t for t, _ in subs], fontsize=SS)
     stylia.label(ax, xlabel="", ylabel="proteins with sub-score", title=f"Sub-score coverage — {orgname}")
     ax.margins(y=0.18)
-    ax.text(0.5, -0.30, f"of {len(d):,} proteins (missing tracks are renormalised, not zero-filled)",
-            transform=ax.transAxes, ha="center", va="top", color="#777", fontsize=SS)
 
     # ---- panel 4: composite score histogram by tier ----
     ax = axs.next()
@@ -129,8 +127,6 @@ def main() -> None:
     ax.set_yticks(range(len(top))); ax.set_yticklabels(labels, fontsize=SS)
     ax.set_xlim(0.9, 1.001)
     stylia.label(ax, xlabel="essentiality score", ylabel="", title=f"Top essential targets — {orgname}")
-    ax.text(0.5, -0.16, "bar shade = # independent evidence sources",
-            transform=ax.transAxes, ha="center", va="top", color="#777", fontsize=SS)
 
     out = REPO_ROOT / "output" / "plots" / f"07j_essentiality_{prefix}.png"
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -109,7 +109,6 @@ def main() -> None:
     if len(ep):
         ax.hist(ep, bins=np.linspace(0, 1, 21), color=NPG[1])
         ax.axvline(0.8, color="#555", ls="--", lw=1)
-        ax.text(0.8, ax.get_ylim()[1] * 0.9, " ≥80%", fontsize=SS, color="#555")
     stylia.label(ax, xlabel="Enterobacteriaceae %essential", ylabel="essential-tier proteins",
                  title=f"Broad-spectrum essentials — {orgname}")
 
@@ -122,8 +121,6 @@ def main() -> None:
     stylia.label(ax, xlabel="ESM-C dim 1", ylabel="ESM-C dim 2",
                  title=f"Prime targets (essential & ligandable & broad) — {orgname}")
     ax.set_xticks([]); ax.set_yticks([])
-    ax.text(0.5, -0.10, f"{len(p)} prime antibacterial targets",
-            transform=ax.transAxes, ha="center", va="top", color=PRIME_C, fontsize=SS)
 
     # ---- panel 5: neglected & essential ----
     ax = axs.next()
@@ -159,8 +156,6 @@ def main() -> None:
         ax.set_yticks(range(len(top))); ax.set_yticklabels(labels, fontsize=SS)
         stylia.label(ax, xlabel="essentiality × ligandability", ylabel="",
                      title=f"Top prime targets — {orgname}")
-        ax.text(0.5, -0.16, "bar shade = studiedness (darker = more studied)",
-                transform=ax.transAxes, ha="center", va="top", color="#777", fontsize=SS)
 
     out = REPO_ROOT / "output" / "plots" / f"07k_landscape_{prefix}.png"
     out.parent.mkdir(parents=True, exist_ok=True)

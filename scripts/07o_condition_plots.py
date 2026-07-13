@@ -106,8 +106,6 @@ def ecoli_panels(axs):
     ax.set_xscale("symlog")
     stylia.label(ax, xlabel="# conditions with strong defect", ylabel="strongest fitness (min)",
                  title=f"Constitutive vs conditional — {orgname}")
-    ax.text(0.98, 0.05, "few conditions = condition-specific →\n← many = broadly required",
-            transform=ax.transAxes, ha="right", va="bottom", fontsize=SS, color="#777")
 
     # panel 5: fluoroquinolone (ciprofloxacin) example — top sensitized genes
     ax = axs.next()
@@ -182,13 +180,17 @@ def kp_panels(axs):
     stylia.label(ax, xlabel="", ylabel="genes", title=f"Niche overlap — {orgname}")
     ax.margins(y=0.18)
 
-    # panel 6: note on data richness
+    # panel 6: genes required in BOTH niches (shared host-adaptation core)
     ax = axs.next()
-    ax.axis("off")
-    ax.text(0.5, 0.5, "K. pneumoniae condition data = host-niche screens\n(ECL8 urine/serum, KPPR1 in-vivo).\n"
-            "The broad antibiotic/stress condition landscape\n(RB-TnSeq, 280 conditions) is E. coli-specific;\n"
-            "see the E. coli tab.", transform=ax.transAxes, ha="center", va="center",
-            fontsize=SS, color="#777")
+    both_df = kp[urine & serum].copy()
+    both_df["s"] = pd.to_numeric(both_df["kp_ess_urine_score"], errors="coerce").fillna(0) \
+        + pd.to_numeric(both_df["kp_ess_serum_score"], errors="coerce").fillna(0)
+    top = both_df.nlargest(12, "s").iloc[::-1]
+    if len(top):
+        ax.barh(range(len(top)), top["s"], color=NPG[2])
+        ax.set_yticks(range(len(top))); ax.set_yticklabels(top["g"], fontsize=SS)
+    stylia.label(ax, xlabel="urine + serum requirement", ylabel="",
+                 title=f"Required in both niches — {orgname}")
 
 
 def main() -> None:

@@ -105,8 +105,6 @@ def main() -> None:
         ax.set_yticks(range(len(top))); ax.set_yticklabels(top["glabel"], fontsize=SS)
         stylia.label(ax, xlabel="log2 in-vivo depletion ratio", ylabel="",
                      title=f"Top CRISPRi in-vivo hits — {orgname}")
-        ax.text(0.5, -0.16, f"KPPR1 mouse-lung Mobile-CRISPRi-seq · {len(iv)} depleted genes",
-                transform=ax.transAxes, ha="center", va="top", color="#777", fontsize=SS)
     elif org == "ecoli" and exp is not None:
         r = pd.to_numeric(exp["ecoli_crispri_rousset18_log2fc"], errors="coerce")
         w = pd.to_numeric(exp["ecoli_crispri_wang18_fitness"], errors="coerce")
@@ -147,22 +145,28 @@ def main() -> None:
     ax.set_yscale("log")
     stylia.label(ax, xlabel=f"# of {len(genomes)} genomes essential in", ylabel="genes",
                  title=f"Conservation of essentiality — {orgname}")
-    ax.text(len(genomes) * 0.8, ax.get_ylim()[1] * 0.5, " core →", fontsize=SS, color="#555")
 
     # ---- panel 5: cross-species essentiality heatmap (both) ----
+    # Keep tick labels at the deck-standard font size (SS); to do that we bound the number of rows to
+    # what fits legibly (~15) rather than shrinking the font. Rows are sampled evenly across the
+    # conservation gradient so the core (all-red) -> accessory (patchy) structure still reads.
     ax = axs.next()
+    N_HEATMAP = 15
     ess_cols = [f"pub_ess__{g}" for g in genomes]
     var = cov[cov["pub_n_species_essential"] >= 1].copy()
     gene = E.load_genes(org)
     var["g"] = var["uniprot_accession"].map(gene).fillna(var["uniprot_accession"])
     var = var.sort_values("pub_n_species_essential", ascending=False)
-    n_show = min(40, len(var))
-    idx = np.linspace(0, len(var) - 1, n_show).round().astype(int) if len(var) > n_show else range(len(var))
+    idx = (np.linspace(0, len(var) - 1, N_HEATMAP).round().astype(int)
+           if len(var) > N_HEATMAP else range(len(var)))
     sel = var.iloc[idx]
     ax.imshow(sel[ess_cols].astype(float).to_numpy(), aspect="auto", cmap="Reds", vmin=0, vmax=1, interpolation="nearest")
-    ax.set_xticks(range(len(genomes))); ax.set_xticklabels(genomes, rotation=90, fontsize=5)
-    ax.set_yticks(range(len(sel))); ax.set_yticklabels(sel["g"], fontsize=5)
-    stylia.label(ax, xlabel="", ylabel="", title=f"Cross-species essentiality — {orgname}")
+    ax.set_xticks(range(len(genomes))); ax.set_xticklabels(genomes, rotation=90, fontsize=SS)
+    ax.set_yticks(range(len(sel))); ax.set_yticklabels(sel["g"], fontsize=SS)
+    # title states this is a representative slice of ALL genes essential in >=1 genome
+    stylia.label(ax, xlabel="", ylabel="",
+                 title=f"Cross-species essentiality — representative sample "
+                       f"({len(sel)} of {len(var):,}) — {orgname}")
 
     # ---- panel 6: method concordance (ec) / CRISPRi-by-function (kp) ----
     ax = axs.next()
