@@ -122,7 +122,7 @@ def panel_selectivity(ax, cats: pd.DataFrame) -> None:
         ],
         fontsize=stylia.SLIDE_FONTSIZE_SMALL,
     )
-    stylia.label(ax, ylabel="proteins", title="Selectivity categories")
+    stylia.label(ax, xlabel="", ylabel="proteins", title="Selectivity categories")
     ax.legend(fontsize=stylia.SLIDE_FONTSIZE_SMALL, frameon=False)
 
 
@@ -143,7 +143,7 @@ def panel_identity(ax, rbh: pd.DataFrame) -> None:
     stylia.label(
         ax, xlabel="RBH % identity", ylabel="ortholog pairs", title="Orthology depth"
     )
-    ax.legend(fontsize=stylia.SLIDE_FONTSIZE_SMALL, frameon=False)
+    ax.legend(fontsize=stylia.SLIDE_FONTSIZE_SMALL, frameon=False, loc="upper left")
 
 
 def panel_composition(ax, cats: pd.DataFrame) -> None:
@@ -173,8 +173,14 @@ def panel_composition(ax, cats: pd.DataFrame) -> None:
         ["K. pneumoniae", "E. coli"], fontsize=stylia.SLIDE_FONTSIZE_SMALL
     )
     ax.set_ylim(0, 1)
-    stylia.label(ax, ylabel="fraction of proteome", title="Proteome composition")
-    ax.legend(fontsize=stylia.SLIDE_FONTSIZE_SMALL, frameon=False, loc="upper right")
+    stylia.label(ax, xlabel="", ylabel="fraction of proteome", title="Proteome composition")
+    # park the legend in the empty gap between the two proteome bars
+    ax.legend(
+        fontsize=stylia.SLIDE_FONTSIZE_SMALL,
+        frameon=False,
+        loc="center",
+        handlelength=1.2,
+    )
 
 
 def main() -> None:

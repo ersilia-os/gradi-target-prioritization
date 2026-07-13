@@ -81,14 +81,73 @@ also `human`); they default to `kpneumoniae`.
 - `03c_orthology_focused.py` — focused 3-way orthology of kp × ecoli × human (OrthoFinder). Writes
   TABLES only (orthogroup-membership/Venn data, per-protein selectivity categories, broad-spectrum+
   human-selective shortlist, RBH %identity); plotting is done downstream from these tables.
+- `03d_orthology_focused_plots.py` — one stylia slide (npg) from the 03c tables: UpSet of orthogroup
+  membership, selectivity-category bars, RBH %identity distributions, proteome composition.
 - `04a_alphafold_structures.py` — AlphaFold model availability / pLDDT / domain summary.
 - `04b_alphafold_plots.py` — plots of the AlphaFold structural annotation.
 - `04c_pdb_coverage.py` — experimental PDB structure coverage per protein (PDBe SIFTS).
 - `04d_pdb_plots.py` — plots of the PDB structural-coverage annotation.
+- `05a_popularity.py` / `05b_popularity_plots.py` — "studiedness" score transferred via orthology.
+- `06a_chembl_bioactivity.py` / `06b_bindingdb_bioactivity.py` — ligandability §2.1b: # molecules
+  tested and # potent (≤1 µM, pChEMBL/pAff ≥ 6) per protein, direct + ortholog-expanded, from
+  local ChEMBL SQLite / BindingDB TSV dumps (needs the dumps under `data/raw/other/`).
+- `06c_pdb_cocrystals.py` — §2.2a: drug-like PDB co-crystal ligands (direct + ortholog).
+- `06d_alphafill_ligands.py` — §2.2b: AlphaFill transplanted-ligand evidence (alphafill.eu API).
+- `06e_pockets.py` — §2.3b: fpocket + P2Rank pocket detection on the AlphaFold models, pLDDT-weighted
+  (needs the **`gradi-pockets`** env + P2Rank; the script runs in `gradi`).
+- `06f_af2bind.py` — §2.3a: AF2Bind binding-site prediction (scaffold; **deferred**, NaN placeholder).
+- `06g_ligandability_merge.py` — §2.4 + composite: disorder filter, per-track sub-scores, and the
+  final `ligandability_score` + `ligandability_tier` (`output/results/<org>/<prefix>_ligandability.csv`).
+- `06h_ligandability_plots.py` — composite ligandability slide (`output/plots/06h_ligandability.png`).
+- `06i_chembl_plots.py` / `06j_bindingdb_plots.py` / `06k_pdb_cocrystal_plots.py` /
+  `06l_alphafill_plots.py` / `06m_pocket_plots.py` — per-resource slides (one **2×3 6-panel** figure
+  per `--organism`, every panel single-organism — no content shared between the kp and ec slides).
+  Stylia slide, NPG palette. Outputs `output/plots/06{i,j,k,l}_*_{kp,ec}.png` and
+  `06m_pocket_{kp,ec}.png`. The structural slides (06k/06l) use the **strict drug-like** ligand tier
+  (see `src/ligandability.py`: cofactors/nucleotides, amino acids, sugars, lipids/detergents,
+  buffers/cryo/solvents excluded; the broad "any bound ligand" counts are retained as
+  `*_n_ligand_any` / `*_has_ligand` columns). `06m` is the AlphaFold-structure druggability /
+  binding-site poster (fpocket + P2Rank pockets, pLDDT-weighted `pocket_consensus_score` from 06e).
+  Shared ligandability helpers live in `src/ligandability.py`.
+- `06n_structure_snapshots.py` — ray-traced AlphaFold cartoon snapshots of the top druggable targets
+  (coloured by per-residue pLDDT; top P2Rank pocket as green sticks/surface), 6 per organism →
+  `output/plots/06n_structures_{kp,ec}.png`. Runs in `gradi` (target selection + montage) and shells
+  out to the **`gradi-pymol`** env (PyMOL) for rendering via `scripts/_06n_pymol_render.py`.
+- `06o_ligandability_landscape.py` — capstone synthesis (`output/plots/06o_landscape_{kp,ec}.png`):
+  ligandability projected onto the ESM-C protein-universe map + the prioritization to the **prime**
+  shortlist (broad-spectrum + human-selective + tractable), the evidence basis of the prime set, and
+  a "neglected & druggable" view crossing ligandability with bibliometric studiedness (05a popularity).
+- `07a–07k` — **essentiality** axis (docs §4). Emits a graded `essentiality_score` [0–1] +
+  `essentiality_tier` per protein (`output/results/<org>/<prefix>_essentiality.csv` + `_shortlist.csv`).
+  `07a` robust fetcher (Enterobacteriaceae-TraDIS compendium + open supp tables; ladder publisher-CDN →
+  Europe-PMC-supp-zip → NCBI-OA-tarball → placeholder). Tracks: `07b` Kp Tn-seq/CRISPRi (ECL8 + KPPR1,
+  gene-symbol mapped), `07c` E. coli EcoGene-essential transfer + graded broad-spectrum %essential,
+  `07d` **ProteomeLM-Ess** (primary; backbone over the 01a ESM-C embeddings + a logistic head we train
+  on E. coli labels, since the `-Ess` head is unreleased), `07e` **Geptop 2.0** reimplemented with
+  DIAMOND, `07f` **FBA** single-gene deletion (iYL1228 kp / iML1515 ec, `cobra`), `07g` DeeplyEssential
+  (deferred placeholder). `07h` merges into the graded composite (missing tracks renormalised, not
+  zero-filled). `07i/07j/07k` stylia NPG slides (predictors · summary · cross-axis landscape).
+  **`07l/07m` = the publication (experimental-only, prediction-free) view**: `07l` consolidates the Kp
+  Mobile-CRISPRi-seq library + in-vivo (Jana 2023), KPNIH1/ECL8 Tn-seq, and the 12-genome
+  Enterobacteriaceae-TraDIS cross-species essential matrix into `<prefix>_ess_publications.csv`; `07m`
+  plots the dedicated CRISPRi/experimental slide. Jana 2023's ASM-gated tables were fetched via an
+  authenticated Chrome session (chrome-devtools MCP `evaluate_script` same-origin fetch).
+  **`07n/07o` give E. coli first-class parity** (E. coli is a target organism, not just a transfer
+  reference): `07n_ecoli_experimental.py` ingests the major E. coli screens — Keio KO (PEC), Goodall
+  TraDIS, Rousset 2018/2021 & Wang 2018 & Cui 2018 & Hawkins 2020 CRISPRi, and RB-TnSeq/Fitness Browser
+  (280-condition antibiotic/stress matrix) — into `ec_ess_experimental.csv`; `07o_condition_plots.py`
+  is the condition/stress slide (E. coli antibiotic sensitivity; Kp host-niche urine/serum/in-vivo).
+  These feed E. coli's `evidence_experimental` (07h, 0.40 axis) and also transfer onto Kp via ortholog
+  (07c). Gated E. coli sets (Goodall ASM, Hawkins Cell, Rousset 2021 Springer) were fetched via Chrome;
+  Nichols 2011 (PMC reCAPTCHA) is the one un-fetched set. Shared helpers in `src/essentiality.py`
+  (reuses `src/ligandability.py`; adds `jw_to_uniprot`, `gene_aliases_to_uniprot`, `transfer_ecoli_to_kp`).
+  Run log: `docs/essentiality_log.md`.
+  Needs `cobra`/`scikit-learn`/`openpyxl` + ProteomeLM from git (see `install.sh`); DIAMOND from
+  `gradi-ortho`; `unar` for the Geptop `.rar`; optional `gradi-prokka` env.
 
 ## Setup
 
-Two conda environments (commands documented in `install.sh`):
+Conda environments (commands documented in `install.sh`):
 
 - **`gradi`** (Python 3.11) — the main env for everything except orthology:
   `conda create -y -n gradi python=3.11 && conda activate gradi && bash install.sh`
@@ -97,6 +156,11 @@ Two conda environments (commands documented in `install.sh`):
 - **`gradi-ortho`** (osx-64 bioconda; runs under Rosetta on Apple Silicon) — OrthoFinder + DIAMOND
   for the orthology scripts (`03a_orthology_general.py`, `03c_orthology_focused.py`) only.
   Created via micromamba; see the command block in `install.sh`.
+- **`gradi-pockets`** (osx-64 bioconda; Rosetta on Apple Silicon) — `fpocket` + `openjdk=17` (JRE for
+  P2Rank) for `06e_pockets.py` only. P2Rank itself is a standalone Java tarball under `tmp/tools/`.
+  See `install.sh`.
+- **`gradi-pymol`** (conda-forge `pymol-open-source`) — ray-traced AlphaFold cartoons for
+  `06n_structure_snapshots.py` only (invoked from `gradi` via subprocess). See `install.sh`.
 
 Do NOT use the machine's default `python3` (it resolves to an unrelated `ersilia` env). No build,
 lint, or test commands are configured yet — document them here when added.

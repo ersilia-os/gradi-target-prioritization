@@ -97,3 +97,47 @@ flowchart LR
 - **§4.1c (Jana CRISPRi)**: change output from "conditionally-essential gene list" to per-gene vulnerability index via depletion-curve refit.
 - **§4.2a (*E. coli* lift)**: keep Keio ∩ PEC ∩ Goodall as strict tier, overlay Enterobacteriaceae TraDIS for graded confidence.
 - **§4.3a (ProteomeLM-Ess)**: log OGEE training overlap to detect parroting vs generalisation against the new 4.3e direct lookup.
+
+## Implementation (`scripts/07*`)
+
+Run per organism (`--organism {kpneumoniae,ecoli}`). Each track writes a per-protein CSV keyed by
+`uniprot_accession`; `07h` merges them into the graded `output/results/<org>/<prefix>_essentiality.csv`
+(+ `_shortlist.csv`). Shared helpers in `src/essentiality.py` (reuses `src/ligandability.py`). Full
+run log + data versions in `docs/essentiality_log.md`.
+
+| Script | Track | Key output columns |
+| --- | --- | --- |
+| `07a_fetch_essentiality.py` | data | robust fetcher (publisher CDN → Europe PMC supp zip → NCBI OA tarball → placeholder); stages the Enterobacteriaceae-TraDIS compendium + open papers; writes `fetch_status.tsv` |
+| `07b_kp_experimental.py` | 4.1a/b/c | `kp_ess_{in_vitro,urine,serum,in_vivo,vulnerability}_{call,score}`, `kp_ess_sources` (ECL8 + KPPR1 + curated CRISPRi, gene-symbol mapped) |
+| `07c_ecoli_transfer.py` | 4.2a + 4.2c | `ec_transfer_essential` (EcoGene 299-gene set via ortholog), `entero_pct_essential`, `bacteria_pct_essential` (graded broad-spectrum) |
+| `07d_proteomelm_ess.py` | 4.3a **primary** | `proteomelm_ess_score` — ProteomeLM backbone (over the 01a ESM-C embeddings) + a logistic head we train on the E. coli EcoGene labels (CV AUROC 0.809). `-Ess` head is unreleased upstream. |
+| `07e_geptop.py` | 4.3b | `geptop_score`, `geptop_essential` — Geptop 2.0 reimplemented with DIAMOND over the 37 DEG references (cutoff 0.24) |
+| `07f_fba_iyl1228.py` | 4.3d | `fba_essential`, `fba_growth_ratio` — cobrapy single-gene deletion (iYL1228 for kp, iML1515 for ec); metabolic subset only |
+| `07g_deeplyessential.py` | 4.3c | **deferred** — NaN placeholder (no released weights, py2/TF1.6, license-less) |
+| `07h_essentiality_merge.py` | result | `evidence_{experimental,transfer,predictor}`, **`essentiality_score`** [0–1], **`essentiality_tier`** {essential,likely_essential,non_essential}, `experimentally_essential`, `evidence_sources`, `selectivity`. Also `<prefix>_essentiality_shortlist.csv` (broad-selective ∧ essential). |
+| `07i/07j/07k_*.py` | — | stylia NPG 2×3 slides: predictor comparison · composite summary · cross-axis landscape (`output/plots/07{i,j,k}_*_{kp,ec}.png`) |
+| `07l_publication_essentiality.py` | 4.1/4.2 (experimental-only) | `<prefix>_ess_publications.csv`: `crispri_ce_library`, `crispri_invivo_*`, `kpnih1_essential`, `ecl8_essential`, `pub_ess__<genome>` (×12), `pub_n_species_essential`, `pub_core_essential`, `experimental_essential`. Prediction-free consolidation of published screens (Jana 2023 Mobile-CRISPRi central). |
+| `07m_publication_plots.py` | — | dedicated **publications/CRISPRi** slide: screen coverage · CRISPRi in-vivo hits · Kp screen agreement · cross-species conservation · core-essentialome heatmap · CRISPRi-library-by-function (`output/plots/07m_publications_{kp,ec}.png`) |
+
+| `07n_ecoli_experimental.py` | 4.1/4.2 (E. coli, experimental-only) | `ec_ess_experimental.csv`: `ecoli_keio_essential`, `ecoli_goodall_essential`, `ecoli_crispri_{rousset18,wang18}_{log2fc/fitness,essential}`, `ecoli_crispri_multistrain_frac` (Rousset 2021), `ecoli_vulnerability_hawkins`, `ecoli_rbtnseq_min_fitness`, `ecoli_experimental_essential`, `ecoli_vulnerability_score`. Makes E. coli a first-class experimental target (Keio KO, Goodall TraDIS, Rousset/Wang/Cui/Hawkins CRISPRi, RB-TnSeq). |
+| `07o_condition_plots.py` | — | condition/stress slide: E. coli antibiotic-conditional essentiality from RB-TnSeq/Fitness Browser (280 conditions); Kp host-niche (ECL8 urine/serum, KPPR1 in-vivo). `output/plots/07o_conditions_{kp,ec}.png` |
+
+**E. coli parity:** E. coli's own screens (07n) feed its `evidence_experimental` (07h 0.40 axis) and
+transfer onto Kp via the E. coli ortholog (07c `ec_screens_*_transfer`). The gallery has two equal tabs.
+Gated E. coli data (Goodall ASM, Hawkins Cell, Rousset 2021 Springer) fetched via Chrome; only Nichols
+2011 (PMC reCAPTCHA) remains un-fetched (optional; redundant with the RB-TnSeq condition matrix).
+
+Jana/Zhu 2023's ASM-gated CRISPRi tables were retrieved via an authenticated Chrome session (the
+871-gene Mobile-CRISPRi library + in-vivo KPPR1 screen + the re-tabulated Ramage 2017 KPNIH1 essential
+set). Cross-species experimental essentiality is decoded from the Enterobacteriaceae-TraDIS compendium
+(numeric TraDIS log-ratio ≤ -0.5 = essential, calibrated against the curated EcoGene set).
+
+**Composite (07h, tunable constants):** `essentiality_score` = renormalised weighted sum over the
+*available* sub-scores `0.40·experimental + 0.20·transfer + 0.40·predictor` (missing tracks are dropped
+and reweighted, not zero-filled), `predictor` = weighted mean of available predictors (ProteomeLM 0.5 /
+Geptop 0.3 / FBA 0.2). **Tiers are evidence-driven:** `essential` if a direct Kp essential call, or a
+strong predictor+transfer consensus, or score ≥ 0.60; `likely_essential` if score ≥ 0.35 or any partial
+signal; else `non_essential`.
+
+**Data resources (eosvc, gitignored):** Enterobacteriaceae-TraDIS compendium, ECL8/KPPR1 supp tables,
+Geptop reference `.rar`, BiGG models — under `data/raw/{kpneumoniae,ecoli,other}/essentiality/`.

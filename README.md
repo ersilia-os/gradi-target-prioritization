@@ -16,6 +16,7 @@ Ersilia leads the computational target selection workflow, applying integrative 
 
 - 26/05/14: [Meeting #1](https://docs.google.com/presentation/d/1ktqv42ylLPgQo6vBqlrP5tt2mJl2Mrk_qCTjA0cztTs/edit?usp=drivesdk). Kick-off meeting in which workflow diagrams are discussed.
 - 26/06/12: [Meeting #2](https://docs.google.com/presentation/d/18RxzTKev5Cop0QIokVffumbeuKxct-54t6emjNE2n2A/edit?usp=sharing). Task-agnostic annotation of the *Klebsiella pneumoniae* and *Escherichia coli* proteomes.
+- 26/06/26: [Meeting #3](https://docs.google.com/presentation/d/1_w6N2veARYSRlDvryVdt-O0DD93AiV-iSKjaDv00N68/edit?usp=sharing). Ligandability assessment.
 
 ## Prioritization criteria
 
