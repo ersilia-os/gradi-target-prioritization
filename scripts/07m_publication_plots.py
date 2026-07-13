@@ -101,8 +101,14 @@ def main() -> None:
             return v2s.get(t, str(row["Gene"]))
         iv["glabel"] = iv.apply(lbl, axis=1)
         top = iv.sort_values("ratio", ascending=False).head(15).iloc[::-1]
-        ax.barh(range(len(top)), np.log2(top["ratio"].clip(lower=1e-3)), color=CRISPRI_C)
-        ax.set_yticks(range(len(top))); ax.set_yticklabels(top["glabel"], fontsize=SS)
+        vals = np.log2(top["ratio"].clip(lower=1e-3)).to_numpy()
+        ax.barh(range(len(top)), vals, color=CRISPRI_C)
+        # gene/product labels INSIDE the bars (left-aligned, white) — no long y-tick labels
+        ax.set_yticks([])
+        for i, lab in enumerate(top["glabel"]):
+            lab = lab if len(lab) <= 34 else lab[:32] + "…"
+            ax.text(vals.max() * 0.015, i, lab, ha="left", va="center", fontsize=SS, color="white")
+        ax.set_xlim(0, vals.max() * 1.02)
         stylia.label(ax, xlabel="log2 in-vivo depletion ratio", ylabel="",
                      title=f"Top CRISPRi in-vivo hits — {orgname}")
     elif org == "ecoli" and exp is not None:
