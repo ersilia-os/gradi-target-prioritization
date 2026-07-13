@@ -147,7 +147,7 @@ def main() -> None:
     bars = ax.bar(range(3), recovered, color=[PLM_C, GEP_C, FBA_C])
     ax.bar_label(bars, labels=[f"{v:.0%}" for v in recovered], padding=2, fontsize=SS)
     ax.set_xticks(range(3)); ax.set_xticklabels(labels, fontsize=SS)
-    ax.set_ylim(0, 1)
+    ax.set_ylim(0, 1.15)  # headroom so a 100% bar + its label clear the top frame
     stylia.label(ax, xlabel="", ylabel=f"frac of {dlabel} recovered",
                  title=f"Predictor sensitivity — {orgname}")
 
