@@ -1,5 +1,9 @@
 # Gr-ADI: Target prioritization for *K. pneumoniae* and *E. coli*
 
+> ⚠️ **Work in progress.** This repository and its outputs are an active prototype. Scores,
+> data, methods, and the web interface (https://ersilia-os.github.io/gradi-target-prioritization/)
+> are provisional and will change — do not treat any result here as final.
+
 Computational target selection for the Gr-ADI project *"Exploring BacPROTACs as a new paradigm for antibacterial discovery"*, led by **Prof. Erick Strauss** (Stellenbosch University).
 
 This repository covers Ersilia's contribution to **target selection**: building a workflow that prioritises proteins of interest (PoI) in *Klebsiella pneumoniae* and *Escherichia coli* as candidates for targeted protein degradation (BacPROTACs).
