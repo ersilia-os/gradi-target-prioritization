@@ -19,7 +19,7 @@ const AXIS_COLORS = {
 // map a column/component key to its axis (for colouring)
 function axisOf(key) {
   if (key === "__c") return "composite";
-  if (/conservation|human_selective|selectivity|human_homolog|ortholog/.test(key)) return "orthology";
+  if (/conservation|human_selective|selectivity|human_homolog|ortholog|closeness/.test(key)) return "orthology";
   if (key === "comp_breadth" || /entero_pct|bacteria_pct/.test(key)) return "essentiality";
   if (/essential|proteomelm|geptop|fba|evidence_experimental|evidence_transfer|evidence_predictor/.test(key)) return "essentiality";
   if (/ligand|chembl|bindingdb|pocket|fpocket|p2rank|alphafill|evidence_binding|evidence_structural|evidence_pocket|disorder|structure/.test(key)) return "ligandability";
@@ -40,7 +40,7 @@ const COLUMN_GROUPS = {
 };
 // axis → section-band label (fallback when a column has no explicit `group`)
 const AXIS_GROUP_LABEL = {
-  composite: "Composite", essentiality: "Essentiality", ligandability: "Ligandability",
+  composite: "", essentiality: "Essentiality", ligandability: "Ligandability",
   orthology: "Orthology", novelty: "Novelty",
 };
 function columnGroup(col) {
@@ -84,20 +84,26 @@ const COMPONENTS = [
 // type: score(0–1 heat) | pct(0–1 as %) | plddt(0–100) | num | int | bool | tier | text
 // Fixed leading columns (rank, name, composite) are rendered by app.js; these are the rest.
 const TABLE_COLUMNS = [
-  { key: "comp_essentiality",    label: "Essentiality",   type: "score", heat: true,  default: true, group: "Essentiality",
+  { key: "comp_essentiality",    label: "Ess. score",     type: "score", heat: true,  default: true, group: "Essentiality",
     desc: "Essentiality component (0–1): how required the gene is for fitness/survival. From essentiality_score = 0.40·experimental + 0.20·ortholog-transfer + 0.40·predictors (ProteomeLM / Geptop / FBA). Higher = better target." },
-  { key: "comp_breadth",         label: "Essential breadth", type: "score", heat: true, default: true, group: "Essentiality",
+  { key: "comp_breadth",         label: "Ess. breadth",   type: "score", heat: true, default: true, group: "Essentiality",
     desc: "Essential breadth (0–1): fraction of Enterobacteriaceae genomes in which the gene is essential (entero_pct_essential). Higher = essential across more pathogens." },
-  { key: "comp_ligandability",   label: "Ligandability",  type: "score", heat: true,  default: true, group: "Ligandability",
+  { key: "comp_ligandability",   label: "Lig. score",     type: "score", heat: true,  default: false, group: "Ligandability",
     desc: "Ligandability component (0–1): small-molecule tractability. From ligandability_score = 0.45·binding + 0.30·structural + 0.25·pocket, penalised by disorder. Higher = more druggable." },
+  { key: "evidence_binding",     label: "Liganded",       type: "score", heat: true,  default: false, group: "Ligandability",
+    desc: "Liganded (0–1): strength of measured/known-ligand evidence (ChEMBL / BindingDB actives + PDB co-crystals), direct or via ortholog. High = it has been liganded." },
+  { key: "evidence_pocket",      label: "Ligandable",     type: "score", heat: true,  default: false, group: "Ligandability",
+    desc: "Ligandable (0–1): pocket druggability — pLDDT-weighted fpocket/P2Rank consensus that a druggable pocket exists on the AlphaFold model." },
   { key: "structure_score",      label: "Structure",      type: "score", heat: true,  default: false, group: "Ligandability",
-    desc: "Structure score (0–1) = pocket druggability (evidence_pocket): pLDDT-weighted fpocket/P2Rank consensus that a ligandable pocket exists on the AlphaFold model." },
+    desc: "Alias of the pocket-druggability score (evidence_pocket)." },
   { key: "conservation_score",   label: "Conservation",   type: "score", heat: true,  default: false, group: "Orthology",
     desc: "Conservation (0–1): fraction of the ~24-species bacterial panel that carries an ortholog (presence/phyletic spread). Distinct from Essential breadth — a protein can be widely conserved yet not broadly essential." },
+  { key: "human_closeness",      label: "Human closeness", type: "score", heat: true,  default: false, group: "Orthology",
+    desc: "Human closeness (0–1): % sequence identity to the nearest human ortholog / 100. 0 = no human ortholog (maximally selective); high = close to a human protein (selectivity risk)." },
   { key: "comp_novelty",         label: "Novelty",        type: "score", heat: true,  default: false, group: "Novelty",
     desc: "Novelty / neglectedness (0–1) = 1 − bibliometric studiedness. High = under-studied protein — a more novel target." },
-  { key: "comp_human_selective", label: "Human-selective", type: "score", heat: true,  default: true, group: "Orthology",
-    desc: "Human-selectivity (0 or 1): 1 = no meaningful human ortholog (safer antibacterial target); 0 = has a human homolog. Derived from the selectivity class." },
+  { key: "comp_human_selective", label: "Selective",      type: "binary01", default: true, group: "Orthology",
+    desc: "Selective (yes/no): yes = no meaningful human ortholog (safer antibacterial target); no = has a human homolog." },
   { key: "essentiality_tier",    label: "Ess. tier",      type: "tier",  default: true, group: "Essentiality",
     desc: "Discrete essentiality call: essential / likely_essential / non_essential (thresholded on the essentiality score + direct experimental hits)." },
   { key: "ligandability_tier",   label: "Lig. tier",      type: "tier",  default: true, group: "Ligandability",
@@ -147,13 +153,9 @@ const TABLE_COLUMNS = [
   { key: "entero_pct_essential", label: "Entero % ess.",   type: "pct",   default: false,
     desc: "Fraction of Enterobacteriaceae genomes in which the gene is essential — the raw value behind the breadth component." },
 
-  // --- ligandability-axis detail columns ---
-  { key: "evidence_binding",     label: "Lig: binding",    type: "score", heat: true,  default: false,
-    desc: "Binding evidence (0–1): measured bioactivity from ChEMBL / BindingDB, direct or via ortholog." },
+  // --- ligandability-axis detail columns (evidence_binding/pocket defined above as Liganded/Ligandable) ---
   { key: "evidence_structural",  label: "Lig: structural", type: "score", heat: true,  default: false,
     desc: "Structural evidence (0–1): drug-like ligands seen in PDB co-crystals or transplanted by AlphaFill." },
-  { key: "evidence_pocket",      label: "Lig: pocket",     type: "score", heat: true,  default: false,
-    desc: "Pocket evidence (0–1): pLDDT-weighted fpocket / P2Rank druggable-pocket consensus." },
   { key: "chembl_any_n_compounds", label: "ChEMBL cmpds",  type: "int",   default: false,
     desc: "Total ChEMBL compounds tested against this target or an ortholog." },
   { key: "chembl_any_best_pchembl", label: "Best pChEMBL", type: "num",   default: false,
@@ -201,9 +203,9 @@ const TABLE_COLUMNS = [
 const TABLE_VIEWS = [
   { key: "overview", label: "Overview", cols: [
     "comp_essentiality", "comp_breadth", "essentiality_tier",
-    "comp_ligandability", "structure_score", "ligandability_tier",
+    "evidence_binding", "evidence_pocket", "ligandability_tier",
     "comp_novelty", "popularity_tier",
-    "conservation_score", "comp_human_selective", "selectivity" ] },
+    "conservation_score", "human_closeness", "comp_human_selective" ] },
   { key: "essentiality", label: "Essentiality", accent: true, cols: [
     "comp_essentiality", "essentiality_tier", "experimentally_essential",
     "evidence_experimental", "evidence_transfer", "evidence_predictor",
@@ -292,6 +294,7 @@ const DETAIL_GROUPS = [
   { title: "Cross-species / selectivity", fields: [
     ["selectivity", "Selectivity class", "text"], ["comp_human_selective", "Human-selective", "score"],
     ["conservation_score", "Conservation (ortholog spread)", "score"],
+    ["human_closeness", "Human closeness (% id to human)", "score"],
     ["ec_transfer_essential", "E. coli ess. transfer", "bool"], ["n_ecoli_orthologs", "# E. coli orthologs", "int"],
     ["family", "ESM-C family cluster", "int"],
   ]},
@@ -338,13 +341,13 @@ const MAP_COLORS = [
   { key: "comp_human_selective", label: "Human-selective" },
   { key: "comp_novelty", label: "Novelty" },
   { key: "conservation_score", label: "Conservation" },
-  { key: "structure_score", label: "Structure" },
+  { key: "human_closeness", label: "Human closeness" },
 ];
 
 // ---- per-page filter bars (main area) -------------------------------------
 // Each view shows only its relevant filters in a bar above the table.
 const VIEW_FILTERS = {
-  overview:     { presets: true },
+  overview:     {},
   essentiality: { cats: ["essentiality_tier"], bools: ["experimentally_essential"] },
   ligandability:{ cats: ["ligandability_tier"], bools: ["has_hard_evidence"] },
   structure:    { bools: ["pdb_has_structure"] },
@@ -358,7 +361,10 @@ const VIEW_FILTERS = {
 // An alternative to the weighted composite: pick a band (Low / Med / High) per
 // axis and filter targets to those bands. Binary axes use two labelled bands.
 const TIER_AXES = [
-  { key: "comp_essentiality", label: "Essentiality" },   // default Low / Med / High
+  { key: "comp_essentiality", label: "Essentiality", bands: [
+      { id: "non",    label: "Non-ess.",  intensity: 22, test: (v, r) => r.essentiality_tier === "non_essential" },
+      { id: "likely", label: "Likely",    intensity: 52, test: (v, r) => r.essentiality_tier === "likely_essential" },
+      { id: "ess",    label: "Essential", intensity: 90, test: (v, r) => r.essentiality_tier === "essential" } ] },
   { key: "comp_breadth", label: "Essential breadth", bands: [
       { id: "low",  label: "Specific", lo: -0.0001, hi: 0.334,  intensity: 22 },
       { id: "med",  label: "Broad",    lo: 0.334,   hi: 0.667,  intensity: 52 },
@@ -366,11 +372,14 @@ const TIER_AXES = [
   { key: "comp_ligandability", label: "Ligandability", bands: [
       { id: "none",   label: "Not ligandable",   intensity: 22,
         test: (v, r) => !r.has_hard_evidence && !(typeof r.evidence_pocket === "number" && r.evidence_pocket >= 0.5) },
-      { id: "pocket", label: "Ligandable pocket", intensity: 52,
+      { id: "pocket", label: "Lig. pocket", intensity: 52,
         test: (v, r) => !r.has_hard_evidence && typeof r.evidence_pocket === "number" && r.evidence_pocket >= 0.5 },
       { id: "known",  label: "Known ligands",     intensity: 90,
         test: (v, r) => r.has_hard_evidence === true } ] },
-  { key: "comp_novelty", label: "Novelty" },   // default Low / Med / High
+  { key: "comp_novelty", label: "Novelty", bands: [
+      { id: "well",    label: "Well-studied", intensity: 22, test: (v, r) => r.popularity_tier === "well_studied" },
+      { id: "studied", label: "Studied",      intensity: 52, test: (v, r) => r.popularity_tier === "studied" },
+      { id: "dark",    label: "Dark",         intensity: 90, test: (v, r) => r.popularity_tier === "dark" } ] },
   { key: "conservation_score", label: "Conservation", bands: [
       { id: "low",  label: "Specific",     lo: -0.0001, hi: 0.334,  intensity: 22 },
       { id: "med",  label: "Intermediate", lo: 0.334,   hi: 0.667,  intensity: 52 },

@@ -233,7 +233,7 @@ function visibleColumns() {
 function tipAttr(text) {
   return text ? ` data-tip="${String(text).replace(/"/g, "&quot;")}"` : "";
 }
-const ROTATE_TYPES = new Set(["score", "pct", "plddt", "num", "int", "bool"]);
+const ROTATE_TYPES = new Set(["score", "pct", "plddt", "num", "int", "bool", "binary01"]);
 function renderThead() {
   const cols = visibleColumns();
   const arrow = (k) => state.sort.key === k ? `<span class="arrow">${state.sort.dir < 0 ? "▼" : "▲"}</span>` : "";
@@ -247,12 +247,12 @@ function renderThead() {
   // all columns are fixed-width with vertical headers, except the Target column
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("name", "Target", { tip: LEADING_COL_DESC.name, cls: "colgene" })
-    + th("__c", "Composite", { tip: LEADING_COL_DESC.__c, rot: true, color: AXIS_COLORS.composite });
+    + th("__c", "Comp. score", { tip: LEADING_COL_DESC.__c, rot: true, color: AXIS_COLORS.composite });
   for (const c of cols)
     h += th(c.key, c.label, { tip: c.desc, rot: true, color: colColor(c.key) });
 
   // section band: merge consecutive columns sharing a group
-  const bandSeq = [{ key: "__c", group: "Composite" }, ...cols];
+  const bandSeq = [{ key: "__c" }, ...cols];
   const runs = [];
   for (const col of bandSeq) {
     const g = columnGroup(col);
@@ -292,6 +292,7 @@ function classBadgeHTML(v) {
 function cellHTML(row, c) {
   const v = row[c.key];
   if (c.type === "bool") return boolHTML(v);
+  if (c.type === "binary01") return (v === null || v === undefined) ? "–" : boolHTML(v >= 0.5);
   if (c.type === "class") return classBadgeHTML(v);
   if (c.type === "tier") return badgeHTML(tierType(c.key), v, c.key);
   if (c.type === "score" && c.heat) return `<span class="heat" style="${heatStyle(v, colColor(c.key))}">${fmt("score", v)}</span>`;

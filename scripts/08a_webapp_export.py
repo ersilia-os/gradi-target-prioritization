@@ -137,6 +137,23 @@ def conservation_scores(organism: str) -> pd.Series:
     return spread.clip(0.0, 1.0)
 
 
+def human_closeness_scores(organism: str) -> pd.Series:
+    """0–1 closeness to the nearest human ortholog = max(pident)/100 over human-tier
+    ortholog hits. 0 (via fillna downstream) = no human ortholog = maximally selective."""
+    _pid, prefix = ORGANISMS[organism]
+    path = REPO_ROOT / "data" / "processed" / "other" / "orthology" / f"{prefix}_orthologs_long.tsv"
+    if not path.exists():
+        print(f"  ! missing (human_closeness skipped): {path.name}")
+        return pd.Series(dtype=float)
+    d = pd.read_csv(path, sep="\t", usecols=["anchor_uniprot", "tier", "species", "pident"])
+    d = d[(d["tier"] == "human") | (d["species"] == "Homo_sapiens")]
+    d["pident"] = pd.to_numeric(d["pident"], errors="coerce")
+    d = d.dropna(subset=["pident"])
+    if d.empty:
+        return pd.Series(dtype=float)
+    return (d.groupby("anchor_uniprot")["pident"].max() / 100.0).clip(0.0, 1.0)
+
+
 def _functional_class(row) -> str:
     parts = []
     for c in FUNCTIONAL_CLASS_TEXT_COLS:
@@ -260,6 +277,9 @@ def build_organism(organism: str) -> dict:
     # Conservation = cross-species ortholog spread (presence-based, essentiality-independent)
     cons = conservation_scores(organism)
     df["conservation_score"] = df["uniprot_accession"].map(cons).fillna(0.0).clip(0.0, 1.0)
+    # Human closeness (0–1): identity to nearest human ortholog; 0 = no human ortholog.
+    hc = human_closeness_scores(organism)
+    df["human_closeness"] = df["uniprot_accession"].map(hc).fillna(0.0).clip(0.0, 1.0)
 
     # Coerce booleans.
     for c in BOOL_COLS & set(df.columns):
@@ -292,7 +312,7 @@ def build_organism(organism: str) -> dict:
             print(f"  coverage {c}: {cov}/{n} ({100*cov/n:.0f}%)")
         else:
             print(f"  coverage {c}: ABSENT")
-    for c in ("structure_score", "conservation_score"):
+    for c in ("structure_score", "conservation_score", "human_closeness"):
         if c in df.columns:
             nz = int((pd.to_numeric(df[c], errors="coerce") > 0).sum())
             print(f"  {c}: mean={df[c].mean():.2f}, >0 for {nz}/{n} ({100*nz/n:.0f}%)")
