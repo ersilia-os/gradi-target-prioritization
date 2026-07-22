@@ -229,7 +229,17 @@ function visibleColumns() {
   if (view) for (const k of view.cols) if (ok(k)) { ordered.push(byKey[k]); seen.add(k); }
   // append any extra columns the user toggled on that aren't in the view preset
   for (const c of TABLE_COLUMNS) if (!seen.has(c.key) && ok(c.key)) ordered.push(c);
-  return ordered;
+  // keep same-section columns contiguous so a group band can never split in two
+  // (e.g. a ligandability column toggled on via the Columns menu joins the
+  // existing Ligandability block instead of forming a second band at the end).
+  const groupsOrder = [];
+  const byGroup = new Map();
+  for (const c of ordered) {
+    const g = columnGroup(c);
+    if (!byGroup.has(g)) { byGroup.set(g, []); groupsOrder.push(g); }
+    byGroup.get(g).push(c);
+  }
+  return groupsOrder.flatMap((g) => byGroup.get(g));
 }
 function tipAttr(text) {
   return text ? ` data-tip="${String(text).replace(/"/g, "&quot;")}"` : "";

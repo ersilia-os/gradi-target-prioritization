@@ -198,7 +198,7 @@ thead th .arrow{color:var(--brand);font-size:10px;margin-left:2px;}
 thead th.nosort{cursor:default;}
 /* section band (top header row, grouped) — quiet label + colour rule per section */
 .bandrow th.gband{position:static;background:var(--surface);padding:9px 5px 6px;text-align:center;vertical-align:bottom;}
-.bandrow th.gband:not(.gband-empty){border-bottom:2px solid color-mix(in srgb,var(--gc) 60%,var(--border));}
+.bandrow th.gband:not(.gband-empty){border-bottom:2px solid color-mix(in srgb,var(--gc) 60%,var(--border));background:color-mix(in srgb,var(--gc) 8%,var(--surface));border-top-left-radius:9px;border-top-right-radius:9px;}
 .bandrow th.gband > span{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:color-mix(in srgb,var(--gc) 72%,#000);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;}
 
 /* vertical (90°) headers — all columns except Target */
