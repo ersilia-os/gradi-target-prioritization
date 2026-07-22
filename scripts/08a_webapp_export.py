@@ -324,17 +324,25 @@ def build_organism(organism: str) -> dict:
         print(f"    {cls:24s} {cnt:5d} ({100*cnt/n:.0f}%)")
 
     # ---- emit ------------------------------------------------------------
+    # Drop columns that are dead weight in the payload (unused by the web app and
+    # trivially reconstructable): the AlphaFold CIF URL is a template over the accession.
+    df = df.drop(columns=[c for c in ("af_cif_url",) if c in df.columns])
+
+    # Columnar wire format: emit rows as arrays of cell values in `columns` order
+    # (not per-row objects), which removes the repeated key strings from the JSON.
+    # The client rehydrates back to row-objects on load, so nothing else changes.
     columns = list(df.columns)
-    records = [{k: _clean(v) for k, v in rec.items()} for rec in df.to_dict(orient="records")]
+    rows = [[_clean(v) for v in rec] for rec in df.itertuples(index=False, name=None)]
     return {
         "organism": organism,
         "prefix": prefix,
         "proteome_id": pid,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "n": n,
+        "format": "columnar",
         "columns": columns,
         "components": COMPONENT_KEYS,
-        "rows": records,
+        "rows": rows,
     }
 
 

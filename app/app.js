@@ -31,6 +31,7 @@ let DATA = null;          // current org payload
 let AVAIL = {};           // component key -> bool (has data)
 let filtered = [];        // current filtered+sorted rows
 let page = 0;   // current page index (0-based)
+let weightsDirty = true;  // recompute the composite only when weights actually change
 
 // ---------- persistence ----------------------------------------------------
 function save() {
@@ -163,7 +164,7 @@ function passFilters(row) {
   return true;
 }
 function recompute() {
-  computeAll();
+  if (weightsDirty) { computeAll(); weightsDirty = false; }
   filtered = DATA.rows.filter(passFilters);
   const { key, dir } = state.sort;
   filtered.sort((a, b) => {
@@ -508,9 +509,9 @@ function buildWeights() {
       <div class="help">${c.help}</div>`;
     if (avail) {
       const sw = div.querySelector(".sw"), rng = div.querySelector("input[type=range]"), wv = div.querySelector(".wv");
-      sw.onchange = () => { w.on = sw.checked; div.classList.toggle("off", !w.on); save(); recompute(); };
+      sw.onchange = () => { w.on = sw.checked; div.classList.toggle("off", !w.on); weightsDirty = true; save(); recompute(); };
       rng.oninput = () => { w.weight = +rng.value; wv.textContent = rng.value; };
-      rng.onchange = () => { save(); recompute(); };
+      rng.onchange = () => { weightsDirty = true; save(); recompute(); };
     }
     host.appendChild(div);
   }
@@ -713,6 +714,34 @@ function exportCSV() {
 }
 
 // ---------- organism loading ----------------------------------------------
+// Convert the columnar wire format (rows = arrays of cell values in `columns`
+// order) back into the array-of-objects shape the rest of the app assumes.
+// Falls back to the payload unchanged if it's already row-objects.
+function rehydrate(payload) {
+  if (!payload || payload.format !== "columnar") return payload;
+  const cols = payload.columns, n = cols.length;
+  payload.rows = payload.rows.map((arr) => {
+    const o = {};
+    for (let j = 0; j < n; j++) o[cols[j]] = arr[j];
+    return o;
+  });
+  delete payload.format;
+  return payload;
+}
+// Warm the cache for the other organism during idle time so the toggle is instant.
+function prefetchOther(org) {
+  const other = org === "kp" ? "ec" : "kp";
+  if (cache[other] || !ORGANISM_META[other]) return;
+  const run = () => {
+    if (cache[other]) return;
+    fetch(ORGANISM_META[other].file)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j && !cache[other]) cache[other] = rehydrate(j); })
+      .catch(() => {});
+  };
+  if (window.requestIdleCallback) requestIdleCallback(run, { timeout: 3000 });
+  else setTimeout(run, 1200);
+}
 async function loadOrg(org) {
   state.org = org;
   $("orgToggle").querySelectorAll("button").forEach((b) =>
@@ -722,9 +751,10 @@ async function loadOrg(org) {
     const meta = ORGANISM_META[org];
     const res = await fetch(meta.file);
     if (!res.ok) { $("loading").textContent = `Failed to load ${meta.file} (${res.status})`; return; }
-    cache[org] = await res.json();
+    cache[org] = rehydrate(await res.json());
   }
   DATA = cache[org];
+  weightsDirty = true;   // composite must be (re)computed for the newly-active organism
   AVAIL = {};
   for (const c of COMPONENTS) AVAIL[c.key] = DATA.columns.includes(c.key) && (c.available !== false);
   // seed visible columns from the active table view (fall back to overview)
@@ -739,6 +769,7 @@ async function loadOrg(org) {
   closeDrawer();
   recompute();
   save();
+  prefetchOther(org);
 }
 
 // ---------- hover tooltips ([data-tip]) ------------------------------------
@@ -933,10 +964,15 @@ function init() {
   $("orgToggle").querySelectorAll("button").forEach((b) =>
     b.onclick = () => { loadOrg(b.dataset.org); });
   $("search").value = state.filters.search;
-  $("search").oninput = (e) => { state.filters.search = e.target.value.trim(); save(); recompute(); };
+  let searchTimer = null;
+  $("search").oninput = (e) => {
+    state.filters.search = e.target.value.trim();
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { save(); recompute(); }, 150);
+  };
   $("resetWeights").onclick = () => {
     for (const c of COMPONENTS) state.weights[c.key] = { on: c.on, weight: c.weight };
-    buildWeights(); save(); recompute();
+    weightsDirty = true; buildWeights(); save(); recompute();
   };
   $("resetTiers").onclick = () => {
     for (const a of TIER_AXES) state.tiers[a.key] = [];
