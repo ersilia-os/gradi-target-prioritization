@@ -74,10 +74,10 @@ const COMPONENTS = [
     help: "Required for survival (0–1). Higher = better target." },
   { key: "comp_ligandability",   label: "Ligandability", short: "Lig", weight: 50, on: true,
     help: "Small-molecule tractability (0–1). Higher = more druggable." },
-  { key: "comp_novelty",         label: "Novelty / neglect", short: "Nov", weight: 0, on: false,
-    help: "1 − studiedness. High = under-studied (novel) target. Off by default; turn on to reward neglected proteins." },
   { key: "comp_degradability",   label: "Degradability", short: "Deg", weight: 0,  on: false, available: false,
     help: "Clp-protease susceptibility — axis not implemented in the pipeline yet." },
+  { key: "comp_novelty",         label: "Novelty", short: "Nov", weight: 0, on: false,
+    help: "1 − studiedness. High = under-studied (novel) target. Off by default; turn on to reward neglected proteins." },
 ];
 
 // ---- table columns --------------------------------------------------------
@@ -336,7 +336,7 @@ const MAP_COLORS = [
   { key: "comp_ligandability", label: "Ligandability" },
   { key: "comp_breadth", label: "Essential breadth" },
   { key: "comp_human_selective", label: "Human-selective" },
-  { key: "comp_novelty", label: "Novelty / neglect" },
+  { key: "comp_novelty", label: "Novelty" },
   { key: "conservation_score", label: "Conservation" },
   { key: "structure_score", label: "Structure" },
 ];
@@ -359,10 +359,12 @@ const VIEW_FILTERS = {
 // axis and filter targets to those bands. Binary axes use two labelled bands.
 const TIER_AXES = [
   { key: "comp_essentiality",    label: "Essentiality" },
-  { key: "comp_ligandability",   label: "Ligandability" },
   { key: "comp_breadth",         label: "Essential breadth" },
+  { key: "comp_ligandability",   label: "Ligandability" },
+  { key: "structure_score",      label: "Structure" },
+  { key: "comp_novelty",         label: "Novelty" },
+  { key: "conservation_score",   label: "Conservation" },
   { key: "comp_human_selective", label: "Human-selective", binary: true, hi: "Selective", lo: "Human homolog" },
-  { key: "comp_novelty",         label: "Novelty / neglect" },
 ];
 // bands are [lo, hi) on the 0–1 component value; high is inclusive of 1.
 const TIER_BANDS = [
