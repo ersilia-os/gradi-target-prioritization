@@ -375,9 +375,9 @@ const TIER_AXES = [
       { id: "low",  label: "Specific",     lo: -0.0001, hi: 0.334,  intensity: 22 },
       { id: "med",  label: "Intermediate", lo: 0.334,   hi: 0.667,  intensity: 52 },
       { id: "high", label: "Broad",        lo: 0.667,   hi: 1.0001, intensity: 90 } ] },
-  { key: "comp_human_selective", label: "Orthology", bands: [
-      { id: "low",  label: "Human ortholog",    lo: -0.0001, hi: 0.5,    intensity: 22 },
-      { id: "high", label: "No human ortholog", lo: 0.5,     hi: 1.0001, intensity: 90 } ] },
+  { key: "comp_human_selective", label: "Selectivity", bands: [
+      { id: "high", label: "Human selective", lo: 0.5,     hi: 1.0001, intensity: 90 },
+      { id: "low",  label: "Human homologs",  lo: -0.0001, hi: 0.5,    intensity: 22 } ] },
 ];
 // bands are [lo, hi) on the 0–1 component value; high is inclusive of 1.
 const TIER_BANDS = [
