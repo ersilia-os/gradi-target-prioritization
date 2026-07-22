@@ -368,66 +368,247 @@ function setTopbarOffset() {
 // ---------- KPI tiles ------------------------------------------------------
 
 // ---------- detail drawer --------------------------------------------------
-function detailValueHTML(type, v) {
-  if (type === "bool") return boolHTML(v);
-  if (type === "class") return classBadgeHTML(v) + (FC_BY_ID[v] ? ` ${FC_BY_ID[v].label}` : "");
-  if (type === "text") return (v === null || v === undefined || v === "") ? "–" : String(v).replace(/;/g, "; ");
-  return fmt(type, v);
+// ---- gene-card render helpers --------------------------------------------
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+// composite rank among all rows under the current weighting
+function compRank(row) {
+  const c = row.__c;
+  if (!isNum(c)) return null;
+  let r = 1;
+  for (const x of DATA.rows) if (isNum(x.__c) && x.__c > c) r++;
+  return r;
+}
+// SVG donut for a 0–1 score (arc only; the number is overlaid in HTML)
+function ringSVG(v, color) {
+  const r = 42, circ = 2 * Math.PI * r;
+  const val = isNum(v) ? Math.max(0, Math.min(1, v)) : 0;
+  const off = circ * (1 - val);
+  return `<svg viewBox="0 0 100 100" class="ringsvg" aria-hidden="true">`
+    + `<circle cx="50" cy="50" r="${r}" class="ringbg"></circle>`
+    + `<circle cx="50" cy="50" r="${r}" class="ringfg" style="stroke:${color};`
+    + `stroke-dasharray:${circ.toFixed(1)};stroke-dashoffset:${off.toFixed(1)}"></circle></svg>`;
+}
+// AlphaFold pLDDT confidence palette
+function plddtColor(v) {
+  if (!isNum(v)) return "var(--faint)";
+  if (v >= 90) return "#0053D6"; if (v >= 70) return "#65CBF3";
+  if (v >= 50) return "#FFDB13"; return "#FF7D45";
+}
+function plddtBarHTML(v) {
+  const pct = Math.max(0, Math.min(100, v));
+  return `<div class="plddt"><div class="plddtscale"></div>`
+    + `<div class="plddtneedle" style="left:${pct}%" title="mean pLDDT ${Math.round(v)}"></div>`
+    + `<div class="plddtlabels"><span>0</span><span>disorder → confident</span><span>100</span></div></div>`;
+}
+// labelled 0–1 metric bar (invert = higher is worse → risk colour)
+function barHTML(label, v, color, invert, small) {
+  const has = isNum(v);
+  const pct = has ? Math.round(Math.max(0, Math.min(1, v)) * 100) : 0;
+  const bcol = invert ? "var(--tangerine)" : color;
+  return `<div class="metric${small ? " mini" : ""}"><span class="ml">${label}</span>`
+    + `<span class="bar"><i style="width:${pct}%;background:${bcol}"></i></span>`
+    + `<span class="mv">${has ? v.toFixed(2) : "–"}</span></div>`;
+}
+function statHTML(label, v, type) {
+  const shown = (v === null || v === undefined || v === "") ? "–" : fmt(type, v);
+  return `<div class="stat2"><div class="s2v">${esc(shown)}</div><div class="s2l">${label}</div></div>`;
+}
+function flagHTML(label, on) {
+  return `<span class="flag ${on ? "on" : "off"}">${on ? "✓" : "·"} ${label}</span>`;
+}
+function pdbChipsHTML(str) {
+  const ids = String(str || "").split(/[;,\s]+/).filter(Boolean).slice(0, 12);
+  return ids.map((id) => `<a class="chip pdbchip" href="https://www.rcsb.org/structure/${encodeURIComponent(id)}" target="_blank" rel="noopener">${esc(id)}</a>`).join("");
+}
+function chipClusterHTML(str, max) {
+  const parts = String(str || "").split(";").map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return "";
+  const shown = parts.slice(0, max || 10);
+  const extra = parts.length > shown.length ? `<span class="chip more">+${parts.length - shown.length}</span>` : "";
+  return shown.map((p) => `<span class="chip">${esc(p)}</span>`).join("") + extra;
+}
+function tierChipHTML(type, v) {
+  if (v === null || v === undefined || v === "") return "";
+  const pfx = type === "sel" ? "sel-" : type === "pop" ? "pop-" : "tier-";
+  return `<span class="badge ${pfx}${v}">${esc(String(v).replace(/_/g, " "))}</span>`;
+}
+function axisPanelHTML(row, spec) {
+  const has = (k) => DATA.columns.includes(k);
+  const color = CARD_GROUP_COLORS[spec.axis] || "var(--brand)";
+  // header: title + tier badge + headline score
+  let meta = "";
+  if (spec.tier && has(spec.tier) && row[spec.tier] != null) meta += tierChipHTML(tierType(spec.tier), row[spec.tier]);
+  else if (spec.tierClass && has(spec.tierClass) && row[spec.tierClass] != null) meta += tierChipHTML("sel", row[spec.tierClass]);
+  if (spec.headline && has(spec.headline)) {
+    const v = row[spec.headline];
+    meta += `<span class="pscore" style="color:${color}">${isNum(v) ? v.toFixed(2) : "–"}</span>`;
+  } else if (spec.plddt && has(spec.plddt)) {
+    const v = row[spec.plddt];
+    meta += `<span class="pscore" style="color:${plddtColor(v)}">${isNum(v) ? Math.round(v) : "–"}<small>pLDDT</small></span>`;
+  }
+  const head = `<div class="phead"><h3 style="--pc:${color}">${spec.title}</h3><div class="pmeta">${meta}</div></div>`;
+
+  let body = "";
+  if (spec.blurb) body += `<p class="pblurb">${spec.blurb}</p>`;
+  if (spec.bars) for (const [k, label, invert] of spec.bars) if (has(k)) body += barHTML(label, row[k], color, invert);
+  if (spec.subbars) {
+    const sb = spec.subbars.filter(([k]) => has(k) && row[k] != null);
+    if (sb.length) body += `<div class="subbars">` + sb.map(([k, label]) => barHTML(label, row[k], color, false, true)).join("") + `</div>`;
+  }
+  if (spec.plddt && has(spec.plddt) && isNum(row[spec.plddt])) body += plddtBarHTML(row[spec.plddt]);
+  if (spec.penalty && has(spec.penalty[0]) && isNum(row[spec.penalty[0]])) body += barHTML(spec.penalty[1], row[spec.penalty[0]], "var(--silver)", true);
+  if (spec.stats) {
+    const st = spec.stats.filter(([k]) => has(k));
+    if (st.length) body += `<div class="statgrid">` + st.map(([k, label, type]) => statHTML(label, row[k], type)).join("") + `</div>`;
+  }
+  if (spec.flags) {
+    const fl = spec.flags.filter(([k]) => has(k));
+    if (fl.length) body += `<div class="flagrow">` + fl.map(([k, label, mode]) => {
+      const raw = row[k];
+      const on = mode === "ge05" ? (isNum(raw) && raw >= 0.5) : Boolean(raw);
+      return flagHTML(label, on);
+    }).join("") + `</div>`;
+  }
+  if (spec.chips) for (const [k, label, kind] of spec.chips) {
+    if (!has(k) || row[k] === null || row[k] === undefined || row[k] === "") continue;
+    const inner = kind === "pdb" ? pdbChipsHTML(row[k]) : `<span class="chip">${esc(String(row[k]))}</span>`;
+    if (inner) body += `<div class="chiprow"><span class="crl">${label}</span><span class="chips">${inner}</span></div>`;
+  }
+  if (spec.text) for (const [k, label] of spec.text) {
+    if (!has(k) || row[k] === null || row[k] === undefined || row[k] === "") continue;
+    body += `<div class="kv"><span class="kvk">${label}</span><span class="kvv">${esc(String(row[k]))}</span></div>`;
+  }
+  if (spec.homolog) {
+    const g = row[spec.homolog[0]], o = row[spec.homolog[1]];
+    if ((g && g !== "") || (o && o !== "")) body += `<div class="kv"><span class="kvk">Best-studied homolog</span>`
+      + `<span class="kvv">${esc(g || "–")}${o ? ` <em>${esc(o)}</em>` : ""}</span></div>`;
+  }
+  if (spec.sources && has(spec.sources) && row[spec.sources]) {
+    const chips = chipClusterHTML(row[spec.sources], 12);
+    if (chips) body += `<div class="chiprow"><span class="crl">Evidence</span><span class="chips">${chips}</span></div>`;
+  }
+  if (!body.trim()) return "";
+  return `<section class="panel">${head}${body}</section>`;
+}
+function annotationPanelHTML(row) {
+  const has = (k) => DATA.columns.includes(k);
+  const spec = CARD_ANNOTATION, color = CARD_GROUP_COLORS.annotation;
+  let body = "";
+  const fc = row[spec.classKey];
+  if (fc) {
+    const m = FC_BY_ID[fc];
+    body += `<div class="kv"><span class="kvk">Functional class</span>`
+      + `<span class="kvv">${classBadgeHTML(fc)} ${m ? m.label : esc(String(fc))}</span></div>`;
+  }
+  for (const [k, label] of spec.chipGroups) {
+    if (!has(k) || !row[k]) continue;
+    const chips = chipClusterHTML(row[k]);
+    if (chips) body += `<div class="chiprow"><span class="crl">${label}</span><span class="chips">${chips}</span></div>`;
+  }
+  if (!body.trim()) return "";
+  return `<section class="panel"><div class="phead"><h3 style="--pc:${color}">${spec.title}</h3></div>${body}</section>`;
+}
+// mini ESM-C locator map with this protein highlighted
+function drawCardMap(row) {
+  const cv = document.getElementById("cardmap");
+  if (!cv || !DATA) return;
+  const W = cv.clientWidth || 460, H = cv.clientHeight || 172, dpr = devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const { minx, maxx, miny, maxy } = mapExtent();
+  const P = 12, s = Math.min((W - 2 * P) / ((maxx - minx) || 1), (H - 2 * P) / ((maxy - miny) || 1));
+  const ox = P + (W - 2 * P - s * (maxx - minx)) / 2, oy = P + (H - 2 * P - s * (maxy - miny)) / 2;
+  const X = (x) => ox + (x - minx) * s, Y = (y) => oy + (maxy - y) * s;
+  ctx.fillStyle = "rgba(154,147,166,0.20)";
+  for (const r of DATA.rows) {
+    if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
+    ctx.beginPath(); ctx.arc(X(r.tsne_x), Y(r.tsne_y), 1, 0, 6.283); ctx.fill();
+  }
+  if (isNum(row.tsne_x) && isNum(row.tsne_y)) {
+    const px = X(row.tsne_x), py = Y(row.tsne_y);
+    ctx.strokeStyle = "rgba(108,92,231,0.30)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, P); ctx.lineTo(px, H - P); ctx.moveTo(P, py); ctx.lineTo(W - P, py); ctx.stroke();
+    ctx.beginPath(); ctx.arc(px, py, 5.5, 0, 6.283);
+    ctx.fillStyle = "#6C5CE7"; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+  }
 }
 function openDrawer(row) {
   state._sel = row.uniprot_accession;
   document.querySelectorAll("#tbody tr").forEach((tr) =>
     tr.classList.toggle("sel", tr.dataset.acc === row.uniprot_accession));
 
+  const has = (k) => DATA.columns.includes(k);
+  const cval = isNum(row.__c) ? row.__c : 0;
+  const rank = compRank(row);
+
+  // composite contribution bars (per enabled component)
   const comps = COMPONENTS.filter((c) => AVAIL[c.key] && state.weights[c.key] && state.weights[c.key].on
     && state.weights[c.key].weight > 0);
-  const wsum = comps.reduce((s, c) => s + (isNum(row[c.key]) ? state.weights[c.key].weight : 0), 0);
   const contribHTML = comps.map((c) => {
     const v = row[c.key];
-    const contrib = (isNum(v) && wsum > 0) ? (state.weights[c.key].weight * v / wsum) : null;
-    const w = Math.round((contrib || 0) * 100);
     return `<div class="c" style="--cc:${colColor(c.key)}"><span class="cl">${c.label}</span>`
-      + `<div class="cbarmini"><i style="width:${w}%"></i></div>`
+      + `<div class="cbarmini"><i style="width:${isNum(v) ? Math.round(v * 100) : 0}%"></i></div>`
       + `<span class="cvv">${isNum(v) ? v.toFixed(2) : "–"}</span></div>`;
-  }).join("");
+  }).join("") || '<span class="dk">No active components</span>';
+
+  // functional-class pill
+  const fcMeta = FC_BY_ID[row.functional_class];
+  const fcPill = fcMeta ? `<span class="fcpill" style="--fc:${fcMeta.color}" title="Functional class">${fcMeta.label}</span>` : "";
+
+  // at-a-glance tier chips
+  const glance = [
+    tierChipHTML("tier", has("essentiality_tier") ? row.essentiality_tier : null),
+    tierChipHTML("tier", has("ligandability_tier") ? row.ligandability_tier : null),
+    tierChipHTML("sel", has("selectivity") ? row.selectivity : null),
+    tierChipHTML("pop", has("popularity_tier") ? row.popularity_tier : null),
+  ].filter(Boolean).join("");
+  const glanceHTML = glance ? `<div class="tierchips">${glance}</div>` : "";
 
   const links = externalLinks(row).map((l) =>
-    `<a href="${l.href}" target="_blank" rel="noopener">${l.label} ↗</a>`).join("");
+    `<a href="${l.href}" target="_blank" rel="noopener">${l.icon ? `<span class="li">${l.icon}</span>` : ""}${l.label}</a>`).join("");
 
-  const groupColor = (title) => {
-    const t = title.toLowerCase();
-    if (t.startsWith("essential")) return AXIS_COLORS.essentiality;
-    if (t.startsWith("ligand")) return AXIS_COLORS.ligandability;
-    if (t.startsWith("structure")) return AXIS_COLORS.structure;
-    if (t.startsWith("novelty")) return AXIS_COLORS.novelty;
-    if (t.startsWith("cross")) return AXIS_COLORS.human_selective;
-    return AXIS_COLORS.composite;
-  };
-  let groups = "";
-  for (const g of DETAIL_GROUPS) {
-    const rowsHTML = g.fields.filter(([k]) => DATA.columns.includes(k))
-      .map(([k, lab, type]) => `<div class="drow"><span class="dk">${lab}</span>`
-        + `<span class="dv">${detailValueHTML(type, row[k])}</span></div>`).join("");
-    if (rowsHTML) groups += `<div class="dgroup" style="--dgc:${groupColor(g.title)}"><h3>${g.title}</h3>${rowsHTML}</div>`;
-  }
+  const panels = CARD_AXES.map((spec) => axisPanelHTML(row, spec)).join("");
+  const mapPanel = (has("tsne_x") && isNum(row.tsne_x))
+    ? `<section class="panel minipanel"><div class="phead"><h3 style="--pc:var(--brand)">Protein universe</h3></div>`
+      + `<p class="pblurb">Where this protein sits in the ESM-C embedding map (all ${DATA.rows.length.toLocaleString()} proteins).</p>`
+      + `<div class="minimap"><canvas id="cardmap"></canvas></div></section>`
+    : "";
+  const annotation = annotationPanelHTML(row);
 
   $("drawer").innerHTML = `
     <div class="dhead">
-      <button class="close" id="drawerClose">×</button>
-      <div class="g">${row.gene || row.uniprot_accession}</div>
-      <div class="a">${row.uniprot_accession} · ${ORGANISM_META[state.org].name} ${ORGANISM_META[state.org].strain}</div>
-      <div class="comp">
-        <div class="cbar"><div class="track"><div class="fill" style="width:${((isNum(row.__c) ? row.__c : 0) * 100).toFixed(0)}%"></div></div>
-        <span class="v">${isNum(row.__c) ? row.__c.toFixed(3) : "–"}</span></div>
-        <div class="contrib">${contribHTML || '<span class="dk">No active components</span>'}</div>
+      <button class="close" id="drawerClose" aria-label="Close">×</button>
+      <div class="idrow"><span class="gene">${esc(row.gene || row.uniprot_accession)}</span>${fcPill}</div>
+      <div class="submeta">
+        <button class="accbtn" id="accCopy" title="Copy accession">${esc(row.uniprot_accession)} <span class="cpi">⧉</span></button>
+        <span class="org"><span class="odot odot-${state.org}"></span>${ORGANISM_META[state.org].name} ${ORGANISM_META[state.org].strain}</span>
       </div>
+      <div class="scorehero">
+        <div class="ring">${ringSVG(cval, "var(--brand)")}<div class="ringc"><b>${isNum(row.__c) ? row.__c.toFixed(2) : "–"}</b><span>composite</span></div></div>
+        <div class="herostack">
+          ${rank ? `<div class="rankline">Rank <b>#${rank.toLocaleString()}</b> <span>of ${DATA.rows.length.toLocaleString()}</span></div>` : ""}
+          <div class="contrib">${contribHTML}</div>
+        </div>
+      </div>
+      ${glanceHTML}
       <div class="links">${links}</div>
     </div>
-    <div class="dbody">${groups}</div>`;
+    <div class="dbody">${panels}${mapPanel}${annotation}</div>`;
   $("drawerClose").onclick = closeDrawer;
+  const accBtn = $("accCopy");
+  if (accBtn) accBtn.onclick = () => {
+    try { navigator.clipboard && navigator.clipboard.writeText(row.uniprot_accession); } catch (e) {}
+    accBtn.classList.add("copied"); setTimeout(() => accBtn.classList.remove("copied"), 1100);
+  };
   $("drawer").classList.add("open");
   $("drawer").setAttribute("aria-hidden", "false");
   $("scrim").classList.add("open");
+  requestAnimationFrame(() => drawCardMap(row));
 }
 function closeDrawer() {
   $("drawer").classList.remove("open");

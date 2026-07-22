@@ -263,71 +263,145 @@ const BOOL_FILTERS = [
   { key: "pdb_has_structure",        label: "Has PDB structure" },
 ];
 
-// ---- detail drawer field groups -------------------------------------------
-const DETAIL_GROUPS = [
-  { title: "Essentiality", fields: [
-    ["essentiality_score", "Score", "score"], ["essentiality_tier", "Tier", "text"],
-    ["evidence_experimental", "Experimental", "score"], ["evidence_transfer", "Transfer", "score"],
-    ["evidence_predictor", "Predictor", "score"], ["experimentally_essential", "Exp. essential", "bool"],
-    ["entero_pct_essential", "Enterobacteriaceae % ess.", "pct"], ["bacteria_pct_essential", "Bacteria % ess.", "pct"],
-    ["proteomelm_ess_score", "ProteomeLM", "score"], ["geptop_score", "Geptop", "score"],
-    ["fba_essential", "FBA essential", "bool"], ["evidence_sources", "Sources", "text"],
-  ]},
-  { title: "Ligandability", fields: [
-    ["ligandability_score", "Score", "score"], ["ligandability_tier", "Tier", "text"],
-    ["evidence_binding", "Binding", "score"], ["evidence_structural", "Structural", "score"],
-    ["evidence_pocket", "Pocket", "score"], ["has_hard_evidence", "Hard evidence", "bool"],
-    ["human_ligandable_family", "Human-ligandable family", "bool"], ["disorder_frac", "Disorder frac.", "pct"],
-    ["chembl_any_n_compounds", "ChEMBL compounds", "int"], ["chembl_any_n_potent", "ChEMBL potent (≤1µM)", "int"],
-    ["chembl_any_best_pchembl", "Best pChEMBL", "num"], ["bindingdb_any_n_potent", "BindingDB potent", "int"],
-    ["pdb_lig_direct_pdb_ids", "PDB co-crystals", "text"], ["alphafill_best_ligand", "AlphaFill ligand", "text"],
-    ["fpocket_max_drug_score", "fpocket drug score", "score"], ["p2rank_top_score", "P2Rank top", "num"],
-    ["pocket_consensus_score", "Pocket consensus", "score"],
-  ]},
-  { title: "Structure", fields: [
-    ["af_available", "AlphaFold model", "bool"], ["af_mean_plddt", "Mean pLDDT", "plddt"],
-    ["af_n_domains", "Domains", "int"], ["af_is_multidomain", "Multidomain", "bool"],
-    ["pdb_has_structure", "PDB structure", "bool"], ["pdb_n_structures", "# PDB", "int"],
-    ["pdb_ids", "PDB IDs", "text"], ["pdb_best_resolution_A", "Best resolution (Å)", "num"],
-    ["pdb_best_method", "Method", "text"], ["pdb_has_holo", "Has holo", "bool"],
-  ]},
-  { title: "Cross-species / selectivity", fields: [
-    ["selectivity", "Selectivity class", "text"], ["comp_human_selective", "Human-selective", "score"],
-    ["conservation_score", "Conservation (ortholog spread)", "score"],
-    ["human_closeness", "Human closeness (% id to human)", "score"],
-    ["ec_transfer_essential", "E. coli ess. transfer", "bool"], ["n_ecoli_orthologs", "# E. coli orthologs", "int"],
-    ["family", "ESM-C family cluster", "int"],
-  ]},
-  { title: "Novelty / studiedness", fields: [
-    ["comp_novelty", "Novelty (1 − studied)", "score"], ["popularity_tier", "Studiedness tier", "text"],
-    ["own_n_pubs", "Own publications", "int"], ["own_reviewed", "Swiss-Prot reviewed", "bool"],
-    ["best_homolog_gene", "Best-studied homolog", "text"], ["best_homolog_organism", "Homolog species", "text"],
-    ["best_homolog_n_pubs", "Homolog publications", "int"],
-  ]},
-  { title: "Annotation (task-agnostic)", fields: [
-    ["functional_class", "Functional class", "class"], ["interpro_family_names", "InterPro family", "text"],
-    ["interpro_superfamily_names", "InterPro superfamily", "text"], ["panther_family_names", "PANTHER family", "text"],
-    ["panther_subfamily_names", "PANTHER subfamily", "text"], ["pfam_ids", "Pfam", "text"],
-    ["n_interpro_entries", "InterPro entries", "int"],
-  ]},
+// ---- gene card (detail drawer) — per-axis panel model ---------------------
+// A rich profile: each axis panel has an optional headline score, a tier badge,
+// evidence bars (0–1), stat chips (counts / numbers) and boolean flags. Keys
+// absent from the loaded data are skipped automatically by the renderer.
+const CARD_AXES = [
+  { key: "essentiality", title: "Essentiality", axis: "essentiality",
+    headline: "essentiality_score", tier: "essentiality_tier",
+    blurb: "How required the gene is for survival and fitness.",
+    bars: [
+      ["evidence_experimental", "Experimental (Tn-seq / CRISPRi)"],
+      ["evidence_transfer",     "Cross-species transfer"],
+      ["evidence_predictor",    "Predictor consensus"],
+    ],
+    subbars: [
+      ["proteomelm_ess_score", "ProteomeLM"],
+      ["geptop_score",         "Geptop"],
+    ],
+    stats: [
+      ["entero_pct_essential",   "Enterobacteriaceae", "pct"],
+      ["bacteria_pct_essential", "Bacteria-wide",      "pct"],
+    ],
+    flags: [
+      ["experimentally_essential", "Experimentally essential"],
+      ["fba_essential",            "FBA-lethal knockout"],
+      ["ec_transfer_essential",    "Essential in E. coli"],
+    ],
+    sources: "evidence_sources" },
+
+  { key: "ligandability", title: "Ligandability", axis: "ligandability",
+    headline: "ligandability_score", tier: "ligandability_tier",
+    blurb: "Small-molecule tractability from ligand, structural and pocket evidence.",
+    bars: [
+      ["evidence_binding",    "Known ligands / binding"],
+      ["evidence_structural", "Structural (co-crystal · AlphaFill)"],
+      ["evidence_pocket",     "Predicted druggable pocket"],
+    ],
+    stats: [
+      ["chembl_any_n_compounds",  "ChEMBL cmpds",    "int"],
+      ["chembl_any_n_potent",     "Potent ≤1 µM",    "int"],
+      ["chembl_any_best_pchembl", "Best pChEMBL",    "num"],
+      ["bindingdb_any_n_potent",  "BindingDB ≤1 µM", "int"],
+      ["fpocket_max_drug_score",  "fpocket",         "score"],
+      ["pocket_consensus_score",  "Pocket consensus","score"],
+    ],
+    flags: [
+      ["has_hard_evidence",       "Hard evidence (≤1 µM / co-crystal)"],
+      ["human_ligandable_family", "Human-ligandable family"],
+    ],
+    chips: [
+      ["pdb_lig_direct_pdb_ids", "Co-crystal PDBs", "pdb"],
+      ["alphafill_best_ligand",  "AlphaFill ligand", "text"],
+    ],
+    penalty: ["disorder_frac", "Disorder (score penalty)"] },
+
+  { key: "structure", title: "Structure", axis: "ligandability",
+    plddt: "af_mean_plddt",
+    blurb: "AlphaFold model confidence and experimental coverage.",
+    flags: [
+      ["af_available",      "AlphaFold model"],
+      ["af_is_multidomain", "Multidomain fold"],
+      ["pdb_has_structure", "Experimental PDB"],
+      ["pdb_has_holo",      "Ligand-bound (holo)"],
+    ],
+    stats: [
+      ["af_n_domains",         "Domains",        "int"],
+      ["pdb_n_structures",     "# PDB",          "int"],
+      ["pdb_best_resolution_A","Best res. (Å)",  "num"],
+    ],
+    chips: [ ["pdb_ids", "PDB structures", "pdb"] ],
+    text:  [ ["pdb_best_method", "Best method"] ] },
+
+  { key: "selectivity", title: "Selectivity & conservation", axis: "orthology",
+    tierClass: "selectivity",
+    blurb: "Human off-target risk versus phyletic spread across bacteria.",
+    bars: [
+      ["conservation_score", "Conservation (ortholog spread)"],
+      ["human_closeness",    "Human closeness (identity) — lower is safer", true],
+    ],
+    stats: [
+      ["n_orthologs",       "# orthologs",        "int"],
+      ["n_ecoli_orthologs", "# E. coli orthologs","int"],
+      ["family",            "ESM-C family",       "int"],
+    ],
+    flags: [
+      ["comp_human_selective", "No human ortholog (selective)", "ge05"],
+    ] },
+
+  { key: "novelty", title: "Novelty & studiedness", axis: "novelty",
+    headline: "comp_novelty", tier: "popularity_tier",
+    blurb: "How under-studied the target is (bibliometric, ortholog-propagated).",
+    stats: [
+      ["own_n_pubs",          "Own publications", "int"],
+      ["best_homolog_n_pubs", "Homolog pubs",     "int"],
+    ],
+    flags: [ ["own_reviewed", "Swiss-Prot reviewed"] ],
+    homolog: ["best_homolog_gene", "best_homolog_organism"] },
 ];
+
+// annotation panel (families / signatures) — rendered as chip clusters
+const CARD_ANNOTATION = {
+  title: "Annotation", axis: "annotation",
+  classKey: "functional_class",
+  chipGroups: [
+    ["interpro_family_names",      "InterPro family"],
+    ["interpro_superfamily_names", "InterPro superfamily"],
+    ["interpro_domain_names",      "InterPro domain"],
+    ["panther_family_names",       "PANTHER family"],
+    ["panther_subfamily_names",    "PANTHER subfamily"],
+    ["pfam_ids",                   "Pfam"],
+  ],
+};
+const CARD_GROUP_COLORS = {
+  essentiality: "var(--crimson)", ligandability: "var(--cobalt)",
+  orthology: "var(--turquoise)", novelty: "var(--orchid)", annotation: "var(--periwinkle)",
+};
 
 // ---- external links (built from the accession/urls) -----------------------
 function externalLinks(row) {
   const acc = row.uniprot_accession;
+  const gene = (row.gene || "").trim();
   const links = [
-    { label: "UniProt", href: `https://www.uniprot.org/uniprotkb/${acc}/entry` },
-    { label: "AlphaFold", href: `https://alphafold.ebi.ac.uk/entry/${acc}` },
-    { label: "InterPro", href: `https://www.ebi.ac.uk/interpro/protein/UniProt/${acc}/` },
+    { label: "UniProt", icon: "🧬", href: `https://www.uniprot.org/uniprotkb/${acc}/entry` },
+    { label: "AlphaFold", icon: "◈", href: `https://alphafold.ebi.ac.uk/entry/${acc}` },
+    { label: "InterPro", icon: "▦", href: `https://www.ebi.ac.uk/interpro/protein/UniProt/${acc}/` },
+    { label: "STRING", icon: "⚭", href: `https://string-db.org/cgi/network?identifiers=${encodeURIComponent(acc)}` },
   ];
   if (row.pdb_best_id || (row.pdb_ids && String(row.pdb_ids).trim())) {
     const pid = row.pdb_best_id || String(row.pdb_ids).split(/[;, ]/)[0];
-    if (pid) links.push({ label: `PDB ${pid}`, href: `https://www.rcsb.org/structure/${pid}` });
+    if (pid) links.push({ label: `PDB ${pid}`, icon: "◍", href: `https://www.rcsb.org/structure/${pid}` });
   }
   if (row.pfam_ids && String(row.pfam_ids).trim()) {
     const pf = String(row.pfam_ids).split(/[;, ]/)[0];
-    if (pf) links.push({ label: pf, href: `https://www.ebi.ac.uk/interpro/entry/pfam/${pf}/` });
+    if (pf) links.push({ label: pf, icon: "▦", href: `https://www.ebi.ac.uk/interpro/entry/pfam/${pf}/` });
   }
+  // literature search (useful for the novelty angle) — gene + organism
+  const org = (typeof state !== "undefined" && state.org) || "kp";
+  const orgName = (ORGANISM_META[org] && ORGANISM_META[org].name) || "Klebsiella pneumoniae";
+  const term = encodeURIComponent(`${gene ? gene + " " : ""}${orgName}`.trim());
+  links.push({ label: "PubMed", icon: "🔎", href: `https://pubmed.ncbi.nlm.nih.gov/?term=${term}` });
   return links;
 }
 
