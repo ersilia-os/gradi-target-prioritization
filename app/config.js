@@ -358,13 +358,26 @@ const VIEW_FILTERS = {
 // An alternative to the weighted composite: pick a band (Low / Med / High) per
 // axis and filter targets to those bands. Binary axes use two labelled bands.
 const TIER_AXES = [
-  { key: "comp_essentiality",    label: "Essentiality" },
-  { key: "comp_breadth",         label: "Essential breadth" },
-  { key: "comp_ligandability",   label: "Ligandability" },
-  { key: "structure_score",      label: "Structure" },
-  { key: "comp_novelty",         label: "Novelty" },
-  { key: "conservation_score",   label: "Conservation" },
-  { key: "comp_human_selective", label: "Human-selective", binary: true, hi: "Selective", lo: "Human homolog" },
+  { key: "comp_essentiality", label: "Essentiality" },   // default Low / Med / High
+  { key: "comp_breadth", label: "Essential breadth", bands: [
+      { id: "low",  label: "Specific", lo: -0.0001, hi: 0.334,  intensity: 22 },
+      { id: "med",  label: "Broad",    lo: 0.334,   hi: 0.667,  intensity: 52 },
+      { id: "high", label: "Core",     lo: 0.667,   hi: 1.0001, intensity: 90 } ] },
+  { key: "comp_ligandability", label: "Ligandability", bands: [
+      { id: "none",   label: "Not ligandable",   intensity: 22,
+        test: (v, r) => !r.has_hard_evidence && !(typeof r.evidence_pocket === "number" && r.evidence_pocket >= 0.5) },
+      { id: "pocket", label: "Ligandable pocket", intensity: 52,
+        test: (v, r) => !r.has_hard_evidence && typeof r.evidence_pocket === "number" && r.evidence_pocket >= 0.5 },
+      { id: "known",  label: "Known ligands",     intensity: 90,
+        test: (v, r) => r.has_hard_evidence === true } ] },
+  { key: "comp_novelty", label: "Novelty" },   // default Low / Med / High
+  { key: "conservation_score", label: "Conservation", bands: [
+      { id: "low",  label: "Specific",     lo: -0.0001, hi: 0.334,  intensity: 22 },
+      { id: "med",  label: "Intermediate", lo: 0.334,   hi: 0.667,  intensity: 52 },
+      { id: "high", label: "Broad",        lo: 0.667,   hi: 1.0001, intensity: 90 } ] },
+  { key: "comp_human_selective", label: "Orthology", bands: [
+      { id: "low",  label: "Human ortholog",    lo: -0.0001, hi: 0.5,    intensity: 22 },
+      { id: "high", label: "No human ortholog", lo: 0.5,     hi: 1.0001, intensity: 90 } ] },
 ];
 // bands are [lo, hi) on the 0–1 component value; high is inclusive of 1.
 const TIER_BANDS = [
@@ -376,9 +389,11 @@ const TIER_BANDS_BINARY = [
   { id: "low",  label: "lo", lo: -0.0001, hi: 0.5,    intensity: 22 },
   { id: "high", label: "hi", lo: 0.5,     hi: 1.0001, intensity: 90 },
 ];
-function tierBands(axis) {
-  if (!axis.binary) return TIER_BANDS;
-  return TIER_BANDS_BINARY.map((b) => ({ ...b, label: b.id === "high" ? axis.hi : axis.lo }));
+function tierBands(axis) { return axis.bands || TIER_BANDS; }
+// does a value/row fall in a band? numeric range by default, or a custom predicate.
+function bandMatches(band, v, row) {
+  if (band.test) return band.test(v, row);
+  return typeof v === "number" && v >= band.lo && v < band.hi;
 }
 
 const ORGANISM_META = {

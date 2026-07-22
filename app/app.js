@@ -156,7 +156,7 @@ function passFilters(row) {
     const bands = tierBands(axis);
     const inAny = sel.some((id) => {
       const b = bands.find((x) => x.id === id);
-      return b && isNum(v) && v >= b.lo && v < b.hi;
+      return b && bandMatches(b, v, row);
     });
     if (!inAny) return false;
   }
@@ -447,7 +447,7 @@ function tierCount(axisKey, bandId) {
   const axis = TIER_AXES.find((a) => a.key === axisKey);
   const band = tierBands(axis).find((b) => b.id === bandId);
   let n = 0;
-  for (const r of DATA.rows) { const v = r[axisKey]; if (isNum(v) && v >= band.lo && v < band.hi) n++; }
+  for (const r of DATA.rows) if (bandMatches(band, r[axisKey], r)) n++;
   return n;
 }
 function buildTierPanel() {
