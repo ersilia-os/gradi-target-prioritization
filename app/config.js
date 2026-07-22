@@ -67,21 +67,15 @@ const FUNCTIONAL_CLASSES = [
 ];
 const FC_BY_ID = Object.fromEntries(FUNCTIONAL_CLASSES.map((c) => [c.id, c]));
 
+// High-level scoring axes only. Secondary metrics (breadth, human-selectivity,
+// novelty, conservation, structure) are table columns / tier filters, not weights.
 const COMPONENTS = [
-  { key: "comp_essentiality",    label: "Essentiality",       short: "Ess",     weight: 40, on: true,
+  { key: "comp_essentiality",    label: "Essentiality",  short: "Ess", weight: 50, on: true,
     help: "Required for survival (0–1). Higher = better target." },
-  { key: "comp_ligandability",   label: "Ligandability",      short: "Lig",     weight: 40, on: true,
+  { key: "comp_ligandability",   label: "Ligandability", short: "Lig", weight: 50, on: true,
     help: "Small-molecule tractability (0–1). Higher = more druggable." },
-  { key: "comp_breadth",         label: "Essential breadth",  short: "Breadth", weight: 20, on: true,
-    help: "Essential across Enterobacteriaceae (0–1). Higher = broader (kills more species)." },
-  { key: "comp_human_selective", label: "Human-selective",    short: "Sel",     weight: 20, on: true, binary: true,
-    help: "Binary: 1 = no human ortholog (safer). Weight = a bonus for selective targets." },
-  { key: "comp_novelty",         label: "Novelty / neglect",  short: "Nov",     weight: 0,  on: false,
-    help: "1 − studiedness. High = under-studied (novel) target." },
-  { key: "comp_degradability",   label: "Degradability",      short: "Deg",     weight: 0,  on: false, available: false,
+  { key: "comp_degradability",   label: "Degradability", short: "Deg", weight: 0,  on: false, available: false,
     help: "Clp-protease susceptibility — axis not implemented in the pipeline yet." },
-  { key: "comp_expression",      label: "Expression / loc.",  short: "Exp",     weight: 0,  on: false, available: false,
-    help: "Abundance & Clp accessibility — axis not implemented in the pipeline yet." },
 ];
 
 // ---- table columns --------------------------------------------------------
