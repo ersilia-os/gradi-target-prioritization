@@ -941,7 +941,17 @@ function init() {
     for (const a of TIER_AXES) state.tiers[a.key] = [];
     buildTierPanel(); buildFilterBar(); save(); recompute();
   };
-  $("colBtn").onclick = (e) => { e.stopPropagation(); $("colmenu").classList.toggle("open"); };
+  $("colBtn").onclick = (e) => {
+    e.stopPropagation();
+    const open = $("colmenu").classList.toggle("open");
+    if (open) {
+      const pop = $("colPop"), r = $("colBtn").getBoundingClientRect();
+      pop.style.top = Math.round(r.bottom + 4) + "px";
+      const w = pop.offsetWidth || 210;
+      const left = Math.max(8, Math.min(r.right - w, innerWidth - w - 10));
+      pop.style.left = Math.round(left) + "px";
+    }
+  };
   document.addEventListener("click", (e) => { if (!$("colmenu").contains(e.target)) $("colmenu").classList.remove("open"); });
   $("exportBtn").onclick = exportCSV;
   $("scrim").onclick = closeDrawer;
