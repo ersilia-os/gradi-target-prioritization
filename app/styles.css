@@ -39,8 +39,7 @@ button{font-family:var(--sans)}
 /* header */
 .brand{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
 .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--brand);font-weight:600;margin:0 0 6px;}
-.wip{display:inline-flex;align-items:center;gap:5px;margin:10px 0 2px;font-size:11px;font-weight:600;white-space:nowrap;color:#9A6B12;background:color-mix(in srgb,var(--amber) 20%,#fff);border:1px solid color-mix(in srgb,var(--amber) 50%,var(--border));border-radius:999px;padding:3px 10px;}
-.wip .wip-dot{font-size:8px;color:var(--amber);}
+.wip{display:inline-block;margin:10px 0 2px;font-size:11px;font-weight:600;white-space:nowrap;color:#9A6B12;background:color-mix(in srgb,var(--amber) 20%,#fff);border:1px solid color-mix(in srgb,var(--amber) 50%,var(--border));border-radius:999px;padding:3px 10px;}
 .eyebrow .bn{text-transform:none;letter-spacing:.04em;}
 h1{font-size:22px;line-height:1.1;letter-spacing:-.01em;margin:0;font-weight:700;color:var(--ink);}
 h1.wordmark{font-size:clamp(15px,1.6vw,18px);white-space:nowrap;}
