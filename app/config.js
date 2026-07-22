@@ -74,6 +74,8 @@ const COMPONENTS = [
     help: "Required for survival (0–1). Higher = better target." },
   { key: "comp_ligandability",   label: "Ligandability", short: "Lig", weight: 50, on: true,
     help: "Small-molecule tractability (0–1). Higher = more druggable." },
+  { key: "comp_novelty",         label: "Novelty / neglect", short: "Nov", weight: 0, on: false,
+    help: "1 − studiedness. High = under-studied (novel) target. Off by default; turn on to reward neglected proteins." },
   { key: "comp_degradability",   label: "Degradability", short: "Deg", weight: 0,  on: false, available: false,
     help: "Clp-protease susceptibility — axis not implemented in the pipeline yet." },
 ];
