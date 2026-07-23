@@ -302,7 +302,8 @@ tbody tr.sel td{background:color-mix(in srgb,var(--brand) 12%,var(--surface));}
 
 .tierchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:15px;}
 .tierchips .badge{text-transform:capitalize;font-size:11px;padding:3px 9px;}
-.drawer .links{display:flex;flex-wrap:wrap;gap:7px;margin-top:15px;}
+.drawer .links{display:flex;flex-wrap:nowrap;gap:7px;margin-top:15px;overflow-x:auto;padding-bottom:2px;}
+.drawer .links a{flex:0 0 auto;}
 .drawer .links a{font-size:12px;border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:4px 10px;color:var(--ink);display:inline-flex;align-items:center;gap:5px;transition:all .15s;}
 .drawer .links a:hover{border-color:var(--brand);color:var(--brand);text-decoration:none;}
 .drawer .links .li{opacity:.75;font-size:11px;}

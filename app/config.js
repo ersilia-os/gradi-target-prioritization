@@ -459,10 +459,6 @@ function externalLinks(row) {
     const pid = row.pdb_best_id || String(row.pdb_ids).split(/[;, ]/)[0];
     if (pid) links.push({ label: `PDB ${pid}`, icon: "◍", href: `https://www.rcsb.org/structure/${pid}` });
   }
-  if (row.pfam_ids && String(row.pfam_ids).trim()) {
-    const pf = String(row.pfam_ids).split(/[;, ]/)[0];
-    if (pf) links.push({ label: pf, icon: "▦", href: `https://www.ebi.ac.uk/interpro/entry/pfam/${pf}/` });
-  }
   // literature search (useful for the novelty angle) — gene + organism
   const org = (typeof state !== "undefined" && state.org) || "kp";
   const orgName = (ORGANISM_META[org] && ORGANISM_META[org].name) || "Klebsiella pneumoniae";

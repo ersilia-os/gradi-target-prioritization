@@ -183,7 +183,7 @@ function computeAll() {
       if (isNum(v)) { const w = state.weights[c.key].weight; sum += w * v; wsum += w; }
     }
     row.__c = wsum > 0 ? sum / wsum : null;
-    row.__conf = evidenceConfidence(row, comps).frac;
+    row.__conf = evidenceConfidence(row).frac;   // static — not affected by weights
   }
 }
 // ---------- evidence / confidence ------------------------------------------
@@ -208,13 +208,18 @@ function axisBacking(row, key) {
   if (key === "comp_novelty") return isNum(row.comp_novelty) ? 1 : null;  // bibliometric = measured
   return isNum(row[key]) ? 0.5 : null;
 }
-function evidenceConfidence(row, comps) {
-  comps = comps || enabledComponents();
+// Evidence is a STATIC property of the target — how well its core axes are
+// backed by data — independent of the (flexible) weighting scheme. Always
+// evaluated over the same fixed axes, not the enabled composite components.
+const EVIDENCE_AXES = ["comp_essentiality", "comp_ligandability"];
+function evidenceConfidence(row) {
   const per = []; let sum = 0, n = 0;
-  for (const c of comps) {
-    const b = axisBacking(row, c.key);
+  for (const key of EVIDENCE_AXES) {
+    if (!AVAIL[key]) continue;
+    const b = axisBacking(row, key);
     if (b === null) continue;
-    per.push({ label: c.label, backing: b }); sum += b; n++;
+    const lbl = (COMPONENTS.find((c) => c.key === key) || {}).label || key;
+    per.push({ label: lbl, backing: b }); sum += b; n++;
   }
   return { frac: n ? sum / n : null, per, n, predictedOnly: n > 0 && per.every((p) => p.backing < 1) };
 }
@@ -911,7 +916,7 @@ function openDrawer(row) {
         <span class="org"><span class="odot odot-${state.org}"></span>${ORGANISM_META[state.org].name} ${ORGANISM_META[state.org].strain}</span>
       </div>
       <div class="scorehero">
-        <div class="ring">${ringSVG(cval, "var(--brand)")}<div class="ringc"><b>${isNum(row.__c) ? row.__c.toFixed(2) : "–"}</b><span>composite</span></div></div>
+        <div class="ring">${ringSVG(cval, "var(--brand)")}<div class="ringc"><b>${isNum(row.__c) ? row.__c.toFixed(2) : "–"}</b></div></div>
         <div class="herostack">
           ${rank ? `<div class="rankline">Rank <b>#${rank.toLocaleString()}</b> <span>of ${DATA.rows.length.toLocaleString()}</span>`
             + `<span class="evline">${confGlyphHTML(row)} ${(function(){const ci=evidenceConfidence(row);return ci.predictedOnly?'<b class="predonly">predicted-only</b>':(ci.frac>=0.8?'well supported':ci.frac>=0.4?'partly supported':'weakly supported');})()}</span></div>` : ""}
