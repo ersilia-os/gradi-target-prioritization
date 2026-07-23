@@ -335,16 +335,46 @@ function recompute() {
   renderActiveView();
 }
 function renderActiveView() {
-  const isMap = state.view === "map";
-  $("tablewrap").hidden = isMap;
+  const isMap = state.view === "map", isCmp = state.view === "compare";
+  $("tablewrap").hidden = isMap || isCmp;
   $("mapwrap").hidden = !isMap;
+  $("cmpwrap").hidden = !isCmp;
   $("mapctrl").hidden = !isMap;
-  $("colmenu").style.display = isMap ? "none" : "";
-  $("pager").hidden = isMap;
+  $("colmenu").style.display = (isMap || isCmp) ? "none" : "";
+  $("pager").hidden = isMap || isCmp;
   if (isMap) { drawMap(); const pn = $("provNote"); if (pn) pn.hidden = true; }
+  else if (isCmp) { renderCompare(); const pn = $("provNote"); if (pn) pn.hidden = true; }
   else { renderThead(); renderPage(); }
   updateMapSelChip();
   setTopbarOffset();
+}
+// side-by-side comparison of the shortlisted targets (metrics as rows, targets as columns)
+const CMP_KEYS = ["__c", "__conf", "comp_essentiality", "essentiality_tier", "comp_ligandability",
+  "ligandability_tier", "comp_degradability", "degradability_tier", "clp_accessibility", "localization",
+  "comp_novelty", "popularity_tier", "conservation_score", "human_closeness", "comp_human_selective"];
+function renderCompare() {
+  const wrap = $("cmpwrap");
+  const rows = state.shortlist.map((a) => DATA.rows.find((r) => r.uniprot_accession === a)).filter(Boolean);
+  if (!rows.length) {
+    wrap.innerHTML = `<div class="cmpempty">☆ Star targets to compare them side by side.<br><span>Click the star on any row or in a target's card, then return here.</span></div>`;
+    return;
+  }
+  const byKey = Object.fromEntries(TABLE_COLUMNS.map((c) => [c.key, c]));
+  const label = (k) => k === "__c" ? "Composite" : k === "__conf" ? "Evidence" : (byKey[k] ? byKey[k].label : k);
+  const keys = CMP_KEYS.filter((k) => k === "__c" || k === "__conf" || (byKey[k] && DATA.columns.includes(k)));
+  const cell = (r, k) => {
+    if (k === "__c") return `<span class="heat" style="${heatStyle(isNum(r.__c) ? r.__c : null, AXIS_COLORS.composite)}">${isNum(r.__c) ? r.__c.toFixed(2) : "–"}</span>`;
+    if (k === "__conf") return confGlyphHTML(r);
+    return cellHTML(r, byKey[k]);
+  };
+  let h = `<table class="cmptable"><thead><tr><th class="cmlh"></th>`
+    + rows.map((r) => `<th><div class="gene">${esc(r.gene || r.uniprot_accession)}</div><div class="acc">${esc(r.uniprot_accession)}</div></th>`).join("")
+    + `</tr></thead><tbody>`;
+  for (const k of keys) {
+    h += `<tr><td class="cml" style="--ac:${colColor(k)}">${label(k)}</td>`
+      + rows.map((r) => `<td class="rc">${cell(r, k)}</td>`).join("") + `</tr>`;
+  }
+  wrap.innerHTML = h + `</tbody></table>`;
 }
 function tableViewCols(key) {
   const v = TABLE_VIEWS.find((x) => x.key === key);
@@ -354,7 +384,7 @@ function tableViewCols(key) {
 function buildViewSwitch() {
   const host = $("viewSwitch");
   const tabs = [...TABLE_VIEWS.map((v) => ({ view: v.key, label: v.label })),
-                { view: "map", label: "◵ Map" }];
+                { view: "compare", label: "⇄ Compare" }, { view: "map", label: "◵ Map" }];
   host.innerHTML = tabs.map((t) =>
     `<button role="tab" data-view="${t.view}" aria-selected="${state.view === t.view}">${t.label}</button>`).join("");
   host.querySelectorAll("button").forEach((b) =>
@@ -364,7 +394,7 @@ function applyView(key) {
   state.view = key;
   $("viewSwitch").querySelectorAll("button").forEach((x) =>
     x.setAttribute("aria-selected", x.dataset.view === key));
-  if (key !== "map") {
+  if (key !== "map" && key !== "compare") {
     state.visibleCols = new Set(tableViewCols(key));
     buildColMenu();
   }
@@ -543,7 +573,7 @@ function toggleStar(acc) {
   const i = state.shortlist.indexOf(acc);
   if (i >= 0) state.shortlist.splice(i, 1); else state.shortlist.push(acc);
   save(); updateShortlistBtn();
-  if (state.shortlistOnly) recompute();
+  if (state.shortlistOnly || state.view === "compare") recompute();
   else document.querySelectorAll(`.star[data-acc="${acc}"]`).forEach((el) => el.classList.toggle("on", isStarred(acc)));
 }
 function updateShortlistBtn() {
@@ -1320,7 +1350,7 @@ async function loadOrg(org) {
   AVAIL = {};
   for (const c of COMPONENTS) AVAIL[c.key] = DATA.columns.includes(c.key) && (c.available !== false);
   // seed visible columns from the active table view (fall back to overview)
-  const seedView = state.view === "map" ? "overview" : state.view;
+  const seedView = (state.view === "map" || state.view === "compare") ? "overview" : state.view;
   if (!state.visibleCols || state.visibleCols.size === 0) state.visibleCols = new Set(tableViewCols(seedView));
   $("genInfo").innerHTML = `Data generated <code>${DATA.generated_at}</code> · ${DATA.n.toLocaleString()} proteins · `
     + `${ORGANISM_META[org].name} ${ORGANISM_META[org].strain}`;
@@ -1409,11 +1439,20 @@ function drawMap() {
     ctx.beginPath(); ctx.arc(px, py, 1.5, 0, 6.283); ctx.fill();
     mapPts.push({ sx: px, sy: py, row: r });
   }
-  // highlight layer: passing rows whose colour-by value clears the threshold
+  // highlight layer: passing rows, coloured by the chosen field
+  const catMode = colorBy === "family";   // categorical cluster colouring (not a 0–1 ramp)
   let hi = 0;
   ctx.lineWidth = 0.6; ctx.strokeStyle = "rgba(255,255,255,0.85)";
   for (const r of filtered) {
     if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
+    if (catMode) {
+      if (!isNum(r.family)) continue;
+      const hex = MAP_CAT_PALETTE[((r.family % MAP_CAT_PALETTE.length) + MAP_CAT_PALETTE.length) % MAP_CAT_PALETTE.length];
+      ctx.fillStyle = hex;
+      ctx.beginPath(); ctx.arc(X(r.tsne_x), Y(r.tsne_y), 2.6, 0, 6.283); ctx.fill(); ctx.stroke();
+      hi++;
+      continue;
+    }
     const v = r[colorBy];
     if (!isNum(v) || v < t) continue;
     const vv = Math.max(0, Math.min(1, v));
@@ -1421,7 +1460,7 @@ function drawMap() {
     ctx.beginPath(); ctx.arc(X(r.tsne_x), Y(r.tsne_y), 3 + 1.8 * vv, 0, 6.283); ctx.fill(); ctx.stroke();
     hi++;
   }
-  const cnt = $("mapHiCount"); if (cnt) cnt.textContent = `${hi.toLocaleString()} highlighted`;
+  const cnt = $("mapHiCount"); if (cnt) cnt.textContent = `${hi.toLocaleString()} ${catMode ? "shown" : "highlighted"}`;
   drawMapOverlay();
   renderMapLegend();
 }
@@ -1437,6 +1476,14 @@ function drawMapOverlay() {
     ctx.beginPath(); ctx.arc(p.sx, p.sy, ring, 0, 6.283);
     ctx.lineWidth = 2; ctx.strokeStyle = `rgb(${acc.r},${acc.g},${acc.b})`; ctx.stroke();
   };
+  // ring shortlisted (starred) proteins in amber
+  if (state.shortlist && state.shortlist.length) {
+    ctx.lineWidth = 2; ctx.strokeStyle = "#FCBF49";
+    for (const a of state.shortlist) {
+      const p = mapPts.find((q) => q.row.uniprot_accession === a);
+      if (p) { ctx.beginPath(); ctx.arc(p.sx, p.sy, 6, 0, 6.283); ctx.stroke(); }
+    }
+  }
   if (state._sel) mark(state._sel, 7);
   if (_hoverAcc && _hoverAcc !== state._sel) mark(_hoverAcc, 6);
   if (_mapDrag) {
@@ -1448,6 +1495,12 @@ function drawMapOverlay() {
 }
 function renderMapLegend() {
   const lbl = (MAP_COLORS.find((m) => m.key === state.mapColorBy) || {}).label || "Value";
+  if (state.mapColorBy === "family") {
+    const sw = MAP_CAT_PALETTE.slice(0, 8).map((c) => `<span style="background:${c}"></span>`).join("");
+    $("maplegend").innerHTML = `<div class="lt">${lbl}</div><div class="catramp">${sw}</div>`
+      + `<div class="sc"><span>ESM-C cluster</span></div>`;
+    return;
+  }
   const col = colColor(state.mapColorBy);
   const prov = isProvisional(state.mapColorBy) ? ` <span class="provtag">provisional</span>` : "";
   $("maplegend").innerHTML = `<div class="lt">${lbl}${prov}</div>`

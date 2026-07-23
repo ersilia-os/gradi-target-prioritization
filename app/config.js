@@ -544,7 +544,11 @@ const MAP_COLORS = [
   { key: "comp_novelty", label: "Novelty" },
   { key: "conservation_score", label: "Conservation" },
   { key: "human_closeness", label: "Human closeness" },
+  { key: "family", label: "Family cluster" },
 ];
+// categorical palette for the map "Family cluster" colouring (NPG-ish, cycled by cluster id)
+const MAP_CAT_PALETTE = ["#E63946", "#457B9D", "#2EC4B6", "#B05CC8", "#F4845F", "#6BBF59",
+  "#FCBF49", "#6C5CE7", "#E91E8C", "#8CC8FA", "#3F9D6B", "#A0A0A0"];
 
 // ---- per-page filter bars (main area) -------------------------------------
 // Each view shows only its relevant filters in a bar above the table.
