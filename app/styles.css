@@ -56,6 +56,18 @@ h1 em{font-style:italic;color:var(--brand);}
 .toggle button[data-org="ec"][aria-selected="true"]{background:color-mix(in srgb,var(--tangerine) 22%,#fff);color:#B6543C;}
 .toggle button i{font-style:italic;}
 
+/* orthology-transfer toggle */
+.xfer{display:flex;align-items:flex-start;gap:9px;margin:12px 0 2px;padding:10px 11px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;}
+.xfer-sw{position:relative;flex:0 0 auto;cursor:pointer;margin-top:1px;}
+.xfer-sw input{position:absolute;opacity:0;width:0;height:0;}
+.xfer-sw .sw{display:block;width:30px;height:17px;border-radius:999px;background:var(--border);position:relative;transition:background .18s;}
+.xfer-sw .sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .18s;}
+.xfer-sw input:checked + .sw{background:var(--turquoise);}
+.xfer-sw input:checked + .sw::after{transform:translateX(13px);}
+.xfer-txt{min-width:0;}
+.xfer-txt b{display:block;font-size:12.5px;font-weight:600;color:var(--ink);}
+.xfer-txt span{display:block;font-size:10.5px;color:var(--faint);line-height:1.35;margin-top:1px;}
+
 /* KPI tiles */
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:14px 0 4px;}
 .stat{background:var(--surface);padding:11px 12px;}
@@ -236,6 +248,9 @@ tbody tr.sel td{background:color-mix(in srgb,var(--brand) 12%,var(--surface));}
 .badge.tier-tractable{background:color-mix(in srgb,var(--lime) 26%,#fff);color:#3E7A34;}
 .badge.tier-partial{background:color-mix(in srgb,var(--amber) 30%,#fff);color:#9A6B12;}
 .badge.tier-intractable{background:var(--surface-2);color:var(--faint);}
+.badge.tier-high{background:color-mix(in srgb,var(--amber) 42%,#fff);color:#8A5A05;}
+.badge.tier-medium{background:color-mix(in srgb,var(--amber) 24%,#fff);color:#9A6B12;}
+.badge.tier-low{background:var(--surface-2);color:var(--faint);}
 .badge.sel-broad_selective{background:color-mix(in srgb,var(--turquoise) 24%,#fff);color:#1E8479;}
 .badge.sel-narrow_selective{background:color-mix(in srgb,var(--blue) 34%,#fff);color:#3C6E96;}
 .badge.sel-broad_human_homolog{background:color-mix(in srgb,var(--orange) 34%,#fff);color:#B85A45;}
@@ -245,6 +260,7 @@ tbody tr.sel td{background:color-mix(in srgb,var(--brand) 12%,var(--surface));}
 .badge.pop-well_studied{background:var(--surface-2);color:var(--faint);}
 .yes{color:var(--good);font-weight:700;}
 .no{color:var(--faint);}
+.cross{color:var(--bad);font-weight:700;}
 
 /* ===== detail drawer / gene card ========================================= */
 .drawer{position:fixed;top:0;right:0;height:100vh;width:min(540px,95vw);background:var(--surface);border-left:1px solid var(--border);box-shadow:-12px 0 44px rgba(80,40,90,.16);transform:translateX(100%);transition:transform .22s ease;z-index:40;display:flex;flex-direction:column;}
@@ -301,6 +317,9 @@ tbody tr.sel td{background:color-mix(in srgb,var(--brand) 12%,var(--surface));}
 .panel .phead h3{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin:0;color:color-mix(in srgb,var(--pc,var(--brand)) 74%,#000);display:flex;align-items:center;gap:8px;flex:1;}
 .panel .phead h3::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--pc,var(--brand));flex:0 0 auto;}
 .panel .pmeta{display:flex;align-items:center;gap:9px;}
+.provchip{font-size:9px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#9A6B12;background:color-mix(in srgb,var(--amber) 20%,#fff);border:1px solid color-mix(in srgb,var(--amber) 45%,var(--border));border-radius:6px;padding:2px 7px;white-space:nowrap;}
+.metric.excluded,.flag.excluded{opacity:.4;}
+.metric.excluded .ml{text-decoration:line-through;}
 .pscore{font-family:var(--mono);font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;}
 .pscore small{font-family:var(--sans);font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin-left:3px;font-weight:600;}
 .pblurb{font-size:11.5px;color:var(--faint);line-height:1.45;margin:4px 0 10px;}

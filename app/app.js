@@ -20,6 +20,7 @@ const state = {
   mapColorBy: "__c",
   mapThreshold: 0,        // map: only highlight points with colour-by value >= this
   weights: {},            // key -> {on, weight}
+  orthoTransfer: true,    // include ortholog-transferred knowledge (essentiality track)
   tiers: {},              // axisKey -> "any" | "low" | "med" | "high"
   filters: { search: "", ranges: {}, cats: {}, bools: {}, families: [] },
   visibleCols: null,      // Set of column keys
@@ -32,13 +33,14 @@ let AVAIL = {};           // component key -> bool (has data)
 let filtered = [];        // current filtered+sorted rows
 let page = 0;   // current page index (0-based)
 let weightsDirty = true;  // recompute the composite only when weights actually change
+let _lastRow = null;      // row currently shown in the drawer (for live re-render)
 
 // ---------- persistence ----------------------------------------------------
 function save() {
   const s = {
     org: state.org, view: state.view, mapColorBy: state.mapColorBy,
     tiers: state.tiers, mapThreshold: state.mapThreshold,
-    weights: state.weights,
+    weights: state.weights, orthoTransfer: state.orthoTransfer,
     filters: { search: state.filters.search, ranges: state.filters.ranges,
       cats: Object.fromEntries(Object.entries(state.filters.cats).map(([k, v]) => [k, [...v]])),
       bools: state.filters.bools, families: state.filters.families },
@@ -58,6 +60,7 @@ function load() {
     state.tiers = s.tiers || {};
     state.mapThreshold = typeof s.mapThreshold === "number" ? s.mapThreshold : 0;
     state.weights = s.weights || {};
+    if (typeof s.orthoTransfer === "boolean") state.orthoTransfer = s.orthoTransfer;
     if (s.filters) {
       state.filters.search = s.filters.search || "";
       state.filters.ranges = s.filters.ranges || {};
@@ -120,6 +123,29 @@ function computeAll() {
     }
     row.__c = wsum > 0 ? sum / wsum : null;
   }
+}
+
+// ---------- orthology-transfer toggle (essentiality axis) -----------------
+// Essentiality evidence keys that come from cross-species transfer (dimmed in the
+// card when transfer is off).
+const TRANSFER_KEYS = new Set(["evidence_transfer", "ec_transfer_essential"]);
+// Precompute, once per row: the transfer-included score (_ess_full, the stored value)
+// and the transfer-excluded score (_ess_direct = renorm(0.40·experimental + 0.40·predictor)
+// over present tracks — the exact essentiality_score formula minus the 0.20 transfer term).
+function stashEssentiality() {
+  for (const row of DATA.rows) {
+    if (row._ess_full !== undefined) continue;
+    row._ess_full = isNum(row.comp_essentiality) ? row.comp_essentiality : null;
+    let num = 0, den = 0;
+    if (isNum(row.evidence_experimental)) { num += 0.40 * row.evidence_experimental; den += 0.40; }
+    if (isNum(row.evidence_predictor))   { num += 0.40 * row.evidence_predictor;   den += 0.40; }
+    row._ess_direct = den > 0 ? num / den : null;
+  }
+}
+function applyTransferMode() {
+  for (const row of DATA.rows)
+    row.comp_essentiality = state.orthoTransfer ? row._ess_full : row._ess_direct;
+  weightsDirty = true;
 }
 
 // ---------- filtering / sorting -------------------------------------------
@@ -303,7 +329,8 @@ function classBadgeHTML(v) {
 function cellHTML(row, c) {
   const v = row[c.key];
   if (c.type === "bool") return boolHTML(v);
-  if (c.type === "binary01") return (v === null || v === undefined) ? "–" : boolHTML(v >= 0.5);
+  if (c.type === "binary01") return (v === null || v === undefined) ? "–"
+    : (v >= 0.5 ? '<span class="yes">✓</span>' : '<span class="cross">✗</span>');
   if (c.type === "class") return classBadgeHTML(v);
   if (c.type === "tier") return badgeHTML(tierType(c.key), v, c.key);
   if (c.type === "score" && c.heat) return `<span class="heat" style="${heatStyle(v, colColor(c.key))}">${fmt("score", v)}</span>`;
@@ -459,11 +486,19 @@ function axisPanelHTML(row, spec) {
     const v = row[spec.plddt];
     meta += `<span class="pscore" style="color:${plddtColor(v)}">${isNum(v) ? Math.round(v) : "–"}<small>pLDDT</small></span>`;
   }
-  const head = `<div class="phead"><h3 style="--pc:${color}">${spec.title}</h3><div class="pmeta">${meta}</div></div>`;
+  const prov = (spec.provisionalOrgs && spec.provisionalOrgs.includes(state.org))
+    ? `<span class="provchip">provisional · mock</span>` : "";
+  const head = `<div class="phead"><h3 style="--pc:${color}">${spec.title}</h3><div class="pmeta">${prov}${meta}</div></div>`;
+  // dim cross-species transfer evidence when the orthology-transfer toggle is off
+  const excluded = (k) => !state.orthoTransfer && TRANSFER_KEYS.has(k);
 
   let body = "";
   if (spec.blurb) body += `<p class="pblurb">${spec.blurb}</p>`;
-  if (spec.bars) for (const [k, label, invert] of spec.bars) if (has(k)) body += barHTML(label, row[k], color, invert);
+  if (spec.bars) for (const [k, label, invert] of spec.bars) if (has(k)) {
+    let h = barHTML(label, row[k], color, invert);
+    if (excluded(k)) h = h.replace('class="metric"', 'class="metric excluded"');
+    body += h;
+  }
   if (spec.subbars) {
     const sb = spec.subbars.filter(([k]) => has(k) && row[k] != null);
     if (sb.length) body += `<div class="subbars">` + sb.map(([k, label]) => barHTML(label, row[k], color, false, true)).join("") + `</div>`;
@@ -479,7 +514,8 @@ function axisPanelHTML(row, spec) {
     if (fl.length) body += `<div class="flagrow">` + fl.map(([k, label, mode]) => {
       const raw = row[k];
       const on = mode === "ge05" ? (isNum(raw) && raw >= 0.5) : Boolean(raw);
-      return flagHTML(label, on);
+      const f = flagHTML(label, on);
+      return excluded(k) ? f.replace('class="flag ', 'class="flag excluded ') : f;
     }).join("") + `</div>`;
   }
   if (spec.chips) for (const [k, label, kind] of spec.chips) {
@@ -645,6 +681,7 @@ async function renderStructure(row) {
 }
 function openDrawer(row) {
   state._sel = row.uniprot_accession;
+  _lastRow = row;
   document.querySelectorAll("#tbody tr").forEach((tr) =>
     tr.classList.toggle("sel", tr.dataset.acc === row.uniprot_accession));
 
@@ -1060,6 +1097,7 @@ async function loadOrg(org) {
   buildWeights(); buildTierPanel();
   buildFamilyVocab();
   buildFilterBar(); buildColMenu();
+  stashEssentiality(); applyTransferMode();
   closeDrawer();
   recompute();
   save();
@@ -1257,6 +1295,17 @@ function init() {
   initCollapsers();
   $("orgToggle").querySelectorAll("button").forEach((b) =>
     b.onclick = () => { loadOrg(b.dataset.org); });
+  const xfer = $("xferToggle");
+  if (xfer) {
+    xfer.checked = state.orthoTransfer;
+    xfer.onchange = () => {
+      state.orthoTransfer = xfer.checked;
+      applyTransferMode();
+      save();
+      recompute();
+      if (_lastRow && $("drawer").classList.contains("open")) openDrawer(_lastRow);
+    };
+  }
   $("search").value = state.filters.search;
   let searchTimer = null;
   $("search").oninput = (e) => {

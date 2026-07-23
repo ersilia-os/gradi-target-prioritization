@@ -13,12 +13,14 @@ const AXIS_COLORS = {
   composite:     "var(--brand)",
   essentiality:  "var(--crimson)",
   ligandability: "var(--cobalt)",     // ligandability + structure
+  degradability: "var(--amber)",      // Clp-protease / degron susceptibility
   orthology:     "var(--turquoise)",  // conservation + human-selectivity + selectivity class
   novelty:       "var(--orchid)",
 };
 // map a column/component key to its axis (for colouring)
 function axisOf(key) {
   if (key === "__c") return "composite";
+  if (/degrad|degron|clp_trap|halflife|clp_class/.test(key)) return "degradability";
   if (/conservation|human_selective|selectivity|human_homolog|ortholog|closeness/.test(key)) return "orthology";
   if (key === "comp_breadth" || /entero_pct|bacteria_pct/.test(key)) return "essentiality";
   if (/essential|proteomelm|geptop|fba|evidence_experimental|evidence_transfer|evidence_predictor/.test(key)) return "essentiality";
@@ -34,6 +36,7 @@ const COLUMN_GROUPS = {
   Composite:     "var(--brand)",
   Essentiality:  "var(--crimson)",
   Ligandability: "var(--cobalt)",
+  Degradability: "var(--amber)",
   Novelty:       "var(--orchid)",
   Orthology:     "var(--turquoise)",
   Annotation:    "var(--periwinkle)",
@@ -41,7 +44,7 @@ const COLUMN_GROUPS = {
 // axis → section-band label (fallback when a column has no explicit `group`)
 const AXIS_GROUP_LABEL = {
   composite: "", essentiality: "Essentiality", ligandability: "Ligandability",
-  orthology: "Orthology", novelty: "Novelty",
+  degradability: "Degradability", orthology: "Orthology", novelty: "Novelty",
 };
 function columnGroup(col) {
   if (col && col.group) return col.group;
@@ -74,8 +77,8 @@ const COMPONENTS = [
     help: "Required for survival (0–1). Higher = better target." },
   { key: "comp_ligandability",   label: "Ligandability", short: "Lig", weight: 50, on: true,
     help: "Small-molecule tractability (0–1). Higher = more druggable." },
-  { key: "comp_degradability",   label: "Degradability", short: "Deg", weight: 0,  on: false, available: false,
-    help: "Clp-protease susceptibility — axis not implemented in the pipeline yet." },
+  { key: "comp_degradability",   label: "Degradability", short: "Deg", weight: 0,  on: false,
+    help: "Susceptibility to bacterial Clp-protease degradation (degron motifs + Clp-substrate evidence) — basis for BacPROTAC / targeted degradation. K. pneumoniae: real; E. coli: provisional mock. Off by default." },
   { key: "comp_novelty",         label: "Novelty", short: "Nov", weight: 0, on: false,
     help: "1 − studiedness. High = under-studied (novel) target. Off by default; turn on to reward neglected proteins." },
 ];
@@ -100,6 +103,22 @@ const TABLE_COLUMNS = [
     desc: "Conservation (0–1): fraction of the ~24-species bacterial panel that carries an ortholog (presence/phyletic spread). Distinct from Essential breadth — a protein can be widely conserved yet not broadly essential." },
   { key: "human_closeness",      label: "Human closeness", type: "score", heat: true,  default: false, group: "Orthology",
     desc: "Human closeness (0–1): % sequence identity to the nearest human ortholog / 100. 0 = no human ortholog (maximally selective); high = close to a human protein (selectivity risk)." },
+  { key: "comp_degradability",   label: "Deg. score",     type: "score", heat: true,  default: true, group: "Degradability",
+    desc: "Degradability (0–1): susceptibility to bacterial Clp-protease degradation — degron motifs (C/N-terminal) modulated by structure, plus Clp-substrate/half-life evidence. High = better BacPROTAC / targeted-degradation candidate. K. pneumoniae: real; E. coli: provisional mock." },
+  { key: "degradability_tier",   label: "Deg. tier",      type: "tier",  default: true, group: "Degradability",
+    desc: "Discrete degradability call: high (labile) / medium (moderate) / low (stable), thresholded on the degradability score." },
+  { key: "degron_score",         label: "Degron",         type: "score", heat: true,  default: false, group: "Degradability",
+    desc: "Degron-motif strength (0–1): combined C-terminal (ssrA/MuA-like) and N-terminal (N-end rule / Flynn NM) degron features, downweighted when the terminus is buried (high pLDDT)." },
+  { key: "degron_cterm",         label: "C-term degron",  type: "bool",  default: false, group: "Degradability",
+    desc: "A C-terminal ssrA-like or MuA-like Clp-recognition degron motif is present." },
+  { key: "degron_nterm",         label: "N-term degron",  type: "bool",  default: false, group: "Degradability",
+    desc: "An N-terminal destabilising residue (N-end rule) or Flynn NM degron motif is present." },
+  { key: "clp_trapped",          label: "Clp substrate",  type: "bool",  default: false, group: "Degradability",
+    desc: "The E. coli ortholog is a documented Clp-protease substrate (trap experiments), transferred by orthology." },
+  { key: "halflife_class",       label: "Half-life",      type: "text",  default: false, group: "Degradability",
+    desc: "E. coli half-life class (fast / slow / stable) transferred via ortholog (Nagar 2021 pulsed-SILAC)." },
+  { key: "degron_feature_count", label: "Degron feats",   type: "int",   default: false, group: "Degradability",
+    desc: "Number of degron features detected (C-terminal + N-terminal motifs)." },
   { key: "comp_novelty",         label: "Novelty",        type: "score", heat: true,  default: false, group: "Novelty",
     desc: "Novelty / neglectedness (0–1) = 1 − bibliometric studiedness. High = under-studied protein — a more novel target." },
   { key: "comp_human_selective", label: "Selective",      type: "binary01", default: true, group: "Orthology",
@@ -204,6 +223,7 @@ const TABLE_VIEWS = [
   { key: "overview", label: "Overview", cols: [
     "comp_essentiality", "comp_breadth", "essentiality_tier",
     "evidence_binding", "evidence_pocket", "ligandability_tier",
+    "comp_degradability", "degradability_tier",
     "comp_novelty", "popularity_tier",
     "conservation_score", "human_closeness", "comp_human_selective" ] },
   { key: "essentiality", label: "Essentiality", accent: true, cols: [
@@ -215,6 +235,9 @@ const TABLE_VIEWS = [
     "evidence_binding", "evidence_structural", "evidence_pocket",
     "chembl_any_n_potent", "chembl_any_best_pchembl", "fpocket_max_drug_score",
     "pocket_consensus_score", "alphafill_best_ligand", "disorder_frac" ] },
+  { key: "degradability", label: "Degradability", cols: [
+    "comp_degradability", "degradability_tier", "degron_score", "degron_feature_count",
+    "degron_cterm", "degron_nterm", "clp_trapped", "halflife_class" ] },
   { key: "structure", label: "Structure", cols: [
     "af_mean_plddt", "af_n_domains", "af_is_multidomain",
     "pdb_has_structure", "pdb_n_structures", "pdb_best_resolution_A",
@@ -243,6 +266,7 @@ const CATEGORICAL_FILTERS = [
     order: FUNCTIONAL_CLASSES.map((c) => c.id) },
   { key: "essentiality_tier",  label: "Essentiality tier" },
   { key: "ligandability_tier", label: "Ligandability tier" },
+  { key: "degradability_tier", label: "Degradability tier" },
   { key: "selectivity",        label: "Selectivity" },
   { key: "popularity_tier",    label: "Studiedness" },
 ];
@@ -251,6 +275,7 @@ const CATEGORICAL_FILTERS = [
 const CAT_ABBREV = {
   essentiality_tier:  { essential: "Es", likely_essential: "Lk", non_essential: "No" },
   ligandability_tier: { tractable: "Tr", partial: "Pa", intractable: "In" },
+  degradability_tier: { high: "Hi", medium: "Me", low: "Lo" },
   selectivity:        { broad_selective: "BS", narrow_selective: "NS",
                         broad_human_homolog: "BH", narrow_human_homolog: "NH" },
   popularity_tier:    { dark: "Dk", studied: "St", well_studied: "Ws" },
@@ -261,6 +286,7 @@ const BOOL_FILTERS = [
   { key: "has_hard_evidence",        label: "Hard ligand evidence" },
   { key: "experimentally_essential", label: "Experimentally essential" },
   { key: "pdb_has_structure",        label: "Has PDB structure" },
+  { key: "clp_trapped",              label: "Clp substrate (E. coli)" },
 ];
 
 // ---- gene card (detail drawer) — per-axis panel model ---------------------
@@ -269,7 +295,7 @@ const BOOL_FILTERS = [
 // absent from the loaded data are skipped automatically by the renderer.
 const CARD_AXES = [
   { key: "essentiality", title: "Essentiality", axis: "essentiality",
-    headline: "essentiality_score", tier: "essentiality_tier",
+    headline: "comp_essentiality", tier: "essentiality_tier",
     blurb: "How required the gene is for survival and fitness.",
     bars: [
       ["evidence_experimental", "Experimental (Tn-seq / CRISPRi)"],
@@ -316,6 +342,24 @@ const CARD_AXES = [
       ["alphafill_best_ligand",  "AlphaFill ligand", "text"],
     ],
     penalty: ["disorder_frac", "Disorder (score penalty)"] },
+
+  { key: "degradability", title: "Degradability", axis: "degradability",
+    headline: "comp_degradability", tier: "degradability_tier", provisionalOrgs: ["ec"],
+    blurb: "Susceptibility to bacterial Clp-protease degradation — the basis for BacPROTAC / targeted degradation.",
+    bars: [ ["degron_score", "Degron-motif strength"] ],
+    stats: [
+      ["degron_feature_count", "Degron features", "int"],
+      ["ecoli_halflife_min",   "E. coli half-life (min)", "num"],
+    ],
+    flags: [
+      ["degron_cterm", "C-terminal degron"],
+      ["degron_nterm", "N-terminal degron"],
+      ["clp_trapped",  "E. coli Clp substrate"],
+    ],
+    text: [
+      ["halflife_class",  "E. coli half-life class"],
+      ["ecoli_clp_class", "Clp system"],
+    ] },
 
   { key: "structure", title: "Structure", axis: "ligandability",
     plddt: "af_mean_plddt",
@@ -375,7 +419,7 @@ const CARD_ANNOTATION = {
   ],
 };
 const CARD_GROUP_COLORS = {
-  essentiality: "var(--crimson)", ligandability: "var(--cobalt)",
+  essentiality: "var(--crimson)", ligandability: "var(--cobalt)", degradability: "var(--amber)",
   orthology: "var(--turquoise)", novelty: "var(--orchid)", annotation: "var(--periwinkle)",
 };
 
@@ -411,6 +455,7 @@ const MAP_COLORS = [
   { key: "__c", label: "Composite" },
   { key: "comp_essentiality", label: "Essentiality" },
   { key: "comp_ligandability", label: "Ligandability" },
+  { key: "comp_degradability", label: "Degradability" },
   { key: "comp_breadth", label: "Essential breadth" },
   { key: "comp_human_selective", label: "Human-selective" },
   { key: "comp_novelty", label: "Novelty" },
@@ -424,6 +469,7 @@ const VIEW_FILTERS = {
   overview:     {},
   essentiality: { cats: ["essentiality_tier"], bools: ["experimentally_essential"] },
   ligandability:{ cats: ["ligandability_tier"], bools: ["has_hard_evidence"] },
+  degradability:{ cats: ["degradability_tier"], bools: ["clp_trapped"] },
   structure:    { bools: ["pdb_has_structure"] },
   crossspecies: { cats: ["selectivity"] },
   novelty:      { cats: ["popularity_tier"] },
@@ -450,6 +496,10 @@ const TIER_AXES = [
         test: (v, r) => !r.has_hard_evidence && typeof r.evidence_pocket === "number" && r.evidence_pocket >= 0.5 },
       { id: "known",  label: "Known ligands",     intensity: 90,
         test: (v, r) => r.has_hard_evidence === true } ] },
+  { key: "comp_degradability", label: "Degradability", bands: [
+      { id: "stable",   label: "Stable",   intensity: 22, test: (v, r) => r.degradability_tier === "low" },
+      { id: "moderate", label: "Moderate", intensity: 52, test: (v, r) => r.degradability_tier === "medium" },
+      { id: "labile",   label: "Labile",   intensity: 90, test: (v, r) => r.degradability_tier === "high" } ] },
   { key: "comp_novelty", label: "Novelty", bands: [
       { id: "well",    label: "Well-studied", intensity: 22, test: (v, r) => r.popularity_tier === "well_studied" },
       { id: "studied", label: "Studied",      intensity: 52, test: (v, r) => r.popularity_tier === "studied" },

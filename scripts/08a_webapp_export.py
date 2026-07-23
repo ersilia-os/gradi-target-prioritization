@@ -20,6 +20,7 @@ Run with the ``gradi`` conda env interpreter.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import sys
@@ -245,6 +246,76 @@ def _clean(v):
     return v
 
 
+DEG_COLS = ["comp_degradability", "degradability_tier", "degron_score", "degron_feature_count",
+            "degron_cterm", "degron_nterm", "clp_trapped", "halflife_class",
+            "ecoli_clp_class", "ecoli_halflife_min"]
+
+
+def _hash01(s: str, salt: str = "") -> float:
+    """Deterministic float in [0,1) from a string (no RNG — reproducible across runs)."""
+    h = hashlib.md5((salt + s).encode()).hexdigest()[:8]
+    return int(h, 16) / 0x100000000
+
+
+def _deg_tier(score: float) -> str:
+    return "high" if score >= 0.5 else "medium" if score >= 0.15 else "low"
+
+
+def degradability_frame(organism: str) -> pd.DataFrame:
+    """Degradability (Clp-protease / degron) columns per protein.
+
+    K. pneumoniae: REAL data from the legacy Clp/degron annotation.
+    E. coli: a deterministic MOCK (flagged provisional in the UI) so the axis renders — there is no
+    E. coli degradability computation yet."""
+    if organism == "kpneumoniae":
+        f = PROCESSED / "legacy" / "klebsiella_pneumoniae_clp_degradability.tsv"
+        if not f.exists():
+            return pd.DataFrame(columns=["uniprot_accession"] + DEG_COLS)
+        raw = pd.read_csv(f, sep="\t", dtype=str).fillna("")
+        def num(x, d=None):
+            try: return float(x)
+            except (TypeError, ValueError): return d
+        def tf(x): return str(x).strip().lower() == "true"
+        rows = []
+        for _, r in raw.iterrows():
+            rows.append({
+                "uniprot_accession": r["accession"],
+                "comp_degradability": num(r.get("clp_degradability_score"), 0.0),
+                "degradability_tier": r.get("clp_degradability_tier") or "low",
+                "degron_score": num(r.get("degron_feature_score"), 0.0),
+                "degron_feature_count": num(r.get("degron_feature_count"), 0),
+                "degron_cterm": tf(r.get("cterm_ssra_like")) or tf(r.get("cterm_mua_like")),
+                "degron_nterm": tf(r.get("nterm_destabilizing")),
+                "clp_trapped": tf(r.get("ecoli_clp_trapped")),
+                "halflife_class": r.get("ecoli_halflife_class") or "",
+                "ecoli_clp_class": r.get("ecoli_clp_class") or "",
+                "ecoli_halflife_min": num(r.get("ecoli_halflife_min")),
+            })
+        return pd.DataFrame(rows)
+
+    # E. coli — deterministic provisional mock keyed on the accession.
+    _, prefix = ORGANISMS[organism]
+    accs = _read_subset(RESULTS / organism / f"{prefix}_essentiality.csv",
+                        ["uniprot_accession"])["uniprot_accession"].tolist()
+    rows = []
+    for a in accs:
+        h = _hash01(a, "deg")
+        score = round(0.0 if h < 0.82 else (h - 0.82) / 0.18 * 0.7, 2)
+        cterm = _hash01(a, "ct") > 0.94
+        nterm = _hash01(a, "nt") > 0.88
+        trapped = _hash01(a, "tp") > 0.985
+        rows.append({
+            "uniprot_accession": a,
+            "comp_degradability": score,
+            "degradability_tier": _deg_tier(score),
+            "degron_score": round(score * 0.85, 2),
+            "degron_feature_count": int(cterm) + int(nterm),
+            "degron_cterm": bool(cterm), "degron_nterm": bool(nterm), "clp_trapped": bool(trapped),
+            "halflife_class": "", "ecoli_clp_class": "", "ecoli_halflife_min": None,
+        })
+    return pd.DataFrame(rows)
+
+
 def build_organism(organism: str) -> dict:
     pid, prefix = ORGANISMS[organism]
     rdir = RESULTS / organism
@@ -299,6 +370,15 @@ def build_organism(organism: str) -> dict:
     # Novelty / neglectedness = inverse of bibliometric studiedness (dark = novel = 1).
     if "popularity_score" in df.columns:
         df["comp_novelty"] = (1.0 - _clip01(df["popularity_score"])).clip(0.0, 1.0)
+
+    # ---- degradability axis (Clp/degron) --------------------------------
+    # kp: real (legacy annotation); ec: deterministic provisional mock.
+    deg = degradability_frame(organism)
+    if not deg.empty:
+        df = df.merge(deg, on="uniprot_accession", how="left")
+        for c in ("degron_cterm", "degron_nterm", "clp_trapped"):
+            if c in df.columns:
+                df[c] = df[c].fillna(False).astype(bool)
 
     # Fallback display name.
     df["name"] = df["gene"].where(df["gene"].notna() & (df["gene"].astype(str) != ""),
