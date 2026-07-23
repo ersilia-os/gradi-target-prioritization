@@ -318,6 +318,32 @@ def degradability_frame(organism: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def protein_names(organism: str) -> dict:
+    """Human-readable protein name per accession, parsed from the proteome FASTA
+    headers (e.g. '>tr|A0A0H3GJ69|..._KLEPH Acyl-CoA thioesterase 2 OS=...' -> the
+    text between the entry-name token and ' OS=')."""
+    pdir = REPO_ROOT / "data" / "raw" / organism / "proteome"
+    fastas = sorted(pdir.glob("*.fasta")) if pdir.exists() else []
+    out: dict[str, str] = {}
+    if not fastas:
+        return out
+    with open(fastas[0]) as fh:
+        for line in fh:
+            if not line.startswith(">"):
+                continue
+            parts = line[1:].strip().split("|")
+            if len(parts) < 3:
+                continue
+            acc = parts[1]
+            rest = parts[2].split(" ", 1)
+            if len(rest) < 2:
+                continue
+            desc = rest[1].split(" OS=")[0].strip()
+            if desc:
+                out[acc] = desc
+    return out
+
+
 def build_organism(organism: str) -> dict:
     pid, prefix = ORGANISMS[organism]
     rdir = RESULTS / organism
@@ -380,6 +406,10 @@ def build_organism(organism: str) -> dict:
                 df[c] = df[c].fillna(False).astype(bool)
 
     # Fallback display name.
+    # human-readable protein name (from the proteome FASTA descriptions)
+    pn = protein_names(organism)
+    df["protein_name"] = df["uniprot_accession"].map(pn)
+
     df["name"] = df["gene"].where(df["gene"].notna() & (df["gene"].astype(str) != ""),
                                   df["uniprot_accession"])
 

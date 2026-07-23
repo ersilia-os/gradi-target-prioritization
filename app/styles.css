@@ -432,6 +432,16 @@ button:focus-visible,.viewswitch button:focus-visible,input:focus-visible,select
 .modal .mrow h3{margin:0 0 4px;font-size:13px;font-weight:700;color:color-mix(in srgb,var(--pc,var(--brand)) 78%,#000);}
 .modal .mrow p{margin:0;font-size:12.5px;line-height:1.55;color:var(--ink);}
 .modal .mrow p b{color:var(--ink);}
+.modal .mrefs{list-style:none;margin:7px 0 0;padding:0;}
+.modal .mrefs li{font-size:11px;line-height:1.5;color:var(--muted);padding-left:13px;position:relative;}
+.modal .mrefs li::before{content:"›";position:absolute;left:0;color:var(--pc,var(--brand));}
+.modal .mrefs a{color:var(--brand);}
+.modal .mfoot{margin-top:20px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--faint);}
+.modal .mfoot code{font-family:var(--mono);background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 5px;}
+
+/* protein-name / description */
+.colgene .pdesc{font-size:10px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:185px;margin-top:2px;}
+.dhead .pdesc{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.35;}
 
 .scrim{position:fixed;inset:0;background:rgba(44,62,80,.34);opacity:0;pointer-events:none;transition:opacity .22s;z-index:35;}
 .scrim.open{opacity:1;pointer-events:auto;}

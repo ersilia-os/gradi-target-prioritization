@@ -488,10 +488,12 @@ function renderPage() {
     const cc = isNum(row.__c) ? row.__c : null;
     const fam = row.interpro_family_names || row.panther_family_names || row.interpro_superfamily_names || "";
     const fam1 = fam ? String(fam).split(";")[0] : "";
-    const gtitle = fam1 ? ` title="${String(fam).replace(/;/g, "; ").replace(/"/g, "&quot;")}"` : "";
+    const pdesc = row.protein_name || fam1 || "";
+    const gtitle = pdesc ? ` title="${pdesc.replace(/"/g, "&quot;")}"` : "";
     let h = `<td class="colrank rank">${i + 1}</td>`
       + `<td class="colgene"${gtitle}>${starHTML(row.uniprot_accession)}<div class="gene">${row.name || row.gene || row.uniprot_accession}</div>`
-      + `<div class="acc">${row.uniprot_accession}</div></td>`
+      + `<div class="acc">${row.uniprot_accession}</div>`
+      + (pdesc ? `<div class="pdesc">${esc(pdesc)}</div>` : "") + `</td>`
       + `<td class="rc"><span class="heat cscore" style="${heatStyle(cc, AXIS_COLORS.composite)}">`
       + `${isNum(cc) ? cc.toFixed(2) : "–"}</span></td>`
       + `<td class="rc">${confGlyphHTML(row)}</td>`;
@@ -518,9 +520,13 @@ function renderPage() {
 // ---------- methods / provenance modal -------------------------------------
 function openMethods() {
   const m = $("methodsModal");
+  const refsHTML = (refs) => !refs || !refs.length ? "" :
+    `<ul class="mrefs">` + refs.map(([txt, url]) => `<li>${url
+      ? `<a href="${url}" target="_blank" rel="noopener">${txt} ↗</a>` : txt}</li>`).join("") + `</ul>`;
   m.innerHTML = `<div class="modalhead"><h2>How targets are scored</h2><button class="close" id="methodsClose" aria-label="Close">×</button></div>`
     + `<div class="modalbody">`
-    + METHODS.map((s) => `<section class="mrow" style="--pc:${s.color}"><h3>${s.title}</h3><p>${s.body}</p></section>`).join("")
+    + METHODS.map((s) => `<section class="mrow" style="--pc:${s.color}"><h3>${s.title}</h3><p>${s.body}</p>${refsHTML(s.refs)}</section>`).join("")
+    + `<p class="mfoot">Full axis specifications live in the project <code>docs/01–05</code>. Scores are provisional (work in progress).</p>`
     + `</div>`;
   m.hidden = false; $("methodsScrim").hidden = false;
   $("methodsClose").onclick = closeMethods;
@@ -915,6 +921,7 @@ function openDrawer(row) {
         <button class="accbtn" id="accCopy" title="Copy accession">${esc(row.uniprot_accession)} <span class="cpi">⧉</span></button>
         <span class="org"><span class="odot odot-${state.org}"></span>${ORGANISM_META[state.org].name} ${ORGANISM_META[state.org].strain}</span>
       </div>
+      ${row.protein_name ? `<div class="pdesc">${esc(row.protein_name)}</div>` : ""}
       <div class="scorehero">
         <div class="ring">${ringSVG(cval, "var(--brand)")}<div class="ringc"><b>${isNum(row.__c) ? row.__c.toFixed(2) : "–"}</b></div></div>
         <div class="herostack">
