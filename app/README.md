@@ -93,3 +93,11 @@ State (view, weights, filters, columns, map colour, theme) persists in `localSto
 - **Add a map colour option:** add a `{key,label}` to `MAP_COLORS` in `config.js`.
 - Files: `index.html` (shell) · `styles.css` (design system) · `config.js` (columns +
   components) · `app.js` (logic) · `serve.sh` (server) · `data/` (generated, gitignored).
+
+## Maintenance
+- **Regenerate data:** `python scripts/08a_webapp_export.py` (needs `09a_localization.py` for the
+  localization/Clp-accessibility columns and the various `06*`/`07*` result CSVs).
+- **Validate the export:** `python scripts/08b_validate_export.py` — schema + coverage smoke-check
+  (required columns, columnar format, 0–1 ranges, unique accessions, no NaN); non-zero exit on failure.
+- **Cache-busting is automatic:** the Pages workflow stamps `?v=<commit-sha>` onto the CSS/JS asset
+  tags at deploy, so no manual `?v=` bump is needed (the checked-in value is just a local-dev placeholder).

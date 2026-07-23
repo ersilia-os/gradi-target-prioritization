@@ -25,6 +25,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp asset cache-bust with the commit SHA
+        run: |
+          # rewrite ?v=… on the CSS/JS asset tags so every deploy ships uniquely-versioned
+          # assets (no manual bumping, no stale-cache after a deploy)
+          sed -i "s/?v=[0-9A-Za-z._-]*/?v=${GITHUB_SHA::12}/g" app/index.html
+          grep -o '?v=[0-9A-Za-z._-]*' app/index.html | sort -u
       - uses: actions/configure-pages@v5
         with:
           enablement: true
