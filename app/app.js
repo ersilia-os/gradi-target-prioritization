@@ -23,6 +23,9 @@ const state = {
   orthoTransfer: true,    // include ortholog-transferred knowledge (essentiality track)
   tiers: {},              // axisKey -> "any" | "low" | "med" | "high"
   filters: { search: "", ranges: {}, cats: {}, bools: {}, families: [] },
+  shortlist: [],          // starred accessions (basket)
+  shortlistOnly: false,   // filter table to the shortlist
+  mapSel: null,           // Set of accessions box-selected on the map (or null)
   visibleCols: null,      // Set of column keys
   sort: { key: "__c", dir: -1 },
 };
@@ -44,10 +47,12 @@ function save() {
     filters: { search: state.filters.search, ranges: state.filters.ranges,
       cats: Object.fromEntries(Object.entries(state.filters.cats).map(([k, v]) => [k, [...v]])),
       bools: state.filters.bools, families: state.filters.families },
+    shortlist: state.shortlist, shortlistOnly: state.shortlistOnly,
     visibleCols: state.visibleCols ? [...state.visibleCols] : null,
     sort: state.sort,
   };
   try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch (e) {}
+  syncHash();
 }
 function load() {
   try {
@@ -68,9 +73,56 @@ function load() {
       state.filters.bools = s.filters.bools || {};
       state.filters.families = Array.isArray(s.filters.families) ? s.filters.families : [];
     }
+    state.shortlist = Array.isArray(s.shortlist) ? s.shortlist : [];
+    state.shortlistOnly = !!s.shortlistOnly;
     state.visibleCols = s.visibleCols ? new Set(s.visibleCols) : null;
     state.sort = s.sort || state.sort;
   } catch (e) {}
+}
+
+// ---------- shareable deep-link (URL hash) ---------------------------------
+let _applyingHash = false;
+function serializeState() {
+  const arr = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v && v.length));
+  return {
+    org: state.org, view: state.view, xfer: state.orthoTransfer, map: state.mapColorBy,
+    w: state.weights,
+    t: arr(Object.fromEntries(Object.entries(state.tiers).map(([k, v]) => [k, Array.isArray(v) ? v : (v && v !== "any" ? [v] : [])]))),
+    q: state.filters.search || undefined,
+    cats: arr(Object.fromEntries(Object.entries(state.filters.cats).map(([k, v]) => [k, [...v]]))),
+    bools: Object.fromEntries(Object.entries(state.filters.bools).filter(([, m]) => m && m !== "any")),
+    fam: (state.filters.families && state.filters.families.length) ? state.filters.families : undefined,
+    sl: state.shortlist.length ? state.shortlist : undefined,
+    so: state.shortlistOnly || undefined,
+    sel: state._sel || undefined,
+  };
+}
+function syncHash() {
+  if (_applyingHash) return;
+  try { history.replaceState(null, "", "#p=" + btoa(encodeURIComponent(JSON.stringify(serializeState())))); } catch (e) {}
+}
+function applyHash() {
+  const m = location.hash.match(/[#&]p=([^&]+)/);
+  if (!m) return false;
+  try {
+    const p = JSON.parse(decodeURIComponent(atob(m[1])));
+    _applyingHash = true;
+    if (p.org) state.org = p.org;
+    if (p.view) state.view = p.view;
+    if (typeof p.xfer === "boolean") state.orthoTransfer = p.xfer;
+    if (p.map) state.mapColorBy = p.map;
+    if (p.w) state.weights = p.w;
+    if (p.t) state.tiers = p.t;
+    state.filters.search = p.q || "";
+    state.filters.cats = Object.fromEntries(Object.entries(p.cats || {}).map(([k, v]) => [k, new Set(v)]));
+    state.filters.bools = p.bools || {};
+    state.filters.families = p.fam || [];
+    state.shortlist = p.sl || [];
+    state.shortlistOnly = !!p.so;
+    if (p.sel) state._sel = p.sel;
+    _applyingHash = false;
+    return true;
+  } catch (e) { _applyingHash = false; return false; }
 }
 
 // ---------- helpers --------------------------------------------------------
@@ -194,10 +246,13 @@ function applyTransferMode() {
 // ---------- filtering / sorting -------------------------------------------
 function passFilters(row) {
   const f = state.filters;
+  if (state.shortlistOnly && !state.shortlist.includes(row.uniprot_accession)) return false;
+  if (state.mapSel && !state.mapSel.has(row.uniprot_accession)) return false;
   if (f.search) {
     const q = f.search.toLowerCase();
-    const g = (row.gene || "").toLowerCase(), a = (row.uniprot_accession || "").toLowerCase();
-    if (!g.includes(q) && !a.includes(q)) return false;
+    const hay = [row.gene, row.uniprot_accession, row.name, row.functional_class, row.pdb_ids,
+      row.interpro_family_names, row.panther_family_names].filter(Boolean).join(" ").toLowerCase();
+    if (!hay.includes(q)) return false;
   }
   for (const [key, min] of Object.entries(f.ranges)) {
     if (!min || min <= 0) continue;
@@ -257,8 +312,9 @@ function renderActiveView() {
   $("mapctrl").hidden = !isMap;
   $("colmenu").style.display = isMap ? "none" : "";
   $("pager").hidden = isMap;
-  if (isMap) { drawMap(); }
+  if (isMap) { drawMap(); const pn = $("provNote"); if (pn) pn.hidden = true; }
   else { renderThead(); renderPage(); }
+  updateMapSelChip();
   setTopbarOffset();
 }
 function tableViewCols(key) {
@@ -404,14 +460,17 @@ function renderPage() {
     const fam1 = fam ? String(fam).split(";")[0] : "";
     const gtitle = fam1 ? ` title="${String(fam).replace(/;/g, "; ").replace(/"/g, "&quot;")}"` : "";
     let h = `<td class="colrank rank">${i + 1}</td>`
-      + `<td class="colgene"${gtitle}><div class="gene">${row.name || row.gene || row.uniprot_accession}</div>`
+      + `<td class="colgene"${gtitle}>${starHTML(row.uniprot_accession)}<div class="gene">${row.name || row.gene || row.uniprot_accession}</div>`
       + `<div class="acc">${row.uniprot_accession}</div></td>`
       + `<td class="rc"><span class="heat cscore" style="${heatStyle(cc, AXIS_COLORS.composite)}">`
       + `${isNum(cc) ? cc.toFixed(2) : "–"}</span></td>`
       + `<td class="rc">${confGlyphHTML(row)}</td>`;
     for (const col of cols) h += `<td class="rc${isProvisional(col.key) ? " provcell" : ""}">${cellHTML(row, col)}</td>`;
     tr.innerHTML = h;
-    tr.onclick = () => openDrawer(row);
+    tr.onclick = (e) => {
+      const s = e.target.closest(".star");
+      if (s) { e.stopPropagation(); toggleStar(row.uniprot_accession); } else openDrawer(row);
+    };
     frag.appendChild(tr);
   }
   const tb = $("tbody");
@@ -436,6 +495,34 @@ function openMethods() {
   $("methodsClose").onclick = closeMethods;
 }
 function closeMethods() { $("methodsModal").hidden = true; $("methodsScrim").hidden = true; }
+// ---------- shortlist / basket ---------------------------------------------
+function isStarred(acc) { return state.shortlist.includes(acc); }
+function starHTML(acc) {
+  return `<button class="star${isStarred(acc) ? " on" : ""}" data-acc="${acc}" title="Add to shortlist" aria-label="Shortlist">★</button>`;
+}
+function toggleStar(acc) {
+  const i = state.shortlist.indexOf(acc);
+  if (i >= 0) state.shortlist.splice(i, 1); else state.shortlist.push(acc);
+  save(); updateShortlistBtn();
+  if (state.shortlistOnly) recompute();
+  else document.querySelectorAll(`.star[data-acc="${acc}"]`).forEach((el) => el.classList.toggle("on", isStarred(acc)));
+}
+function updateShortlistBtn() {
+  const b = $("shortlistBtn");
+  if (!b) return;
+  b.textContent = `★ Shortlist (${state.shortlist.length})`;
+  b.setAttribute("aria-pressed", state.shortlistOnly ? "true" : "false");
+  b.classList.toggle("on", state.shortlistOnly);
+}
+function updateMapSelChip() {
+  const c = $("mapSelChip");
+  if (!c) return;
+  if (state.mapSel && state.mapSel.size) {
+    c.hidden = false;
+    c.innerHTML = `${state.mapSel.size.toLocaleString()} on map <button id="mapSelClear" title="Clear map selection">✕</button>`;
+    $("mapSelClear").onclick = (e) => { e.stopPropagation(); state.mapSel = null; updateMapSelChip(); recompute(); };
+  } else { c.hidden = true; }
+}
 function gotoPage(p) {
   const n = pageCount();
   page = Math.max(0, Math.min(p, n - 1));
@@ -790,7 +877,7 @@ function openDrawer(row) {
   $("drawer").innerHTML = `
     <div class="dhead">
       <button class="close" id="drawerClose" aria-label="Close">×</button>
-      <div class="idrow"><span class="gene">${esc(row.gene || row.uniprot_accession)}</span>${fcPill}</div>
+      <div class="idrow">${starHTML(row.uniprot_accession)}<span class="gene">${esc(row.gene || row.uniprot_accession)}</span>${fcPill}</div>
       <div class="submeta">
         <button class="accbtn" id="accCopy" title="Copy accession">${esc(row.uniprot_accession)} <span class="cpi">⧉</span></button>
         <span class="org"><span class="odot odot-${state.org}"></span>${ORGANISM_META[state.org].name} ${ORGANISM_META[state.org].strain}</span>
@@ -808,6 +895,8 @@ function openDrawer(row) {
     </div>
     <div class="dbody">${viewerPanel}${panels}${mapPanel}${annotation}</div>`;
   $("drawerClose").onclick = closeDrawer;
+  const cardStar = $("drawer").querySelector(".idrow .star");
+  if (cardStar) cardStar.onclick = () => toggleStar(row.uniprot_accession);
   const accBtn = $("accCopy");
   if (accBtn) accBtn.onclick = () => {
     try { navigator.clipboard && navigator.clipboard.writeText(row.uniprot_accession); } catch (e) {}
@@ -1190,6 +1279,8 @@ function initTooltips() {
 // ---------- projection map -------------------------------------------------
 let mapPts = [];          // {sx, sy, row} for passing points (hit-testing)
 let _hoverAcc = null;
+let _mapDrag = null;      // active box-select rectangle {x0,y0,x1,y1}
+let _mapDragged = false;  // did the last interaction move enough to be a drag?
 function cssColor(varRef) {
   const p = document.createElement("span");
   p.style.cssText = "position:absolute;visibility:hidden;color:" + varRef;
@@ -1266,6 +1357,12 @@ function drawMapOverlay() {
   };
   if (state._sel) mark(state._sel, 7);
   if (_hoverAcc && _hoverAcc !== state._sel) mark(_hoverAcc, 6);
+  if (_mapDrag) {
+    const { x0, y0, x1, y1 } = _mapDrag;
+    ctx.fillStyle = "rgba(108,92,231,0.10)"; ctx.strokeStyle = "rgba(108,92,231,0.9)"; ctx.lineWidth = 1;
+    const rx = Math.min(x0, x1), ry = Math.min(y0, y1), rw = Math.abs(x1 - x0), rh = Math.abs(y1 - y0);
+    ctx.fillRect(rx, ry, rw, rh); ctx.strokeRect(rx, ry, rw, rh);
+  }
 }
 function renderMapLegend() {
   const lbl = (MAP_COLORS.find((m) => m.key === state.mapColorBy) || {}).label || "Value";
@@ -1301,8 +1398,31 @@ function initMap() {
   };
 
   const wrap = $("mapwrap");
+  wrap.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    const rect = wrap.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    _mapDrag = { x0: x, y0: y, x1: x, y1: y }; _mapDragged = false;
+  });
+  wrap.addEventListener("mouseup", () => {
+    if (!_mapDrag) return;
+    const d = _mapDrag; _mapDrag = null;
+    if (!_mapDragged) { drawMapOverlay(); return; }   // a click, not a drag
+    const xmin = Math.min(d.x0, d.x1), xmax = Math.max(d.x0, d.x1);
+    const ymin = Math.min(d.y0, d.y1), ymax = Math.max(d.y0, d.y1);
+    const sel = new Set();
+    for (const p of mapPts) if (p.sx >= xmin && p.sx <= xmax && p.sy >= ymin && p.sy <= ymax) sel.add(p.row.uniprot_accession);
+    state.mapSel = sel.size ? sel : null;
+    updateMapSelChip();
+    recompute();
+  });
   wrap.addEventListener("mousemove", (e) => {
     const rect = wrap.getBoundingClientRect();
+    if (_mapDrag) {
+      _mapDrag.x1 = e.clientX - rect.left; _mapDrag.y1 = e.clientY - rect.top;
+      if (Math.hypot(_mapDrag.x1 - _mapDrag.x0, _mapDrag.y1 - _mapDrag.y0) > 4) _mapDragged = true;
+      $("maptip").hidden = true; wrap.style.cursor = "crosshair"; drawMapOverlay(); return;
+    }
     const p = nearestPt(e.clientX - rect.left, e.clientY - rect.top);
     const acc = p ? p.row.uniprot_accession : null;
     if (acc !== _hoverAcc) { _hoverAcc = acc; drawMapOverlay(); }
@@ -1323,6 +1443,7 @@ function initMap() {
   });
   wrap.addEventListener("mouseleave", () => { _hoverAcc = null; $("maptip").hidden = true; drawMapOverlay(); });
   wrap.addEventListener("click", (e) => {
+    if (_mapDragged) { _mapDragged = false; return; }   // ignore the click that ends a drag
     const rect = wrap.getBoundingClientRect();
     const p = nearestPt(e.clientX - rect.left, e.clientY - rect.top);
     if (p) openDrawer(p.row);
@@ -1351,6 +1472,7 @@ function initCollapsers() {
 }
 function init() {
   load();
+  applyHash();          // a shared link overrides saved state
   initTooltips();
   initMap();
   initCollapsers();
@@ -1397,6 +1519,13 @@ function init() {
   $("exportBtn").onclick = exportCSV;
   $("methodsBtn").onclick = openMethods;
   $("methodsScrim").onclick = closeMethods;
+  updateShortlistBtn();
+  $("shortlistBtn").onclick = () => { state.shortlistOnly = !state.shortlistOnly; updateShortlistBtn(); save(); recompute(); };
+  $("copyBtn").onclick = () => {
+    const b = $("copyBtn");
+    try { navigator.clipboard && navigator.clipboard.writeText(location.href); } catch (e) {}
+    const t = b.textContent; b.textContent = "Copied ✓"; setTimeout(() => { b.textContent = t; }, 1200);
+  };
   $("scrim").onclick = closeDrawer;
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeDrawer(); closeMethods(); }
@@ -1406,6 +1535,8 @@ function init() {
     }
   });
   addEventListener("resize", setTopbarOffset);
-  loadOrg(state.org);
+  loadOrg(state.org).then(() => {
+    if (state._sel) { const r = DATA.rows.find((x) => x.uniprot_accession === state._sel); if (r) openDrawer(r); }
+  });
 }
 init();

@@ -387,6 +387,19 @@ thead th.rot.provhdr > .rl{color:var(--warn);}
 .provlegend{font-size:10.5px;color:var(--warn);font-weight:600;white-space:nowrap;}
 .maplegend .provtag{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--warn);font-weight:700;}
 
+/* shortlist / basket */
+td.colgene{position:relative;}
+.star{background:none;border:0;cursor:pointer;color:var(--faint);font-size:13px;line-height:1;padding:0;opacity:.3;transition:opacity .12s,color .12s;}
+.star:hover{opacity:1;color:var(--amber);}
+.star.on{opacity:1;color:var(--amber);}
+td.colgene .star{position:absolute;top:6px;right:7px;z-index:1;}
+.idrow .star{font-size:19px;opacity:.45;margin-right:1px;}
+.idrow .star.on,.idrow .star:hover{opacity:1;}
+.tb-btn.on{background:color-mix(in srgb,var(--amber) 18%,#fff);border-color:color-mix(in srgb,var(--amber) 50%,var(--border));color:#9A6B12;}
+.mapselchip{font-size:11px;color:var(--brand);background:color-mix(in srgb,var(--brand) 10%,#fff);border:1px solid color-mix(in srgb,var(--brand) 35%,var(--border));border-radius:999px;padding:2px 6px 2px 10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums;}
+.mapselchip button{background:none;border:0;color:var(--brand);cursor:pointer;font-size:12px;line-height:1;padding:0 2px;}
+.mapselchip button:hover{color:var(--bad);}
+
 /* methods / provenance modal */
 .modalscrim{position:fixed;inset:0;background:rgba(44,62,80,.34);z-index:50;}
 .modal{position:fixed;z-index:51;top:50%;left:50%;transform:translate(-50%,-50%);width:min(680px,92vw);max-height:84vh;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:0 24px 70px rgba(80,40,90,.28);}
