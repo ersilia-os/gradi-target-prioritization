@@ -899,6 +899,8 @@ function openDrawer(row) {
 
   const links = externalLinks(row).map((l) =>
     `<a href="${l.href}" target="_blank" rel="noopener">${l.icon ? `<span class="li">${l.icon}</span>` : ""}${l.label}</a>`).join("");
+  const orth = orthologInOther(row);
+  const orthBtn = orth ? `<button class="orthjump" id="orthJump">→ ${ORGANISM_META[orth.org].name} ortholog: <i>${esc(orth.gene || orth.acc)}</i></button>` : "";
 
   const panels = CARD_AXES.map((spec) => axisPanelHTML(row, spec)).join("");
   const showViewer = !has("af_available") || row.af_available !== false;
@@ -933,11 +935,17 @@ function openDrawer(row) {
       </div>
       ${glanceHTML}
       <div class="links">${links}</div>
+      ${orthBtn ? `<div class="orthrow">${orthBtn}</div>` : ""}
     </div>
     <div class="dbody">${viewerPanel}${panels}${mapPanel}${annotation}</div>`;
   $("drawerClose").onclick = closeDrawer;
   const cardStar = $("drawer").querySelector(".idrow .star");
   if (cardStar) cardStar.onclick = () => toggleStar(row.uniprot_accession);
+  const oj = $("orthJump");
+  if (oj && orth) oj.onclick = () => {
+    document.querySelector(`#orgToggle button[data-org="${orth.org}"]`)?.setAttribute("aria-selected", "true");
+    loadOrg(orth.org).then(() => { const r = DATA.rows.find((x) => x.uniprot_accession === orth.acc); if (r) openDrawer(r); });
+  };
   const accBtn = $("accCopy");
   if (accBtn) accBtn.onclick = () => {
     try { navigator.clipboard && navigator.clipboard.writeText(row.uniprot_accession); } catch (e) {}
@@ -1202,6 +1210,13 @@ function applyPreset(name) {
     state.filters.cats.essentiality_tier = new Set(["essential"]);
     state.filters.cats.ligandability_tier = new Set(["tractable"]);
     state.filters.cats.selectivity = new Set(["broad_selective"]);
+  } else if (name === "degrader") {
+    applyPreset("reset");
+    // BacPROTAC-oriented: essential + degradable + Clp-accessible (cytoplasmic) + selective
+    state.filters.cats.essentiality_tier = new Set(["essential"]);
+    if (DATA.columns.includes("degradability_tier")) state.filters.cats.degradability_tier = new Set(["high", "medium"]);
+    if (DATA.columns.includes("localization")) state.filters.cats.localization = new Set(["cytoplasm", "inner_membrane"]);
+    if (DATA.columns.includes("selectivity")) state.filters.cats.selectivity = new Set(["broad_selective"]);
   } else if (name === "neglected") {
     applyPreset("reset");
     // druggable + understudied: tractable ligandability crossed with dark studiedness
@@ -1210,6 +1225,31 @@ function applyPreset(name) {
   }
   buildFilterBar();
   save(); recompute();
+}
+// weighting-scheme presets (set the composite sliders)
+const WEIGHT_PRESETS = {
+  balanced:     { comp_essentiality: 50, comp_ligandability: 50 },
+  essentiality: { comp_essentiality: 70, comp_ligandability: 30 },
+  druggability: { comp_essentiality: 30, comp_ligandability: 70 },
+  degrader:     { comp_essentiality: 40, comp_ligandability: 20, comp_degradability: 40 },
+};
+function applyWeightPreset(name) {
+  const p = WEIGHT_PRESETS[name];
+  if (!p) return;
+  for (const c of COMPONENTS) {
+    if (p[c.key] != null) state.weights[c.key] = { on: true, weight: p[c.key] };
+    else if (state.weights[c.key]) state.weights[c.key].on = false;
+  }
+  weightsDirty = true; buildWeights(); save(); recompute();
+}
+// same-gene ortholog in the other organism (gene-symbol match; needs the other org cached)
+function orthologInOther(row) {
+  const other = state.org === "kp" ? "ec" : "kp";
+  const data = cache[other];
+  const g = (row.gene || "").trim().toLowerCase();
+  if (!data || !g) return null;
+  const m = data.rows.find((r) => (r.gene || "").trim().toLowerCase() === g);
+  return m ? { org: other, acc: m.uniprot_accession, gene: m.gene } : null;
 }
 
 // ---------- CSV export -----------------------------------------------------
@@ -1558,6 +1598,21 @@ function init() {
     }
   };
   document.addEventListener("click", (e) => { if (!$("colmenu").contains(e.target)) $("colmenu").classList.remove("open"); });
+  $("presetBtn").onclick = (e) => {
+    e.stopPropagation();
+    const open = $("presetmenu").classList.toggle("open");
+    if (open) {
+      const pop = $("presetPop"), r = $("presetBtn").getBoundingClientRect();
+      pop.style.top = Math.round(r.bottom + 4) + "px";
+      const w = pop.offsetWidth || 210;
+      pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, innerWidth - w - 10))) + "px";
+    }
+  };
+  $("presetPop").querySelectorAll("button[data-preset]").forEach((b) =>
+    b.onclick = () => { applyPreset(b.dataset.preset); $("presetmenu").classList.remove("open"); });
+  document.addEventListener("click", (e) => { if (!$("presetmenu").contains(e.target)) $("presetmenu").classList.remove("open"); });
+  $("weightPresets").querySelectorAll("button[data-wp]").forEach((b) =>
+    b.onclick = () => applyWeightPreset(b.dataset.wp));
   $("exportBtn").onclick = exportCSV;
   $("methodsBtn").onclick = openMethods;
   $("methodsScrim").onclick = closeMethods;

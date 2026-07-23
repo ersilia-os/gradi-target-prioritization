@@ -194,6 +194,20 @@ h1 em{font-style:italic;color:var(--brand);}
 .colmenu .pop{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow);padding:10px 12px;z-index:45;display:none;max-height:70vh;overflow:auto;min-width:200px;}
 .colmenu.open .pop{display:block;}
 .colmenu .pop label{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0;cursor:pointer;}
+.colmenu .pop button{display:block;width:100%;text-align:left;font-size:12.5px;border:0;background:none;color:var(--ink);border-radius:7px;padding:6px 9px;cursor:pointer;white-space:nowrap;}
+.colmenu .pop button:hover{background:color-mix(in srgb,var(--brand) 10%,var(--surface));color:var(--brand);}
+.colmenu .pop button.wp-clear{border-top:1px solid var(--border);margin-top:4px;color:var(--muted);}
+
+/* weight-scheme presets (sidebar) */
+.wpresets{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 12px;}
+.wpresets button{font-size:10.5px;font-weight:560;border:1px solid var(--border);background:var(--surface-2);color:var(--muted);border-radius:999px;padding:3px 9px;cursor:pointer;}
+.wpresets button:hover{border-color:var(--brand);color:var(--brand);}
+
+/* cross-organism ortholog jump (gene card) */
+.orthrow{margin-top:10px;}
+.orthjump{font-size:12px;font-weight:560;border:1px solid color-mix(in srgb,var(--turquoise) 45%,var(--border));background:color-mix(in srgb,var(--turquoise) 12%,#fff);color:#1E8479;border-radius:8px;padding:5px 11px;cursor:pointer;}
+.orthjump:hover{background:color-mix(in srgb,var(--turquoise) 20%,#fff);}
+.orthjump i{font-style:italic;}
 
 /* table */
 .tablewrap{border:1px solid var(--border);border-radius:var(--radius);overflow:auto;background:var(--surface);flex:1;min-height:0;box-shadow:var(--shadow);}
