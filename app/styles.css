@@ -174,13 +174,9 @@ h1 em{font-style:italic;color:var(--brand);}
 .filterbar .clearbtn:hover{color:var(--brand);}
 
 /* toolbar */
-.toolbar{display:flex;align-items:center;gap:9px;flex-wrap:nowrap;margin-bottom:12px;flex:none;}
-.toolbar-right{display:flex;align-items:center;gap:9px;flex-wrap:nowrap;justify-content:flex-end;margin-left:auto;flex:0 0 auto;}
-.toolbar .tb-btn{flex:0 0 auto;}
-/* the view-tab strip takes the slack and scrolls internally if the tabs don't fit — keeps the header one line */
-.viewswitch{display:flex;gap:2px;padding:3px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none;}
-.viewswitch::-webkit-scrollbar{display:none;}
-.viewswitch button{flex:0 0 auto;}
+.toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px;flex:none;}
+.toolbar-right{display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto;}
+.viewswitch{display:inline-flex;flex-wrap:wrap;gap:2px;padding:3px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;}
 .viewswitch button{font-size:12px;font-weight:540;border:0;background:transparent;color:var(--muted);border-radius:8px;padding:6px 9px;cursor:pointer;transition:all .15s;}
 .viewswitch button[aria-selected="true"]{background:var(--brand);color:#fff;box-shadow:var(--shadow);}
 .mapctrl{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);}

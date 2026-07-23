@@ -83,7 +83,10 @@ function load() {
     }
     state.shortlist = Array.isArray(s.shortlist) ? s.shortlist : [];
     state.shortlistOnly = !!s.shortlistOnly;
-    state.visibleCols = s.visibleCols ? new Set(s.visibleCols) : null;
+    // Columns are fully view-driven now (no Columns menu), so IGNORE any persisted visibleCols —
+    // otherwise a returning user keeps a stale column set (e.g. an Overview from before Degradability
+    // was added) and never sees new columns. Always re-seed from the active view in loadOrg().
+    state.visibleCols = null;
     state.sort = s.sort || state.sort;
   } catch (e) {}
 }
