@@ -93,7 +93,8 @@ function heatStyle(v, color) {
   const c = color || "var(--brand)";
   const amt = Math.max(0, Math.min(100, Math.round(12 + v * 78)));
   return `background:color-mix(in srgb,${c} ${amt}%,#fff);`
-       + (amt >= 58 ? "color:#fff;" : "color:var(--ink);");
+       + (amt >= 58 ? "color:#fff;" : "color:var(--ink);")
+       + (v === 0 ? "box-shadow:inset 0 0 0 1px var(--border);color:var(--faint);" : "");  // true zero ≠ no data
 }
 function badgeHTML(type, v, key) {
   if (v === null || v === undefined || v === "") return "–";
@@ -122,7 +123,49 @@ function computeAll() {
       if (isNum(v)) { const w = state.weights[c.key].weight; sum += w * v; wsum += w; }
     }
     row.__c = wsum > 0 ? sum / wsum : null;
+    row.__conf = evidenceConfidence(row, comps).frac;
   }
+}
+// ---------- evidence / confidence ------------------------------------------
+// Per-axis backing strength: 1 = measured/experimental, 0.5 = inferred
+// (transfer / prediction / predicted pocket), 0 = present but unsupported
+// (or provisional mock), null = axis has no value for this protein.
+function axisBacking(row, key) {
+  if (key === "comp_essentiality") {
+    if (!isNum(row.comp_essentiality)) return null;
+    return (row.experimentally_essential === true || isNum(row.evidence_experimental)) ? 1 : 0.5;
+  }
+  if (key === "comp_ligandability") {
+    if (!isNum(row.comp_ligandability)) return null;
+    return row.has_hard_evidence === true ? 1 : 0.5;
+  }
+  if (key === "comp_degradability") {
+    if (!isNum(row.comp_degradability)) return null;
+    if (isProvisional("comp_degradability")) return 0;         // mock data
+    if (row.clp_trapped === true) return 1;
+    return row.comp_degradability > 0 ? 0.5 : 0;
+  }
+  if (key === "comp_novelty") return isNum(row.comp_novelty) ? 1 : null;  // bibliometric = measured
+  return isNum(row[key]) ? 0.5 : null;
+}
+function evidenceConfidence(row, comps) {
+  comps = comps || enabledComponents();
+  const per = []; let sum = 0, n = 0;
+  for (const c of comps) {
+    const b = axisBacking(row, c.key);
+    if (b === null) continue;
+    per.push({ label: c.label, backing: b }); sum += b; n++;
+  }
+  return { frac: n ? sum / n : null, per, n, predictedOnly: n > 0 && per.every((p) => p.backing < 1) };
+}
+function confGlyphHTML(row) {
+  const ci = evidenceConfidence(row);
+  if (ci.frac === null) return `<span class="conf" data-tip="No evidence for the enabled axes"><i></i><i></i><i></i></span>`;
+  const col = ci.frac >= 0.8 ? "var(--good)" : ci.frac >= 0.4 ? "var(--warn)" : "var(--faint)";
+  const dot = (t) => `<i class="${ci.frac >= t ? "f" : ""}"></i>`;
+  const tip = ci.per.map((p) => `${p.label}: ${p.backing >= 1 ? "measured" : "inferred/predicted"}`).join(" · ")
+    + (ci.predictedOnly ? " — predicted-only" : "");
+  return `<span class="conf" style="--cf:${col}" data-tip="${tip.replace(/"/g, "&quot;")}">${dot(0.01)}${dot(0.5)}${dot(1)}</span>`;
 }
 
 // ---------- orthology-transfer toggle (essentiality axis) -----------------
@@ -284,12 +327,13 @@ function renderThead() {
   // all columns are fixed-width with vertical headers, except the Target column
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("name", "Target", { tip: LEADING_COL_DESC.name, cls: "colgene" })
-    + th("__c", "Comp. score", { tip: LEADING_COL_DESC.__c, rot: true, color: AXIS_COLORS.composite });
+    + th("__c", "Comp. score", { tip: LEADING_COL_DESC.__c, rot: true, color: AXIS_COLORS.composite })
+    + th("__conf", "Evidence", { tip: LEADING_COL_DESC.__conf, rot: true, color: "var(--muted)" });
   for (const c of cols)
-    h += th(c.key, c.label, { tip: c.desc, rot: true, color: colColor(c.key) });
+    h += th(c.key, c.label, { tip: c.desc, rot: true, color: colColor(c.key), cls: isProvisional(c.key) ? "provhdr" : "" });
 
   // section band: merge consecutive columns sharing a group
-  const bandSeq = [{ key: "__c" }, ...cols];
+  const bandSeq = [{ key: "__c" }, { key: "__conf" }, ...cols];
   const runs = [];
   for (const col of bandSeq) {
     const g = columnGroup(col);
@@ -363,8 +407,9 @@ function renderPage() {
       + `<td class="colgene"${gtitle}><div class="gene">${row.name || row.gene || row.uniprot_accession}</div>`
       + `<div class="acc">${row.uniprot_accession}</div></td>`
       + `<td class="rc"><span class="heat cscore" style="${heatStyle(cc, AXIS_COLORS.composite)}">`
-      + `${isNum(cc) ? cc.toFixed(2) : "–"}</span></td>`;
-    for (const col of cols) h += `<td class="rc">${cellHTML(row, col)}</td>`;
+      + `${isNum(cc) ? cc.toFixed(2) : "–"}</span></td>`
+      + `<td class="rc">${confGlyphHTML(row)}</td>`;
+    for (const col of cols) h += `<td class="rc${isProvisional(col.key) ? " provcell" : ""}">${cellHTML(row, col)}</td>`;
     tr.innerHTML = h;
     tr.onclick = () => openDrawer(row);
     frag.appendChild(tr);
@@ -375,9 +420,22 @@ function renderPage() {
   $("table").hidden = false;
   $("loading").hidden = true;
   window.scrollTo({ top: 0 });
+  const pn = $("provNote");
+  if (pn) pn.hidden = !cols.some((c) => isProvisional(c.key));
   renderPager();
   setTopbarOffset();
 }
+// ---------- methods / provenance modal -------------------------------------
+function openMethods() {
+  const m = $("methodsModal");
+  m.innerHTML = `<div class="modalhead"><h2>How targets are scored</h2><button class="close" id="methodsClose" aria-label="Close">×</button></div>`
+    + `<div class="modalbody">`
+    + METHODS.map((s) => `<section class="mrow" style="--pc:${s.color}"><h3>${s.title}</h3><p>${s.body}</p></section>`).join("")
+    + `</div>`;
+  m.hidden = false; $("methodsScrim").hidden = false;
+  $("methodsClose").onclick = closeMethods;
+}
+function closeMethods() { $("methodsModal").hidden = true; $("methodsScrim").hidden = true; }
 function gotoPage(p) {
   const n = pageCount();
   page = Math.max(0, Math.min(p, n - 1));
@@ -740,7 +798,8 @@ function openDrawer(row) {
       <div class="scorehero">
         <div class="ring">${ringSVG(cval, "var(--brand)")}<div class="ringc"><b>${isNum(row.__c) ? row.__c.toFixed(2) : "–"}</b><span>composite</span></div></div>
         <div class="herostack">
-          ${rank ? `<div class="rankline">Rank <b>#${rank.toLocaleString()}</b> <span>of ${DATA.rows.length.toLocaleString()}</span></div>` : ""}
+          ${rank ? `<div class="rankline">Rank <b>#${rank.toLocaleString()}</b> <span>of ${DATA.rows.length.toLocaleString()}</span>`
+            + `<span class="evline">${confGlyphHTML(row)} ${(function(){const ci=evidenceConfidence(row);return ci.predictedOnly?'<b class="predonly">predicted-only</b>':(ci.frac>=0.8?'well supported':ci.frac>=0.4?'partly supported':'weakly supported');})()}</span></div>` : ""}
           <div class="contrib">${contribHTML}</div>
         </div>
       </div>
@@ -1026,10 +1085,11 @@ function applyPreset(name) {
 // ---------- CSV export -----------------------------------------------------
 function exportCSV() {
   const cols = visibleColumns();
-  const header = ["rank", "uniprot_accession", "gene", "composite", ...cols.map((c) => c.key)];
+  const header = ["rank", "uniprot_accession", "gene", "composite", "evidence_support", ...cols.map((c) => c.key)];
   const lines = [header.join(",")];
   filtered.forEach((row, i) => {
-    const vals = [i + 1, row.uniprot_accession, row.gene || "", isNum(row.__c) ? row.__c.toFixed(4) : ""];
+    const vals = [i + 1, row.uniprot_accession, row.gene || "", isNum(row.__c) ? row.__c.toFixed(4) : "",
+      isNum(row.__conf) ? row.__conf.toFixed(2) : ""];
     for (const c of cols) { let v = row[c.key]; v = (v === null || v === undefined) ? "" : v; vals.push(v); }
     lines.push(vals.map((v) => {
       const s = String(v);
@@ -1210,7 +1270,8 @@ function drawMapOverlay() {
 function renderMapLegend() {
   const lbl = (MAP_COLORS.find((m) => m.key === state.mapColorBy) || {}).label || "Value";
   const col = colColor(state.mapColorBy);
-  $("maplegend").innerHTML = `<div class="lt">${lbl}</div>`
+  const prov = isProvisional(state.mapColorBy) ? ` <span class="provtag">provisional</span>` : "";
+  $("maplegend").innerHTML = `<div class="lt">${lbl}${prov}</div>`
     + `<div class="ramp" style="background:linear-gradient(90deg,color-mix(in srgb,${col} 14%,#fff),${col})"></div>`
     + `<div class="sc"><span>0</span><span>1</span></div>`;
 }
@@ -1334,9 +1395,11 @@ function init() {
   };
   document.addEventListener("click", (e) => { if (!$("colmenu").contains(e.target)) $("colmenu").classList.remove("open"); });
   $("exportBtn").onclick = exportCSV;
+  $("methodsBtn").onclick = openMethods;
+  $("methodsScrim").onclick = closeMethods;
   $("scrim").onclick = closeDrawer;
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeDrawer();
+    if (e.key === "Escape") { closeDrawer(); closeMethods(); }
     if (state.view !== "map" && !e.target.matches("input,select,textarea")) {
       if (e.key === "ArrowRight") gotoPage(page + 1);
       if (e.key === "ArrowLeft") gotoPage(page - 1);

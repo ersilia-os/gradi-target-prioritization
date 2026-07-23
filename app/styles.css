@@ -371,6 +371,34 @@ a.pdbchip:hover{text-decoration:none;border-color:var(--cobalt);}
 .pdbcap{font-size:11px;color:var(--faint);line-height:1.45;margin:8px 0 0;}
 .pdbcap .pk{color:#2E9E4F;font-weight:600;}
 
+/* evidence-confidence pips */
+.conf{display:inline-flex;gap:2px;align-items:center;justify-content:center;}
+.conf i{width:5px;height:5px;border-radius:50%;background:var(--border);display:inline-block;}
+.conf i.f{background:var(--cf,var(--good));}
+.evline{margin-left:10px;font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;}
+.evline .conf i{width:6px;height:6px;}
+.evline .predonly{color:var(--warn);font-weight:600;}
+
+/* provisional / mock cells */
+tbody td.provcell{position:relative;}
+tbody td.provcell::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(45deg,transparent 0,transparent 4px,color-mix(in srgb,var(--warn) 15%,transparent) 4px,color-mix(in srgb,var(--warn) 15%,transparent) 5px);}
+thead th.rot.provhdr > .rl{color:var(--warn);}
+.provlegend{font-size:10.5px;color:var(--warn);font-weight:600;white-space:nowrap;}
+.maplegend .provtag{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--warn);font-weight:700;}
+
+/* methods / provenance modal */
+.modalscrim{position:fixed;inset:0;background:rgba(44,62,80,.34);z-index:50;}
+.modal{position:fixed;z-index:51;top:50%;left:50%;transform:translate(-50%,-50%);width:min(680px,92vw);max-height:84vh;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:0 24px 70px rgba(80,40,90,.28);}
+.modal .modalhead{position:sticky;top:0;background:var(--surface);display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--border);}
+.modal .modalhead h2{margin:0;font-size:17px;font-weight:700;color:var(--ink);}
+.modal .modalhead .close{font-size:24px;line-height:1;background:none;border:0;color:var(--muted);cursor:pointer;}
+.modal .modalbody{padding:6px 22px 24px;}
+.modal .mrow{margin-top:16px;padding-left:13px;border-left:3px solid var(--pc,var(--brand));}
+.modal .mrow h3{margin:0 0 4px;font-size:13px;font-weight:700;color:color-mix(in srgb,var(--pc,var(--brand)) 78%,#000);}
+.modal .mrow p{margin:0;font-size:12.5px;line-height:1.55;color:var(--ink);}
+.modal .mrow p b{color:var(--ink);}
+
 .scrim{position:fixed;inset:0;background:rgba(44,62,80,.34);opacity:0;pointer-events:none;transition:opacity .22s;z-index:35;}
 .scrim.open{opacity:1;pointer-events:auto;}
 

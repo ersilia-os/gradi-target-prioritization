@@ -31,6 +31,13 @@ function axisOf(key) {
 }
 function colColor(key) { return AXIS_COLORS[axisOf(key)] || "var(--brand)"; }
 
+// axes whose data is provisional (mock) for the given organisms — flagged in the UI
+const PROVISIONAL = { degradability: ["ec"] };
+function isProvisional(key) {
+  const org = (typeof state !== "undefined" && state.org) || "";
+  return (PROVISIONAL[axisOf(key)] || []).includes(org);
+}
+
 // ---- table sections (grouped header band) ---------------------------------
 const COLUMN_GROUPS = {
   Composite:     "var(--brand)",
@@ -97,8 +104,6 @@ const TABLE_COLUMNS = [
     desc: "Liganded (0–1): strength of measured/known-ligand evidence (ChEMBL / BindingDB actives + PDB co-crystals), direct or via ortholog. High = it has been liganded." },
   { key: "evidence_pocket",      label: "Ligandable",     type: "score", heat: true,  default: false, group: "Ligandability",
     desc: "Ligandable (0–1): pocket druggability — pLDDT-weighted fpocket/P2Rank consensus that a druggable pocket exists on the AlphaFold model." },
-  { key: "structure_score",      label: "Structure",      type: "score", heat: true,  default: false, group: "Ligandability",
-    desc: "Alias of the pocket-druggability score (evidence_pocket)." },
   { key: "conservation_score",   label: "Conservation",   type: "score", heat: true,  default: false, group: "Orthology",
     desc: "Conservation (0–1): fraction of the ~24-species bacterial panel that carries an ortholog (presence/phyletic spread). Distinct from Essential breadth — a protein can be widely conserved yet not broadly essential." },
   { key: "human_closeness",      label: "Human closeness", type: "score", heat: true,  default: false, group: "Orthology",
@@ -258,7 +263,24 @@ const LEADING_COL_DESC = {
   rank: "Row rank under the current composite weighting, filters and sort.",
   name: "Gene name (italic) and UniProt accession — the canonical identifier for the protein.",
   __c: "Weighted composite score (0–1): the per-protein mean of the enabled weight sliders at left, renormalised over the components that have a value for this protein. This is the ranking you tune.",
+  __conf: "Evidence support for the enabled composite axes: filled dots = measured/experimental backing, partial = inferred (transfer / prediction / predicted pocket), empty = no data. Sort to surface the best-supported targets.",
 };
+
+// ---- methods / provenance panel content (per axis) ------------------------
+const METHODS = [
+  { title: "Composite & evidence", color: "var(--brand)", body:
+    "The composite is the mean of the enabled weight sliders, renormalised over the axes that have a value for each protein — so a protein scored by predictions alone is comparable to one with rich data, but is <b>not</b> equally well-supported. The <b>Evidence</b> dots show that support: ●●● = measured/experimental backing on all enabled axes, partial = inferred (cross-species transfer, computational prediction, or a predicted pocket), ○○○ = no data." },
+  { title: "Essentiality", color: "var(--crimson)", body:
+    "How required the gene is for survival. Blend of <b>0.40·experimental</b> (Kp Tn-seq / CRISPRi), <b>0.20·cross-species transfer</b> (E. coli essential set via ortholog) and <b>0.40·predictor consensus</b> (ProteomeLM · Geptop · FBA), renormalised over available tracks. Tiers: essential / likely / non-essential. The <i>Orthology transfer</i> switch (top-left) drops the transfer term. Refs: PEC/Keio, TraDIS, ProteomeLM, Geptop 2.0." },
+  { title: "Ligandability", color: "var(--cobalt)", body:
+    "Small-molecule tractability = <b>0.45·binding</b> (ChEMBL/BindingDB actives + PDB co-crystals) + <b>0.30·structural</b> (drug-like co-crystal / AlphaFill) + <b>0.25·pocket</b> (fpocket + P2Rank consensus on the AlphaFold model, pLDDT-weighted), penalised by disorder. Tiers (evidence-driven): tractable = hard evidence or a strong pocket; partial; intractable. “Hard evidence” = a measured ≤1 µM binder or a genuine co-crystal." },
+  { title: "Degradability", color: "var(--amber)", body:
+    "Susceptibility to bacterial Clp-protease degradation (BacPROTAC / targeted-degradation potential): C/N-terminal degron motifs (structure-modulated) plus Clp-substrate & half-life evidence transferred from E. coli. Tiers: labile (high) / moderate / stable (low). <b>K. pneumoniae is real; E. coli is a provisional mock</b> (hatched cells) pending a dedicated pipeline. Refs: Flynn 2003, Nagar 2021." },
+  { title: "Novelty & studiedness", color: "var(--orchid)", body:
+    "1 − bibliometric studiedness (Europe PMC / UniProt, propagated across orthologs). High = under-studied / neglected target. Tiers: dark / studied / well-studied." },
+  { title: "Orthology & selectivity", color: "var(--turquoise)", body:
+    "Conservation = fraction of a bacterial panel carrying an ortholog (phyletic spread). Human closeness = % identity to the nearest human ortholog (0 = none = maximally selective). Selective = no meaningful human ortholog (safer antibacterial target)." },
+];
 
 // ---- categorical filters (checkbox groups) --------------------------------
 const CATEGORICAL_FILTERS = [

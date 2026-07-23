@@ -49,8 +49,8 @@ Locally on the Mac mini: `http://localhost:8080`.
 - **Organism toggle** (top-left) switches between K. pneumoniae and E. coli.
 - **Views** (top tabs) — pick the column set:
   - **Overview** — the high-level scorecard (both axes + tiers + selectivity).
-  - **Essentiality / Ligandability / Structure / Cross-species** — per-axis views that
-    surface that axis's detailed evidence columns.
+  - **Essentiality / Ligandability / Degradability / Structure / Cross-species / Novelty /
+    Annotation** — per-axis views that surface that axis's detailed evidence columns.
   - **◵ Map** — the ESM-C protein-universe projection (every protein at its
     `tsne_x/tsne_y`), coloured by any component via the **Colour by** dropdown. Current
     filters carve the universe: passing proteins are coloured, the rest fade to grey
@@ -58,8 +58,17 @@ Locally on the Mac mini: `http://localhost:8080`.
 - **Composite weights** — toggle each component on/off and set its 0–100 weight.
   The composite is a per-protein weighted mean over *enabled components that have a
   value*, renormalized per protein (missing components are dropped, not zero-filled).
-  Degradability / Expression / Novelty are shown as disabled "coming soon" sliders
-  until their data is wired into the export.
+  Essentiality + Ligandability are on by default; **Degradability** and **Novelty** are wired
+  (off by default). *Expression/localization is not yet implemented.* An **Evidence** column
+  shows how well each target is supported (measured vs inferred/predicted); a **Methods ⓘ**
+  panel documents every score.
+- **Orthology transfer** switch (top-left) recomputes essentiality without the E. coli→Kp
+  cross-species transfer track.
+- **Gene card** (click any row) — a per-protein profile: composite ring + rank + evidence,
+  per-axis panels, an interactive **AlphaFold 3D structure** (coloured by pLDDT, top predicted
+  pocket highlighted), a mini locator map, and annotation.
+- **Provisional data** (E. coli degradability is a mock) is shown with hatched cells + a
+  "provisional" flag, never as if it were real.
 - **Presets** — "★ Prime targets" = essential ∧ tractable ∧ broad-selective;
   "◐ Neglected & druggable" = tractable ∧ dark (under-studied).
 - **Filters** — text search (by **gene name or UniProt accession**), min-threshold

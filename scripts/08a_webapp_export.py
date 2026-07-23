@@ -8,9 +8,11 @@ one JSON per organism to ``app/data/{kp,ec}.json`` for the static SPA under ``ap
 Design notes:
 - Defensive: a desired column is emitted only if it exists on disk. New axes/columns
   can be added later without breaking older data (the front-end greys out what's absent).
-- Composite components are the *available* 0–1 signals only — Essentiality, Ligandability,
-  Broad-spectrum breadth, Human-selectivity. Novelty/Degradability/Expression have no data
-  yet and are intentionally not emitted (the front-end shows them as "coming soon").
+- Composite components (0–1): Essentiality, Ligandability, Degradability, Novelty, plus the
+  Broad-spectrum breadth / Human-selectivity display scores. Degradability is real for kp
+  (legacy Clp/degron annotation) and a deterministic provisional mock for ec; Expression/
+  localization is not yet wired. Rows are emitted columnar (array-of-arrays + shared `columns`);
+  a separate `pockets_{prefix}.json` carries top-pocket residues for the 3D viewer.
 - The cross-axis weighting itself is done live in the browser; this script only exposes
   the normalized per-component values so the weights can be tuned interactively.
 
@@ -343,9 +345,6 @@ def build_organism(organism: str) -> dict:
     df["functional_class"] = df.apply(_functional_class, axis=1)
 
     # Overview display scores (not composite components):
-    # Structure = pocket druggability (alias of evidence_pocket for independent labelling)
-    if "evidence_pocket" in df.columns:
-        df["structure_score"] = _clip01(df["evidence_pocket"])
     # Conservation = cross-species ortholog spread (presence-based, essentiality-independent)
     cons = conservation_scores(organism)
     df["conservation_score"] = df["uniprot_accession"].map(cons).fillna(0.0).clip(0.0, 1.0)
@@ -393,7 +392,7 @@ def build_organism(organism: str) -> dict:
             print(f"  coverage {c}: {cov}/{n} ({100*cov/n:.0f}%)")
         else:
             print(f"  coverage {c}: ABSENT")
-    for c in ("structure_score", "conservation_score", "human_closeness"):
+    for c in ("conservation_score", "human_closeness"):
         if c in df.columns:
             nz = int((pd.to_numeric(df[c], errors="coerce") > 0).sum())
             print(f"  {c}: mean={df[c].mean():.2f}, >0 for {nz}/{n} ({100*nz/n:.0f}%)")
