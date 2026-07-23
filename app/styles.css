@@ -56,17 +56,14 @@ h1 em{font-style:italic;color:var(--brand);}
 .toggle button[data-org="ec"][aria-selected="true"]{background:color-mix(in srgb,var(--tangerine) 22%,#fff);color:#B6543C;}
 .toggle button i{font-style:italic;}
 
-/* orthology-transfer toggle */
-.xfer{display:flex;align-items:flex-start;gap:9px;margin:12px 0 2px;padding:10px 11px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;}
-.xfer-sw{position:relative;flex:0 0 auto;cursor:pointer;margin-top:1px;}
-.xfer-sw input{position:absolute;opacity:0;width:0;height:0;}
-.xfer-sw .sw{display:block;width:30px;height:17px;border-radius:999px;background:var(--border);position:relative;transition:background .18s;}
-.xfer-sw .sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .18s;}
-.xfer-sw input:checked + .sw{background:var(--turquoise);}
-.xfer-sw input:checked + .sw::after{transform:translateX(13px);}
-.xfer-txt{min-width:0;}
-.xfer-txt b{display:block;font-size:12.5px;font-weight:600;color:var(--ink);}
-.xfer-txt span{display:block;font-size:10.5px;color:var(--faint);line-height:1.35;margin-top:1px;}
+/* orthology-transfer toggle (one line) */
+.xfer{display:flex;align-items:center;gap:9px;margin:14px 0 2px;cursor:pointer;font-size:13px;}
+.xfer input{position:absolute;opacity:0;width:0;height:0;}
+.xfer .sw{flex:0 0 auto;display:block;width:30px;height:17px;border-radius:999px;background:var(--border);position:relative;transition:background .18s;}
+.xfer .sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .18s;}
+.xfer input:checked + .sw{background:var(--turquoise);}
+.xfer input:checked + .sw::after{transform:translateX(13px);}
+.xfer .xfer-lab{font-weight:560;color:var(--ink);white-space:nowrap;}
 
 /* KPI tiles */
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:14px 0 4px;}
