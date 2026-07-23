@@ -58,6 +58,9 @@ function columnGroup(col) {
   return AXIS_GROUP_LABEL[axisOf(col.key)] || "";
 }
 function groupColor(name) { return COLUMN_GROUPS[name] || "var(--faint)"; }
+// shorter display label for narrow section bands (grouping still keys off the full name)
+const GROUP_DISPLAY = { Degradability: "Degrad." };
+function groupDisplay(name) { return GROUP_DISPLAY[name] || name; }
 
 // ---- task-agnostic functional classes (heuristic, from the export) --------
 // id must match scripts/08a_webapp_export.py FUNCTIONAL_CLASS_RULES.

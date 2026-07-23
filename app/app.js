@@ -430,7 +430,7 @@ function renderThead() {
   let band = `<th class="gband gband-empty" colspan="2"></th>`;
   for (const r of runs) {
     band += r.group
-      ? `<th class="gband" colspan="${r.span}" style="--gc:${groupColor(r.group)}"><span>${r.group}</span></th>`
+      ? `<th class="gband" colspan="${r.span}" style="--gc:${groupColor(r.group)}" title="${r.group}"><span>${groupDisplay(r.group)}</span></th>`
       : `<th class="gband" colspan="${r.span}"></th>`;
   }
 
