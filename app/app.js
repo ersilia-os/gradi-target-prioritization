@@ -226,7 +226,7 @@ function evidenceConfidence(row) {
 function confGlyphHTML(row) {
   const ci = evidenceConfidence(row);
   if (ci.frac === null) return `<span class="conf" data-tip="No evidence for the enabled axes"><i></i><i></i><i></i></span>`;
-  const col = ci.frac >= 0.8 ? "var(--good)" : ci.frac >= 0.4 ? "var(--warn)" : "var(--faint)";
+  const col = "var(--brand)";   // same flavour as the composite score; support level = # filled dots
   const dot = (t) => `<i class="${ci.frac >= t ? "f" : ""}"></i>`;
   const tip = ci.per.map((p) => `${p.label}: ${p.backing >= 1 ? "measured" : "inferred/predicted"}`).join(" · ")
     + (ci.predictedOnly ? " — predicted-only" : "");
@@ -340,7 +340,6 @@ function renderActiveView() {
   $("mapwrap").hidden = !isMap;
   $("cmpwrap").hidden = !isCmp;
   $("mapctrl").hidden = !isMap;
-  $("colmenu").style.display = (isMap || isCmp) ? "none" : "";
   $("pager").hidden = isMap || isCmp;
   if (isMap) { drawMap(); const pn = $("provNote"); if (pn) pn.hidden = true; }
   else if (isCmp) { renderCompare(); const pn = $("provNote"); if (pn) pn.hidden = true; }
@@ -444,7 +443,7 @@ function renderThead() {
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("name", "Target", { tip: LEADING_COL_DESC.name, cls: "colgene" })
     + th("__c", "Comp. score", { tip: LEADING_COL_DESC.__c, rot: true, color: AXIS_COLORS.composite })
-    + th("__conf", "Evidence", { tip: LEADING_COL_DESC.__conf, rot: true, color: "var(--muted)" });
+    + th("__conf", "Evidence", { tip: LEADING_COL_DESC.__conf, rot: true, color: AXIS_COLORS.composite });
   for (const c of cols)
     h += th(c.key, c.label, { tip: c.desc, rot: true, color: colColor(c.key), cls: isProvisional(c.key) ? "provhdr" : "" });
 
@@ -1211,6 +1210,7 @@ function buildFilterBar() {
 }
 function buildColMenu() {
   const pop = $("colPop");
+  if (!pop) return;                 // Columns menu removed from the toolbar
   pop.innerHTML = "";
   for (const c of TABLE_COLUMNS) {
     if (!DATA.columns.includes(c.key)) continue;
@@ -1639,31 +1639,6 @@ function init() {
     for (const a of TIER_AXES) state.tiers[a.key] = [];
     buildTierPanel(); buildFilterBar(); save(); recompute();
   };
-  $("colBtn").onclick = (e) => {
-    e.stopPropagation();
-    const open = $("colmenu").classList.toggle("open");
-    if (open) {
-      const pop = $("colPop"), r = $("colBtn").getBoundingClientRect();
-      pop.style.top = Math.round(r.bottom + 4) + "px";
-      const w = pop.offsetWidth || 210;
-      const left = Math.max(8, Math.min(r.right - w, innerWidth - w - 10));
-      pop.style.left = Math.round(left) + "px";
-    }
-  };
-  document.addEventListener("click", (e) => { if (!$("colmenu").contains(e.target)) $("colmenu").classList.remove("open"); });
-  $("presetBtn").onclick = (e) => {
-    e.stopPropagation();
-    const open = $("presetmenu").classList.toggle("open");
-    if (open) {
-      const pop = $("presetPop"), r = $("presetBtn").getBoundingClientRect();
-      pop.style.top = Math.round(r.bottom + 4) + "px";
-      const w = pop.offsetWidth || 210;
-      pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, innerWidth - w - 10))) + "px";
-    }
-  };
-  $("presetPop").querySelectorAll("button[data-preset]").forEach((b) =>
-    b.onclick = () => { applyPreset(b.dataset.preset); $("presetmenu").classList.remove("open"); });
-  document.addEventListener("click", (e) => { if (!$("presetmenu").contains(e.target)) $("presetmenu").classList.remove("open"); });
   $("weightPresets").querySelectorAll("button[data-wp]").forEach((b) =>
     b.onclick = () => applyWeightPreset(b.dataset.wp));
   $("exportBtn").onclick = exportCSV;
@@ -1671,11 +1646,6 @@ function init() {
   $("methodsScrim").onclick = closeMethods;
   updateShortlistBtn();
   $("shortlistBtn").onclick = () => { state.shortlistOnly = !state.shortlistOnly; updateShortlistBtn(); save(); recompute(); };
-  $("copyBtn").onclick = () => {
-    const b = $("copyBtn");
-    try { navigator.clipboard && navigator.clipboard.writeText(location.href); } catch (e) {}
-    const t = b.textContent; b.textContent = "Copied ✓"; setTimeout(() => { b.textContent = t; }, 1200);
-  };
   $("scrim").onclick = closeDrawer;
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeDrawer(); closeMethods(); }

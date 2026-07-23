@@ -8,7 +8,7 @@
        the other organism is idle-prefetched from app.js after first paint -->
   <link rel="preload" href="data/kp.json" as="fetch" crossorigin>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%2350285A'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%23fff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23D8412F'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=18">
+  <link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
   <div class="app">
@@ -67,21 +67,7 @@
       <div class="toolbar" id="topbar">
         <div class="viewswitch" id="viewSwitch" role="tablist" aria-label="View"></div>
         <div class="filterbar" id="filterbar" hidden></div>
-        <div class="colmenu" id="colmenu">
-          <button class="tb-btn" id="colBtn">Columns ▾</button>
-          <div class="pop" id="colPop"></div>
-        </div>
-        <div class="colmenu" id="presetmenu">
-          <button class="tb-btn" id="presetBtn" title="Quick target-selection presets">Presets ▾</button>
-          <div class="pop" id="presetPop">
-            <button data-preset="prime">★ Prime target</button>
-            <button data-preset="degrader">◆ Degrader (Clp-accessible)</button>
-            <button data-preset="neglected">◐ Neglected &amp; druggable</button>
-            <button data-preset="reset" class="wp-clear">Clear filters</button>
-          </div>
-        </div>
         <button class="tb-btn" id="shortlistBtn" title="Filter to your starred targets" aria-pressed="false">★ Shortlist (0)</button>
-        <button class="tb-btn" id="copyBtn" title="Copy a shareable link to this exact view">Copy link</button>
         <button class="tb-btn" id="exportBtn">Export CSV</button>
         <button class="tb-btn" id="methodsBtn" title="How the scores are computed">Methods ⓘ</button>
         <div class="toolbar-right">
@@ -122,7 +108,7 @@
   <div class="modalscrim" id="methodsScrim" hidden></div>
   <div class="modal" id="methodsModal" hidden role="dialog" aria-modal="true" aria-label="Methods"></div>
 
-  <script src="config.js?v=18"></script>
-  <script src="app.js?v=18"></script>
+  <script src="config.js?v=20"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

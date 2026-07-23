@@ -130,7 +130,7 @@ const TABLE_COLUMNS = [
     desc: "E. coli half-life class (fast / slow / stable) transferred via ortholog (Nagar 2021 pulsed-SILAC)." },
   { key: "degron_feature_count", label: "Degron feats",   type: "int",   default: false, group: "Degradability",
     desc: "Number of degron features detected (C-terminal + N-terminal motifs)." },
-  { key: "clp_accessibility",    label: "Clp access",     type: "score", heat: true,  default: false, group: "Accessibility",
+  { key: "clp_accessibility",    label: "Clp access",     type: "score", heat: true,  default: false, group: "Degradability",
     desc: "Clp-accessibility (0–1): reachability by the cytoplasmic Clp-protease machinery — the gating requirement for BacPROTAC / targeted degradation. Cytoplasm 1.0, inner-membrane (cytoplasm-facing) 0.5, periplasm / outer-membrane / secreted / extracellular 0.0; unknown localization = blank. Derived from UniProt subcellular location. See Methods." },
   { key: "localization",         label: "Localization",   type: "tier",  default: false, group: "Accessibility",
     desc: "Predicted subcellular localization (UniProt): cytoplasm / inner membrane / periplasm / outer membrane / secreted / extracellular / membrane / unknown. Drives the Clp-accessibility score." },
@@ -242,7 +242,7 @@ const TABLE_VIEWS = [
   { key: "overview", label: "Overview", cols: [
     "comp_essentiality", "comp_breadth", "essentiality_tier",
     "evidence_binding", "evidence_pocket", "ligandability_tier",
-    "comp_degradability", "degradability_tier",
+    "comp_degradability", "degradability_tier", "clp_accessibility",
     "comp_novelty", "popularity_tier",
     "conservation_score", "human_closeness", "comp_human_selective" ] },
   { key: "essentiality", label: "Essentiality", accent: true, cols: [
