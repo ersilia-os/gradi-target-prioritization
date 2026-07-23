@@ -491,8 +491,9 @@ function renderPage() {
     const pdesc = row.protein_name || fam1 || "";
     const gtitle = pdesc ? ` title="${pdesc.replace(/"/g, "&quot;")}"` : "";
     let h = `<td class="colrank rank">${i + 1}</td>`
-      + `<td class="colgene"${gtitle}>${starHTML(row.uniprot_accession)}<div class="gene">${row.name || row.gene || row.uniprot_accession}</div>`
-      + `<div class="acc">${row.uniprot_accession}</div>`
+      + `<td class="colgene"${gtitle}>${starHTML(row.uniprot_accession)}`
+      + `<div class="genehead"><span class="gene">${row.name || row.gene || row.uniprot_accession}</span>`
+      + `<span class="acc">${row.uniprot_accession}</span></div>`
       + (pdesc ? `<div class="pdesc">${esc(pdesc)}</div>` : "") + `</td>`
       + `<td class="rc"><span class="heat cscore" style="${heatStyle(cc, AXIS_COLORS.composite)}">`
       + `${isNum(cc) ? cc.toFixed(2) : "–"}</span></td>`

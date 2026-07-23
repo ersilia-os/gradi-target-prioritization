@@ -440,7 +440,10 @@ button:focus-visible,.viewswitch button:focus-visible,input:focus-visible,select
 .modal .mfoot code{font-family:var(--mono);background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 5px;}
 
 /* protein-name / description */
-.colgene .pdesc{font-size:10px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:185px;margin-top:2px;}
+.genehead{display:flex;align-items:baseline;gap:6px;overflow:hidden;max-width:185px;}
+.genehead .gene{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.genehead .acc{flex:0 0 auto;}
+.colgene .pdesc{font-size:10px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:185px;margin-top:1px;}
 .dhead .pdesc{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.35;}
 
 .scrim{position:fixed;inset:0;background:rgba(44,62,80,.34);opacity:0;pointer-events:none;transition:opacity .22s;z-index:35;}
