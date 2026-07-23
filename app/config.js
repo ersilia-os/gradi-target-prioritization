@@ -551,19 +551,9 @@ const MAP_CAT_PALETTE = ["#E63946", "#457B9D", "#2EC4B6", "#B05CC8", "#F4845F", 
   "#FCBF49", "#6C5CE7", "#E91E8C", "#8CC8FA", "#3F9D6B", "#A0A0A0"];
 
 // ---- per-page filter bars (main area) -------------------------------------
-// Each view shows only its relevant filters in a bar above the table.
-const VIEW_FILTERS = {
-  overview:     {},
-  essentiality: { cats: ["essentiality_tier"], bools: ["experimentally_essential"] },
-  ligandability:{ cats: ["ligandability_tier"], bools: ["has_hard_evidence"] },
-  degradability:{ cats: ["degradability_tier"], bools: ["clp_trapped"] },
-  localization: { cats: ["localization"], bools: ["has_signal_peptide"] },
-  structure:    { bools: ["pdb_has_structure"] },
-  crossspecies: { cats: ["selectivity"] },
-  novelty:      { cats: ["popularity_tier"] },
-  annotation:   { cats: ["functional_class"], family: true },
-  map:          {},
-};
+// Intentionally empty: the subpages (specific table views) show NO inline filter
+// submenus. Filtering is done from the sidebar (Search + Tier selector) only.
+const VIEW_FILTERS = {};
 
 // ---- tier-based selection -------------------------------------------------
 // An alternative to the weighted composite: pick a band (Low / Med / High) per
