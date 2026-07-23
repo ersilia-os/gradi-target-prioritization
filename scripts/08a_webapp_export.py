@@ -344,6 +344,24 @@ def protein_names(organism: str) -> dict:
     return out
 
 
+def localization_frame(organism: str) -> pd.DataFrame:
+    """Localization + Clp-accessibility (from scripts/09a_localization.py)."""
+    _, prefix = ORGANISMS[organism]
+    f = PROCESSED.parent / "raw" / organism / "localization" / f"{prefix}_localization.tsv"
+    cols = ["uniprot_accession", "localization", "clp_accessibility", "has_signal_peptide", "n_transmembrane"]
+    if not f.exists():
+        return pd.DataFrame(columns=cols)
+    df = pd.read_csv(f, sep="\t", dtype=str).fillna("")
+    out = pd.DataFrame({
+        "uniprot_accession": df["uniprot_accession"],
+        "localization": df["localization"].replace("", None),
+        "clp_accessibility": pd.to_numeric(df["clp_accessibility"], errors="coerce"),
+        "has_signal_peptide": df["has_signal_peptide"].astype(str).isin(["1", "True", "true"]),
+        "n_transmembrane": pd.to_numeric(df["n_transmembrane"], errors="coerce").fillna(0).astype(int),
+    })
+    return out
+
+
 def build_organism(organism: str) -> dict:
     pid, prefix = ORGANISMS[organism]
     rdir = RESULTS / organism
@@ -409,6 +427,15 @@ def build_organism(organism: str) -> dict:
     # human-readable protein name (from the proteome FASTA descriptions)
     pn = protein_names(organism)
     df["protein_name"] = df["uniprot_accession"].map(pn)
+
+    # localization + Clp-accessibility (§5)
+    loc = localization_frame(organism)
+    if not loc.empty:
+        df = df.merge(loc, on="uniprot_accession", how="left")
+        if "has_signal_peptide" in df.columns:
+            df["has_signal_peptide"] = df["has_signal_peptide"].fillna(False).astype(bool)
+        if "n_transmembrane" in df.columns:
+            df["n_transmembrane"] = pd.to_numeric(df["n_transmembrane"], errors="coerce").fillna(0).astype(int)
 
     df["name"] = df["gene"].where(df["gene"].notna() & (df["gene"].astype(str) != ""),
                                   df["uniprot_accession"])

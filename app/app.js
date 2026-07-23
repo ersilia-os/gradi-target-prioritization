@@ -158,7 +158,7 @@ function heatStyle(v, color) {
 }
 function badgeHTML(type, v, key) {
   if (v === null || v === undefined || v === "") return "–";
-  const pfx = type === "sel" ? "sel-" : type === "pop" ? "pop-" : "tier-";
+  const pfx = type === "sel" ? "sel-" : type === "pop" ? "pop-" : type === "loc" ? "loc-" : "tier-";
   const full = String(v).replace(/_/g, " ");
   const abbr = (key && CAT_ABBREV[key] && CAT_ABBREV[key][v]) || full.slice(0, 2);
   return `<span class="badge ${pfx}${v}" title="${full}">${abbr}</span>`;
@@ -446,7 +446,8 @@ function renderThead() {
   });
 }
 function tierType(key) {
-  return key === "selectivity" ? "sel" : key === "popularity_tier" ? "pop" : "tier";
+  return key === "selectivity" ? "sel" : key === "popularity_tier" ? "pop"
+    : key === "localization" ? "loc" : "tier";
 }
 function classBadgeHTML(v) {
   if (!v) return "–";
@@ -652,7 +653,7 @@ function chipClusterHTML(str, max) {
 }
 function tierChipHTML(type, v) {
   if (v === null || v === undefined || v === "") return "";
-  const pfx = type === "sel" ? "sel-" : type === "pop" ? "pop-" : "tier-";
+  const pfx = type === "sel" ? "sel-" : type === "pop" ? "pop-" : type === "loc" ? "loc-" : "tier-";
   return `<span class="badge ${pfx}${v}">${esc(String(v).replace(/_/g, " "))}</span>`;
 }
 function axisPanelHTML(row, spec) {
@@ -852,10 +853,9 @@ async function renderStructure(row) {
       v.setStyle(sel, { cartoon: { color: 0x2FBF71 } });
       v.addStyle(sel, { stick: { color: 0x1E7A45, radius: 0.18 } });
       try { v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.62, color: 0x2FBF71 }, sel); } catch (e) {}
-      v.zoomTo(sel); v.zoom(0.85);
-    } else {
-      v.zoomTo();
     }
+    v.zoomTo();      // always frame the WHOLE protein…
+    v.zoom(0.9);     // …with a small margin so it never crops
     v.render();
     const cap = document.getElementById("pdbcap");
     if (cap) cap.innerHTML = (resids && resids.length)

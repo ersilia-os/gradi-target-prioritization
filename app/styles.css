@@ -255,6 +255,11 @@ tbody tr.sel td{background:color-mix(in srgb,var(--brand) 12%,var(--surface));}
 .badge.pop-dark{background:color-mix(in srgb,var(--orchid) 24%,#fff);color:#8A3AA0;}
 .badge.pop-studied{background:color-mix(in srgb,var(--blue) 30%,#fff);color:#3C6E96;}
 .badge.pop-well_studied{background:var(--surface-2);color:var(--faint);}
+.badge.loc-cytoplasm{background:color-mix(in srgb,var(--lime) 28%,#fff);color:#3E7A34;}
+.badge.loc-inner_membrane,.badge.loc-membrane{background:color-mix(in srgb,var(--amber) 26%,#fff);color:#9A6B12;}
+.badge.loc-periplasm{background:color-mix(in srgb,var(--orange) 26%,#fff);color:#B85A45;}
+.badge.loc-outer_membrane,.badge.loc-secreted,.badge.loc-extracellular{background:color-mix(in srgb,var(--crimson) 17%,#fff);color:#B02733;}
+.badge.loc-unknown{background:var(--surface-2);color:var(--faint);}
 .yes{color:var(--good);font-weight:700;}
 .no{color:var(--faint);}
 .cross{color:var(--bad);font-weight:700;}

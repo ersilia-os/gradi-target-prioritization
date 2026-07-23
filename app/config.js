@@ -14,12 +14,14 @@ const AXIS_COLORS = {
   essentiality:  "var(--crimson)",
   ligandability: "var(--cobalt)",     // ligandability + structure
   degradability: "var(--amber)",      // Clp-protease / degron susceptibility
+  accessibility: "var(--lime)",       // subcellular localization / Clp reachability
   orthology:     "var(--turquoise)",  // conservation + human-selectivity + selectivity class
   novelty:       "var(--orchid)",
 };
 // map a column/component key to its axis (for colouring)
 function axisOf(key) {
   if (key === "__c") return "composite";
+  if (/clp_access|localization|signal_peptide|transmemb/.test(key)) return "accessibility";
   if (/degrad|degron|clp_trap|halflife|clp_class/.test(key)) return "degradability";
   if (/conservation|human_selective|selectivity|human_homolog|ortholog|closeness/.test(key)) return "orthology";
   if (key === "comp_breadth" || /entero_pct|bacteria_pct/.test(key)) return "essentiality";
@@ -44,6 +46,7 @@ const COLUMN_GROUPS = {
   Essentiality:  "var(--crimson)",
   Ligandability: "var(--cobalt)",
   Degradability: "var(--amber)",
+  Accessibility: "var(--lime)",
   Novelty:       "var(--orchid)",
   Orthology:     "var(--turquoise)",
   Annotation:    "var(--periwinkle)",
@@ -51,7 +54,7 @@ const COLUMN_GROUPS = {
 // axis → section-band label (fallback when a column has no explicit `group`)
 const AXIS_GROUP_LABEL = {
   composite: "", essentiality: "Essentiality", ligandability: "Ligandability",
-  degradability: "Degradability", orthology: "Orthology", novelty: "Novelty",
+  degradability: "Degradability", accessibility: "Accessibility", orthology: "Orthology", novelty: "Novelty",
 };
 function columnGroup(col) {
   if (col && col.group) return col.group;
@@ -59,7 +62,7 @@ function columnGroup(col) {
 }
 function groupColor(name) { return COLUMN_GROUPS[name] || "var(--faint)"; }
 // shorter display label for narrow section bands (grouping still keys off the full name)
-const GROUP_DISPLAY = { Degradability: "Degrad." };
+const GROUP_DISPLAY = { Degradability: "Degrad.", Accessibility: "Access." };
 function groupDisplay(name) { return GROUP_DISPLAY[name] || name; }
 
 // ---- task-agnostic functional classes (heuristic, from the export) --------
@@ -127,6 +130,14 @@ const TABLE_COLUMNS = [
     desc: "E. coli half-life class (fast / slow / stable) transferred via ortholog (Nagar 2021 pulsed-SILAC)." },
   { key: "degron_feature_count", label: "Degron feats",   type: "int",   default: false, group: "Degradability",
     desc: "Number of degron features detected (C-terminal + N-terminal motifs)." },
+  { key: "clp_accessibility",    label: "Clp access",     type: "score", heat: true,  default: false, group: "Accessibility",
+    desc: "Clp-accessibility (0–1): reachability by the cytoplasmic Clp-protease machinery — the gating requirement for BacPROTAC / targeted degradation. Cytoplasm 1.0, inner-membrane (cytoplasm-facing) 0.5, periplasm / outer-membrane / secreted / extracellular 0.0; unknown localization = blank. Derived from UniProt subcellular location. See Methods." },
+  { key: "localization",         label: "Localization",   type: "tier",  default: false, group: "Accessibility",
+    desc: "Predicted subcellular localization (UniProt): cytoplasm / inner membrane / periplasm / outer membrane / secreted / extracellular / membrane / unknown. Drives the Clp-accessibility score." },
+  { key: "has_signal_peptide",   label: "Signal pep.",    type: "bool",  default: false, group: "Accessibility",
+    desc: "A signal peptide is annotated (protein is exported across the inner membrane) — lowers Clp-accessibility." },
+  { key: "n_transmembrane",      label: "TM helices",     type: "int",   default: false, group: "Accessibility",
+    desc: "Number of predicted transmembrane segments (UniProt)." },
   { key: "comp_novelty",         label: "Novelty",        type: "score", heat: true,  default: false, group: "Novelty",
     desc: "Novelty / neglectedness (0–1) = 1 − bibliometric studiedness. High = under-studied protein — a more novel target. Sources: Europe PMC, UniProt. See Methods." },
   { key: "comp_human_selective", label: "Selective",      type: "binary01", default: true, group: "Orthology",
@@ -250,6 +261,9 @@ const TABLE_VIEWS = [
     "af_mean_plddt", "af_n_domains", "af_is_multidomain",
     "pdb_has_structure", "pdb_n_structures", "pdb_best_resolution_A",
     "disorder_frac", "fpocket_max_drug_score" ] },
+  { key: "localization", label: "Localization", cols: [
+    "clp_accessibility", "localization", "has_signal_peptide", "n_transmembrane",
+    "comp_degradability", "degradability_tier", "functional_class" ] },
   { key: "crossspecies", label: "Cross-species", cols: [
     "comp_breadth", "comp_human_selective", "selectivity", "entero_pct_essential",
     "ec_transfer_essential", "n_ecoli_orthologs", "family" ] },
@@ -301,6 +315,13 @@ const METHODS = [
       ["Lunge 2020 — M. tuberculosis ClpC1 substrates, <i>J. Biol. Chem.</i>", "https://doi.org/10.1074/jbc.RA120.013456"],
       ["Bhat 2013 (<i>Mol. Microbiol.</i>) · Feng 2013 (<i>J. Proteome Res.</i>) — cross-bacterial Clp traps", ""],
     ] },
+  { title: "Localization & accessibility", color: "var(--lime)", body:
+    "Subcellular localization and <b>Clp-accessibility</b> — whether the cytoplasmic Clp-protease machinery can reach the protein (the gating requirement for BacPROTAC / targeted degradation). Cytoplasm 1.0, inner-membrane 0.5, periplasm / outer-membrane / secreted / extracellular 0.0; unknown = blank (not scored). Derived from UniProt subcellular-location + signal-peptide + transmembrane annotation.",
+    refs: [
+      ["UniProt — subcellular location annotation", "https://www.uniprot.org/"],
+      ["PSORTb — prokaryotic localization predictor (per docs/05)", "https://www.psort.org/psortb/"],
+      ["DeepLocPro — prokaryotic localization (per docs/05)", "https://services.healthtech.dtu.dk/services/DeepLocPro-1.0/"],
+    ] },
   { title: "Novelty & studiedness", color: "var(--orchid)", body:
     "1 − bibliometric studiedness (Europe PMC / UniProt, propagated across orthologs). High = under-studied / neglected target. Tiers: dark / studied / well-studied.",
     refs: [
@@ -323,6 +344,7 @@ const CATEGORICAL_FILTERS = [
   { key: "essentiality_tier",  label: "Essentiality tier" },
   { key: "ligandability_tier", label: "Ligandability tier" },
   { key: "degradability_tier", label: "Degradability tier" },
+  { key: "localization",       label: "Localization" },
   { key: "selectivity",        label: "Selectivity" },
   { key: "popularity_tier",    label: "Studiedness" },
 ];
@@ -332,6 +354,8 @@ const CAT_ABBREV = {
   essentiality_tier:  { essential: "Es", likely_essential: "Lk", non_essential: "No" },
   ligandability_tier: { tractable: "Tr", partial: "Pa", intractable: "In" },
   degradability_tier: { high: "Hi", medium: "Me", low: "Lo" },
+  localization: { cytoplasm: "Cyt", inner_membrane: "IM", periplasm: "Peri", outer_membrane: "OM",
+                  secreted: "Sec", extracellular: "Ext", membrane: "Mem", unknown: "?" },
   selectivity:        { broad_selective: "BS", narrow_selective: "NS",
                         broad_human_homolog: "BH", narrow_human_homolog: "NH" },
   popularity_tier:    { dark: "Dk", studied: "St", well_studied: "Ws" },
@@ -417,6 +441,12 @@ const CARD_AXES = [
       ["ecoli_clp_class", "Clp system"],
     ] },
 
+  { key: "accessibility", title: "Localization & accessibility", axis: "accessibility",
+    headline: "clp_accessibility", tier: "localization",
+    blurb: "Reachability by the cytoplasmic Clp-protease machinery — gates BacPROTAC / targeted degradation. From UniProt subcellular localization.",
+    stats: [ ["n_transmembrane", "TM helices", "int"] ],
+    flags: [ ["has_signal_peptide", "Signal peptide (exported)"] ] },
+
   { key: "structure", title: "Structure", axis: "ligandability",
     plddt: "af_mean_plddt",
     blurb: "AlphaFold model confidence and experimental coverage.",
@@ -476,7 +506,7 @@ const CARD_ANNOTATION = {
 };
 const CARD_GROUP_COLORS = {
   essentiality: "var(--crimson)", ligandability: "var(--cobalt)", degradability: "var(--amber)",
-  orthology: "var(--turquoise)", novelty: "var(--orchid)", annotation: "var(--periwinkle)",
+  accessibility: "var(--lime)", orthology: "var(--turquoise)", novelty: "var(--orchid)", annotation: "var(--periwinkle)",
 };
 
 // ---- external links (built from the accession/urls) -----------------------
@@ -508,6 +538,7 @@ const MAP_COLORS = [
   { key: "comp_essentiality", label: "Essentiality" },
   { key: "comp_ligandability", label: "Ligandability" },
   { key: "comp_degradability", label: "Degradability" },
+  { key: "clp_accessibility", label: "Clp accessibility" },
   { key: "comp_breadth", label: "Essential breadth" },
   { key: "comp_human_selective", label: "Human-selective" },
   { key: "comp_novelty", label: "Novelty" },
@@ -522,6 +553,7 @@ const VIEW_FILTERS = {
   essentiality: { cats: ["essentiality_tier"], bools: ["experimentally_essential"] },
   ligandability:{ cats: ["ligandability_tier"], bools: ["has_hard_evidence"] },
   degradability:{ cats: ["degradability_tier"], bools: ["clp_trapped"] },
+  localization: { cats: ["localization"], bools: ["has_signal_peptide"] },
   structure:    { bools: ["pdb_has_structure"] },
   crossspecies: { cats: ["selectivity"] },
   novelty:      { cats: ["popularity_tier"] },
@@ -552,6 +584,10 @@ const TIER_AXES = [
       { id: "stable",   label: "Stable",   intensity: 22, test: (v, r) => r.degradability_tier === "low" },
       { id: "moderate", label: "Moderate", intensity: 52, test: (v, r) => r.degradability_tier === "medium" },
       { id: "labile",   label: "Labile",   intensity: 90, test: (v, r) => r.degradability_tier === "high" } ] },
+  { key: "clp_accessibility", label: "Clp accessibility", bands: [
+      { id: "no",   label: "Inaccessible", lo: -0.0001, hi: 0.25,   intensity: 22 },
+      { id: "mem",  label: "Membrane",     lo: 0.25,    hi: 0.75,   intensity: 52 },
+      { id: "yes",  label: "Accessible",   lo: 0.75,    hi: 1.0001, intensity: 90 } ] },
   { key: "comp_novelty", label: "Novelty", bands: [
       { id: "well",    label: "Well-studied", intensity: 22, test: (v, r) => r.popularity_tier === "well_studied" },
       { id: "studied", label: "Studied",      intensity: 52, test: (v, r) => r.popularity_tier === "studied" },
