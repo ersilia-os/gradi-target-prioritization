@@ -37,6 +37,14 @@ let filtered = [];        // current filtered+sorted rows
 let page = 0;   // current page index (0-based)
 let weightsDirty = true;  // recompute the composite only when weights actually change
 let _lastRow = null;      // row currently shown in the drawer (for live re-render)
+let _kbIdx = -1;          // keyboard-focused row index within the current page
+function setKbFocus(idx) {
+  const rows = [...document.querySelectorAll("#tbody tr")];
+  if (!rows.length) return;
+  _kbIdx = Math.max(0, Math.min(idx, rows.length - 1));
+  rows.forEach((r, i) => r.classList.toggle("kbfocus", i === _kbIdx));
+  rows[_kbIdx].scrollIntoView({ block: "nearest" });
+}
 
 // ---------- persistence ----------------------------------------------------
 function save() {
@@ -220,6 +228,22 @@ function confGlyphHTML(row) {
   return `<span class="conf" style="--cf:${col}" data-tip="${tip.replace(/"/g, "&quot;")}">${dot(0.01)}${dot(0.5)}${dot(1)}</span>`;
 }
 
+// ---------- distribution / percentile (per org, cached) --------------------
+let _pctCache = {};
+function percentileOf(key, v) {
+  if (!isNum(v)) return null;
+  let arr = _pctCache[key];
+  if (!arr) { arr = DATA.rows.map((r) => r[key]).filter(isNum).sort((a, b) => a - b); _pctCache[key] = arr; }
+  if (!arr.length) return null;
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] <= v) lo = m + 1; else hi = m; }
+  return Math.round(100 * lo / arr.length);
+}
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 // ---------- orthology-transfer toggle (essentiality axis) -----------------
 // Essentiality evidence keys that come from cross-species transfer (dimmed in the
 // card when transfer is off).
@@ -375,10 +399,11 @@ function renderThead() {
   const arrow = (k) => state.sort.key === k ? `<span class="arrow">${state.sort.dir < 0 ? "▼" : "▲"}</span>` : "";
   const th = (key, label, { nosort, tip, rot, color, cls: extra } = {}) => {
     const sortAttr = nosort ? "" : ` data-sort="${key}"`;
+    const ariaSort = (!nosort && key === state.sort.key) ? ` aria-sort="${state.sort.dir < 0 ? "descending" : "ascending"}"` : "";
     const cls = [nosort ? "nosort" : "", rot ? "rot" : "", extra || ""].join(" ").trim();
     const styleAttr = rot ? ` style="--hc:${color || "var(--muted)"}"` : "";
     const inner = rot ? `<span class="rl">${label}${arrow(key)}</span>` : `${label}${arrow(key)}`;
-    return `<th${sortAttr} class="${cls}"${styleAttr}${tipAttr(tip)}>${inner}</th>`;
+    return `<th${sortAttr}${ariaSort} class="${cls}"${styleAttr}${tipAttr(tip)}>${inner}</th>`;
   };
   // all columns are fixed-width with vertical headers, except the Target column
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
@@ -476,6 +501,7 @@ function renderPage() {
   const tb = $("tbody");
   tb.innerHTML = "";
   tb.appendChild(frag);
+  _kbIdx = -1;
   $("table").hidden = false;
   $("loading").hidden = true;
   window.scrollTo({ top: 0 });
@@ -627,6 +653,8 @@ function axisPanelHTML(row, spec) {
   if (spec.headline && has(spec.headline)) {
     const v = row[spec.headline];
     meta += `<span class="pscore" style="color:${color}">${isNum(v) ? v.toFixed(2) : "–"}</span>`;
+    const pc = isProvisional(spec.headline) ? null : percentileOf(spec.headline, v);
+    if (pc !== null) meta += `<span class="pctnote" data-tip="Percentile among ${state.org === "kp" ? "K. pneumoniae" : "E. coli"} proteins">${ordinal(pc)} pct</span>`;
   } else if (spec.plddt && has(spec.plddt)) {
     const v = row[spec.plddt];
     meta += `<span class="pscore" style="color:${plddtColor(v)}">${isNum(v) ? Math.round(v) : "–"}<small>pLDDT</small></span>`;
@@ -1235,6 +1263,7 @@ async function loadOrg(org) {
   }
   DATA = cache[org];
   weightsDirty = true;   // composite must be (re)computed for the newly-active organism
+  _pctCache = {};        // percentile distributions are per-organism
   AVAIL = {};
   for (const c of COMPONENTS) AVAIL[c.key] = DATA.columns.includes(c.key) && (c.available !== false);
   // seed visible columns from the active table view (fall back to overview)
@@ -1529,9 +1558,13 @@ function init() {
   $("scrim").onclick = closeDrawer;
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeDrawer(); closeMethods(); }
-    if (state.view !== "map" && !e.target.matches("input,select,textarea")) {
+    if (state.view !== "map" && !(e.target.matches && e.target.matches("input,select,textarea"))
+        && !$("drawer").classList.contains("open")) {
       if (e.key === "ArrowRight") gotoPage(page + 1);
-      if (e.key === "ArrowLeft") gotoPage(page - 1);
+      else if (e.key === "ArrowLeft") gotoPage(page - 1);
+      else if (e.key === "ArrowDown") { e.preventDefault(); setKbFocus(_kbIdx + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setKbFocus(_kbIdx - 1); }
+      else if (e.key === "Enter") { const r = document.querySelectorAll("#tbody tr")[_kbIdx]; if (r) r.click(); }
     }
   });
   addEventListener("resize", setTopbarOffset);
