@@ -198,6 +198,12 @@ h1 em{font-style:italic;color:var(--brand);}
 .colmenu .pop button:hover{background:color-mix(in srgb,var(--brand) 10%,var(--surface));color:var(--brand);}
 .colmenu .pop button.wp-clear{border-top:1px solid var(--border);margin-top:4px;color:var(--muted);}
 
+/* quick-selection presets (sidebar) */
+.qpresets{display:flex;flex-wrap:wrap;gap:6px;}
+.qpresets button{font-size:12px;font-weight:560;border:1px solid color-mix(in srgb,var(--brand) 35%,var(--border));background:color-mix(in srgb,var(--brand) 9%,var(--surface));color:var(--brand);border-radius:8px;padding:5px 10px;cursor:pointer;}
+.qpresets button:hover{background:color-mix(in srgb,var(--brand) 16%,var(--surface));}
+.qpresets button.qp-clear{border-color:var(--border);background:var(--surface-2);color:var(--muted);}
+
 /* weight-scheme presets (sidebar) */
 .wpresets{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 12px;}
 .wpresets button{font-size:10.5px;font-weight:560;border:1px solid var(--border);background:var(--surface-2);color:var(--muted);border-radius:999px;padding:3px 9px;cursor:pointer;}

@@ -1229,33 +1229,23 @@ function buildColMenu() {
 }
 
 // ---------- presets --------------------------------------------------------
+// Presets drive the visible Tier selector (state.tiers) so the active bands light up
+// in the sidebar. Band ids come from TIER_AXES.
+const PRESETS = {
+  prime:     { comp_essentiality: ["ess"], comp_ligandability: ["known", "pocket"], comp_human_selective: ["high"] },
+  degrader:  { comp_essentiality: ["ess"], comp_degradability: ["labile", "moderate"], clp_accessibility: ["yes"], comp_human_selective: ["high"] },
+  neglected: { comp_ligandability: ["pocket", "known"], comp_novelty: ["dark"] },
+};
 function applyPreset(name) {
-  if (name === "reset") {
-    state.filters.search = ""; if ($("search")) $("search").value = "";
-    state.filters.ranges = {};
-    for (const k in state.filters.cats) state.filters.cats[k].clear();
-    for (const k in state.filters.bools) state.filters.bools[k] = "any";
-    state.filters.families = [];
-    for (const a of TIER_AXES) state.tiers[a.key] = [];
-    buildTierPanel();
-  } else if (name === "prime") {
-    applyPreset("reset");
-    state.filters.cats.essentiality_tier = new Set(["essential"]);
-    state.filters.cats.ligandability_tier = new Set(["tractable"]);
-    state.filters.cats.selectivity = new Set(["broad_selective"]);
-  } else if (name === "degrader") {
-    applyPreset("reset");
-    // BacPROTAC-oriented: essential + degradable + Clp-accessible (cytoplasmic) + selective
-    state.filters.cats.essentiality_tier = new Set(["essential"]);
-    if (DATA.columns.includes("degradability_tier")) state.filters.cats.degradability_tier = new Set(["high", "medium"]);
-    if (DATA.columns.includes("localization")) state.filters.cats.localization = new Set(["cytoplasm", "inner_membrane"]);
-    if (DATA.columns.includes("selectivity")) state.filters.cats.selectivity = new Set(["broad_selective"]);
-  } else if (name === "neglected") {
-    applyPreset("reset");
-    // druggable + understudied: tractable ligandability crossed with dark studiedness
-    state.filters.cats.ligandability_tier = new Set(["tractable"]);
-    if (DATA.columns.includes("popularity_tier")) state.filters.cats.popularity_tier = new Set(["dark"]);
-  }
+  const bands = PRESETS[name] || {};
+  // clear all filters, then set the preset's tier bands (only for axes present in the data)
+  state.filters.search = ""; if ($("search")) $("search").value = "";
+  state.filters.ranges = {};
+  for (const k in state.filters.cats) state.filters.cats[k].clear();
+  for (const k in state.filters.bools) state.filters.bools[k] = "any";
+  state.filters.families = [];
+  for (const a of TIER_AXES) state.tiers[a.key] = DATA.columns.includes(a.key) ? (bands[a.key] || []) : [];
+  buildTierPanel();
   buildFilterBar();
   save(); recompute();
 }
@@ -1644,6 +1634,8 @@ function init() {
   };
   $("weightPresets").querySelectorAll("button[data-wp]").forEach((b) =>
     b.onclick = () => applyWeightPreset(b.dataset.wp));
+  $("qpresets").querySelectorAll("button[data-preset]").forEach((b) =>
+    b.onclick = () => applyPreset(b.dataset.preset));
   $("exportBtn").onclick = exportCSV;
   $("methodsBtn").onclick = openMethods;
   $("methodsScrim").onclick = closeMethods;
