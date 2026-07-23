@@ -19,6 +19,7 @@ const state = {
   view: "overview",       // a TABLE_VIEWS key, or "map"
   mapColorBy: "__c",
   mapThreshold: 0,        // map: only highlight points with colour-by value >= this
+  mapLabels: true,        // map: draw cluster labels in categorical colour modes
   weights: {},            // key -> {on, weight}
   orthoTransfer: true,    // include ortholog-transferred knowledge (essentiality track)
   tiers: {},              // axisKey -> "any" | "low" | "med" | "high"
@@ -50,7 +51,7 @@ function setKbFocus(idx) {
 function save() {
   const s = {
     org: state.org, view: state.view, mapColorBy: state.mapColorBy,
-    tiers: state.tiers, mapThreshold: state.mapThreshold,
+    tiers: state.tiers, mapThreshold: state.mapThreshold, mapLabels: state.mapLabels,
     weights: state.weights, orthoTransfer: state.orthoTransfer,
     filters: { search: state.filters.search, ranges: state.filters.ranges,
       cats: Object.fromEntries(Object.entries(state.filters.cats).map(([k, v]) => [k, [...v]])),
@@ -72,6 +73,7 @@ function load() {
     state.mapColorBy = s.mapColorBy || "__c";
     state.tiers = s.tiers || {};
     state.mapThreshold = typeof s.mapThreshold === "number" ? s.mapThreshold : 0;
+    if (typeof s.mapLabels === "boolean") state.mapLabels = s.mapLabels;
     state.weights = s.weights || {};
     if (typeof s.orthoTransfer === "boolean") state.orthoTransfer = s.orthoTransfer;
     if (s.filters) {
@@ -495,6 +497,10 @@ function cellHTML(row, c) {
   if (c.type === "binary01") return (v === null || v === undefined) ? "–"
     : (v >= 0.5 ? '<span class="yes">✓</span>' : '<span class="cross">✗</span>');
   if (c.type === "class") return classBadgeHTML(v);
+  if (c.key === "localization") {
+    const b = badgeHTML(tierType(c.key), v, c.key);
+    return row.localization_source === "psortb" ? b.replace('class="badge ', 'class="badge locpred ') : b;
+  }
   if (c.type === "tier") return badgeHTML(tierType(c.key), v, c.key);
   if (c.type === "score" && c.heat) return `<span class="heat" style="${heatStyle(v, colColor(c.key))}">${fmt("score", v)}</span>`;
   if (c.type === "text") {
@@ -743,7 +749,9 @@ function axisPanelHTML(row, spec) {
   }
   if (spec.text) for (const [k, label] of spec.text) {
     if (!has(k) || row[k] === null || row[k] === undefined || row[k] === "") continue;
-    body += `<div class="kv"><span class="kvk">${label}</span><span class="kvv">${esc(String(row[k]))}</span></div>`;
+    let disp = String(row[k]);
+    if (k === "localization_source") disp = ({ uniprot: "UniProt (curated)", psortb: "PSORTb (predicted)", none: "—" })[row[k]] || disp;
+    body += `<div class="kv"><span class="kvk">${label}</span><span class="kvv">${esc(disp)}</span></div>`;
   }
   if (spec.homolog) {
     const g = row[spec.homolog[0]], o = row[spec.homolog[1]];
@@ -1421,37 +1429,68 @@ function drawMap() {
 
   const colorBy = state.mapColorBy;
   const acc = cssColor(colColor(colorBy)), faint = cssColor("var(--faint)");
+  const catMap = MAP_CATEGORICAL[colorBy];                 // named-categorical (or undefined)
+  const catMode = colorBy === "family" || !!catMap;
+  const L = MAP_CAT_PALETTE.length;
+  const catRGB = {};                                       // resolve category CSS vars -> rgb once
+  if (catMap) for (const k in catMap) catRGB[k] = cssColor(catMap[k]);
+  const t = catMode ? 0 : (state.mapThreshold || 0);
+  const rad = (r) => 2 + 3 * Math.max(0, Math.min(1, isNum(r.__c) ? r.__c : 0));   // size ∝ composite
+  const thrEl = $("mapThresh"); if (thrEl) thrEl.disabled = catMode;
 
-  const t = state.mapThreshold || 0;
   // base layer: every protein as faint context; also collect hit-test points
   mapPts = [];
   ctx.fillStyle = `rgba(${faint.r},${faint.g},${faint.b},0.16)`;
   for (const r of DATA.rows) {
     if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
     const px = X(r.tsne_x), py = Y(r.tsne_y);
-    ctx.beginPath(); ctx.arc(px, py, 1.5, 0, 6.283); ctx.fill();
+    ctx.beginPath(); ctx.arc(px, py, 1.3, 0, 6.283); ctx.fill();
     mapPts.push({ sx: px, sy: py, row: r });
   }
   // highlight layer: passing rows, coloured by the chosen field
-  const catMode = colorBy === "family";   // categorical cluster colouring (not a 0–1 ramp)
   let hi = 0;
   ctx.lineWidth = 0.6; ctx.strokeStyle = "rgba(255,255,255,0.85)";
   for (const r of filtered) {
     if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
-    if (catMode) {
+    let fill;
+    if (colorBy === "family") {
       if (!isNum(r.family)) continue;
-      const hex = MAP_CAT_PALETTE[((r.family % MAP_CAT_PALETTE.length) + MAP_CAT_PALETTE.length) % MAP_CAT_PALETTE.length];
-      ctx.fillStyle = hex;
-      ctx.beginPath(); ctx.arc(X(r.tsne_x), Y(r.tsne_y), 2.6, 0, 6.283); ctx.fill(); ctx.stroke();
-      hi++;
-      continue;
+      fill = MAP_CAT_PALETTE[((r.family % L) + L) % L];
+    } else if (catMap) {
+      const c = catRGB[r[colorBy]];
+      if (!c) continue;
+      fill = `rgb(${c.r},${c.g},${c.b})`;
+    } else {
+      const v = r[colorBy];
+      if (!isNum(v) || v < t) continue;
+      const vv = Math.max(0, Math.min(1, v));
+      fill = `rgba(${acc.r},${acc.g},${acc.b},${0.5 + 0.5 * vv})`;
     }
-    const v = r[colorBy];
-    if (!isNum(v) || v < t) continue;
-    const vv = Math.max(0, Math.min(1, v));
-    ctx.fillStyle = `rgba(${acc.r},${acc.g},${acc.b},${0.5 + 0.5 * vv})`;
-    ctx.beginPath(); ctx.arc(X(r.tsne_x), Y(r.tsne_y), 3 + 1.8 * vv, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = fill;
+    ctx.beginPath(); ctx.arc(X(r.tsne_x), Y(r.tsne_y), rad(r), 0, 6.283); ctx.fill(); ctx.stroke();
     hi++;
+  }
+  // cluster labels: name each category at its median position (categorical + toggle on)
+  if (catMap && state.mapLabels !== false) {
+    const groups = {};
+    for (const r of filtered) {
+      const v = r[colorBy];
+      if (!isNum(r.tsne_x) || !isNum(r.tsne_y) || v == null || v === "") continue;
+      (groups[v] || (groups[v] = [])).push([X(r.tsne_x), Y(r.tsne_y)]);
+    }
+    const med = (a) => { a.sort((p, q) => p - q); return a[a.length >> 1]; };
+    ctx.save();
+    ctx.font = '600 11.5px "Inter",system-ui,sans-serif';
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+    for (const v in groups) {
+      const pts = groups[v];
+      if (pts.length < 12) continue;
+      const mx = med(pts.map((p) => p[0])), my = med(pts.map((p) => p[1]));
+      const label = catLabel(colorBy, v);
+      ctx.lineWidth = 3.5; ctx.strokeStyle = "rgba(255,255,255,0.92)"; ctx.strokeText(label, mx, my);
+      ctx.fillStyle = "#2C3E50"; ctx.fillText(label, mx, my);
+    }
+    ctx.restore();
   }
   const cnt = $("mapHiCount"); if (cnt) cnt.textContent = `${hi.toLocaleString()} ${catMode ? "shown" : "highlighted"}`;
   drawMapOverlay();
@@ -1479,6 +1518,20 @@ function drawMapOverlay() {
   }
   if (state._sel) mark(state._sel, 7);
   if (_hoverAcc && _hoverAcc !== state._sel) mark(_hoverAcc, 6);
+  // gene label next to the ringed selected/hovered point
+  const labelPt = (accn) => {
+    const p = mapPts.find((q) => q.row.uniprot_accession === accn);
+    if (!p) return;
+    const g = p.row.gene || p.row.uniprot_accession;
+    ctx.save();
+    ctx.font = '600 12px "Inter",system-ui,sans-serif';
+    ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+    ctx.lineWidth = 3.5; ctx.strokeStyle = "rgba(255,255,255,0.92)"; ctx.strokeText(g, p.sx + 10, p.sy);
+    ctx.fillStyle = "#2C3E50"; ctx.fillText(g, p.sx + 10, p.sy);
+    ctx.restore();
+  };
+  if (state._sel) labelPt(state._sel);
+  else if (_hoverAcc) labelPt(_hoverAcc);
   if (_mapDrag) {
     const { x0, y0, x1, y1 } = _mapDrag;
     ctx.fillStyle = "rgba(108,92,231,0.10)"; ctx.strokeStyle = "rgba(108,92,231,0.9)"; ctx.lineWidth = 1;
@@ -1492,6 +1545,30 @@ function renderMapLegend() {
     const sw = MAP_CAT_PALETTE.slice(0, 8).map((c) => `<span style="background:${c}"></span>`).join("");
     $("maplegend").innerHTML = `<div class="lt">${lbl}</div><div class="catramp">${sw}</div>`
       + `<div class="sc"><span>ESM-C cluster</span></div>`;
+    return;
+  }
+  const field = state.mapColorBy, catMap = MAP_CATEGORICAL[field];
+  if (catMap) {
+    const present = new Set();
+    for (const r of DATA.rows) { const v = r[field]; if (v != null && v !== "") present.add(v); }
+    const active = state.filters.cats[field];
+    const items = Object.keys(catMap).filter((k) => present.has(k));
+    const rows = items.map((k) => {
+      const on = active && active.size ? active.has(k) : true;
+      return `<button class="catrow${on ? "" : " off"}" data-cat="${k}">`
+        + `<span class="sw" style="background:${catMap[k]}"></span>${catLabel(field, k)}</button>`;
+    }).join("");
+    $("maplegend").innerHTML = `<div class="lt">${lbl}</div><div class="catlist">${rows}</div>`
+      + `<div class="sc"><span>click to isolate a group</span></div>`;
+    $("maplegend").querySelectorAll("button[data-cat]").forEach((b) => {
+      b.onclick = () => {
+        if (!state.filters.cats[field]) state.filters.cats[field] = new Set();
+        const s = state.filters.cats[field];
+        if (s.has(b.dataset.cat)) s.delete(b.dataset.cat); else s.add(b.dataset.cat);
+        if (!s.size) delete state.filters.cats[field];
+        save(); recompute();
+      };
+    });
     return;
   }
   const col = colColor(state.mapColorBy);
@@ -1524,6 +1601,12 @@ function initMap() {
     $("mapThreshVal").textContent = (+thr.value).toFixed(2);
     save(); if (state.view === "map") drawMap();
   };
+
+  const ml = $("mapLabels");
+  if (ml) {
+    ml.checked = state.mapLabels !== false;
+    ml.onchange = () => { state.mapLabels = ml.checked; save(); if (state.view === "map") drawMap(); };
+  }
 
   const wrap = $("mapwrap");
   wrap.addEventListener("mousedown", (e) => {

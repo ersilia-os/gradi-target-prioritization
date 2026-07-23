@@ -280,6 +280,7 @@ tbody tr.sel td{background:color-mix(in srgb,var(--brand) 12%,var(--surface));}
 .badge.loc-periplasm{background:color-mix(in srgb,var(--orange) 26%,#fff);color:#B85A45;}
 .badge.loc-outer_membrane,.badge.loc-secreted,.badge.loc-extracellular{background:color-mix(in srgb,var(--crimson) 17%,#fff);color:#B02733;}
 .badge.loc-unknown{background:var(--surface-2);color:var(--faint);}
+.badge.locpred{border:1px dashed color-mix(in srgb,var(--lime) 60%,var(--faint));}   /* PSORTb-predicted localization */
 .yes{color:var(--good);font-weight:700;}
 .no{color:var(--faint);}
 .cross{color:var(--bad);font-weight:700;}
@@ -505,6 +506,16 @@ button:focus-visible,.viewswitch button:focus-visible,input:focus-visible,select
 .maplegend .lt{font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;font-size:10px;color:var(--faint);margin-bottom:5px;}
 .maplegend .ramp{width:130px;height:9px;border-radius:999px;border:1px solid var(--border);}
 .maplegend .sc{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;margin-top:3px;}
+.maplegend .sc span{color:var(--faint);}
+/* clickable categorical legend (also acts as the map's category filter) */
+.maplegend .catlist{display:flex;flex-direction:column;gap:1px;max-height:216px;overflow-y:auto;margin:1px 0 2px;}
+.maplegend .catrow{display:flex;align-items:center;gap:7px;width:100%;text-align:left;font-family:var(--sans);font-size:11.5px;color:var(--ink);background:none;border:0;border-radius:6px;padding:3px 6px 3px 4px;cursor:pointer;}
+.maplegend .catrow:hover{background:color-mix(in srgb,var(--brand) 10%,transparent);}
+.maplegend .catrow .sw{width:11px;height:11px;border-radius:3px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.12) inset;}
+.maplegend .catrow.off{opacity:.34;}
+.maplabtog{display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none;}
+.maplabtog input{accent-color:var(--brand);cursor:pointer;}
+.mapctrl input[type=range]:disabled{opacity:.4;cursor:not-allowed;}
 
 /* hover tooltip */
 .hovertip{position:fixed;z-index:100;pointer-events:none;max-width:330px;background:var(--ink);color:#fff;font-size:12px;line-height:1.5;border-radius:9px;padding:9px 12px;box-shadow:0 10px 34px rgba(44,62,80,.3);}

@@ -316,11 +316,10 @@ const METHODS = [
       ["Bhat 2013 (<i>Mol. Microbiol.</i>) · Feng 2013 (<i>J. Proteome Res.</i>) — cross-bacterial Clp traps", ""],
     ] },
   { title: "Localization & accessibility", color: "var(--lime)", body:
-    "Subcellular localization and <b>Clp-accessibility</b> — whether the cytoplasmic Clp-protease machinery can reach the protein (the gating requirement for BacPROTAC / targeted degradation). Cytoplasm 1.0, inner-membrane 0.5, periplasm / outer-membrane / secreted / extracellular 0.0; unknown = blank (not scored). Derived from UniProt subcellular-location + signal-peptide + transmembrane annotation.",
+    "Subcellular localization and <b>Clp-accessibility</b> — whether the cytoplasmic Clp-protease machinery can reach the protein (the gating requirement for BacPROTAC / targeted degradation). Cytoplasm 1.0, inner-membrane 0.5, periplasm / outer-membrane / secreted / extracellular 0.0. Localization is UniProt-curated where available, otherwise predicted with <b>PSORTb 3.0</b> (Gram-negative) — predicted calls are marked (dashed badge).",
     refs: [
-      ["UniProt — subcellular location annotation", "https://www.uniprot.org/"],
-      ["PSORTb — prokaryotic localization predictor (per docs/05)", "https://www.psort.org/psortb/"],
-      ["DeepLocPro — prokaryotic localization (per docs/05)", "https://services.healthtech.dtu.dk/services/DeepLocPro-1.0/"],
+      ["UniProt — curated subcellular location", "https://www.uniprot.org/"],
+      ["PSORTb 3.0 — Gram-negative localization predictor (Yu et al. 2010, Bioinformatics)", "https://www.psort.org/psortb/"],
     ] },
   { title: "Novelty & studiedness", color: "var(--orchid)", body:
     "1 − bibliometric studiedness (Europe PMC / UniProt, propagated across orthologs). High = under-studied / neglected target. Tiers: dark / studied / well-studied.",
@@ -443,9 +442,10 @@ const CARD_AXES = [
 
   { key: "accessibility", title: "Localization & accessibility", axis: "accessibility",
     headline: "clp_accessibility", tier: "localization",
-    blurb: "Reachability by the cytoplasmic Clp-protease machinery — gates BacPROTAC / targeted degradation. From UniProt subcellular localization.",
+    blurb: "Reachability by the cytoplasmic Clp-protease machinery — gates BacPROTAC / targeted degradation.",
     stats: [ ["n_transmembrane", "TM helices", "int"] ],
-    flags: [ ["has_signal_peptide", "Signal peptide (exported)"] ] },
+    flags: [ ["has_signal_peptide", "Signal peptide (exported)"] ],
+    text: [ ["localization_source", "Localization source"] ] },
 
   { key: "structure", title: "Structure", axis: "ligandability",
     plddt: "af_mean_plddt",
@@ -544,11 +544,32 @@ const MAP_COLORS = [
   { key: "comp_novelty", label: "Novelty" },
   { key: "conservation_score", label: "Conservation" },
   { key: "human_closeness", label: "Human closeness" },
+  { key: "functional_class", label: "Functional class" },
+  { key: "localization", label: "Localization" },
+  { key: "essentiality_tier", label: "Essentiality tier" },
+  { key: "ligandability_tier", label: "Ligandability tier" },
+  { key: "selectivity", label: "Selectivity" },
   { key: "family", label: "Family cluster" },
 ];
 // categorical palette for the map "Family cluster" colouring (NPG-ish, cycled by cluster id)
 const MAP_CAT_PALETTE = ["#E63946", "#457B9D", "#2EC4B6", "#B05CC8", "#F4845F", "#6BBF59",
   "#FCBF49", "#6C5CE7", "#E91E8C", "#8CC8FA", "#3F9D6B", "#A0A0A0"];
+// named-categorical colour-by: value -> CSS-var colour (reuse the badge/functional-class palettes)
+const MAP_CATEGORICAL = {
+  functional_class: Object.fromEntries(FUNCTIONAL_CLASSES.map((c) => [c.id, c.color])),
+  localization: { cytoplasm: "var(--lime)", inner_membrane: "var(--amber)", membrane: "var(--amber)",
+    periplasm: "var(--orange)", outer_membrane: "var(--crimson)", secreted: "var(--crimson)",
+    extracellular: "var(--fuchsia)", unknown: "var(--silver)" },
+  essentiality_tier: { essential: "var(--crimson)", likely_essential: "var(--amber)", non_essential: "var(--silver)" },
+  ligandability_tier: { tractable: "var(--lime)", partial: "var(--amber)", intractable: "var(--silver)" },
+  selectivity: { broad_selective: "var(--turquoise)", narrow_selective: "var(--blue)",
+    broad_human_homolog: "var(--orange)", narrow_human_homolog: "var(--orange)" },
+};
+// friendly label for a categorical value (functional_class has curated labels; others just de-underscore)
+function catLabel(field, v) {
+  if (field === "functional_class") return (FC_BY_ID[v] && FC_BY_ID[v].label) || String(v);
+  return String(v).replace(/_/g, " ");
+}
 
 // ---- per-page filter bars (main area) -------------------------------------
 // Intentionally empty: the subpages (specific table views) show NO inline filter
