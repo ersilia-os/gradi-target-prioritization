@@ -19,6 +19,7 @@ Run with the ``gradi`` conda env interpreter.
 
 from __future__ import annotations
 
+import csv
 import json
 import math
 import sys
@@ -346,6 +347,39 @@ def build_organism(organism: str) -> dict:
     }
 
 
+def pocket_resids(organism: str) -> dict:
+    """Top (rank-1) P2Rank pocket residue numbers per protein, for the 3D viewer.
+
+    Parses the raw P2Rank predictions (data/processed/<org>/pockets/p2rank_run/
+    <ACC>.pdb_predictions.csv); the first data row is the highest-scoring pocket.
+    residue_ids look like "A_324 A_399 ..." → we keep the integer residue numbers,
+    which match the AlphaFold model's numbering (UniProt positions)."""
+    base = PROCESSED / organism / "pockets" / "p2rank_run"
+    out: dict[str, list[int]] = {}
+    if not base.exists():
+        return out
+    for csvf in base.glob("*.pdb_predictions.csv"):
+        acc = csvf.name[: -len(".pdb_predictions.csv")]
+        try:
+            with open(csvf) as fh:
+                rdr = csv.reader(fh)
+                hdr = [h.strip() for h in next(rdr)]
+                ri = hdr.index("residue_ids")
+                first = next(rdr, None)
+                if not first or len(first) <= ri:
+                    continue
+                nums = []
+                for tok in first[ri].split():
+                    t = tok.strip().split("_")[-1]
+                    if t.lstrip("-").isdigit():
+                        nums.append(int(t))
+                if nums:
+                    out[acc] = nums
+        except Exception:
+            continue
+    return out
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     for organism, (_pid, prefix) in ORGANISMS.items():
@@ -354,6 +388,12 @@ def main() -> None:
         out.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         size_mb = out.stat().st_size / 1e6
         print(f"  -> wrote {out.relative_to(REPO_ROOT)} ({size_mb:.1f} MB)")
+        # compact top-pocket residue map (separate lazy-loaded file for the 3D viewer)
+        pk = pocket_resids(organism)
+        pkout = OUT_DIR / f"pockets_{prefix}.json"
+        pkout.write_text(json.dumps(pk, separators=(",", ":")))
+        print(f"  -> wrote {pkout.relative_to(REPO_ROOT)} "
+              f"({pkout.stat().st_size / 1e6:.1f} MB, {len(pk)} pockets)")
     print("\nDone.")
 
 

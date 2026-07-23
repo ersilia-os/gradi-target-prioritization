@@ -547,6 +547,102 @@ function drawCardMap(row) {
     ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
   }
 }
+// ---- 3D structure viewer (3Dmol.js, lazy) --------------------------------
+let _3dmolP = null;       // promise: 3Dmol library loaded
+let _mol = null;          // { el, viewer } — one persistent WebGL viewer, reused
+const pocketCache = {};   // org -> {acc: [resids]}
+function load3Dmol() {
+  if (window.$3Dmol) return Promise.resolve();
+  if (_3dmolP) return _3dmolP;
+  _3dmolP = new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "vendor/3Dmol-min.js"; s.async = true;
+    s.onload = () => res(); s.onerror = () => { _3dmolP = null; rej(new Error("3Dmol load failed")); };
+    document.head.appendChild(s);
+  });
+  return _3dmolP;
+}
+async function loadPockets(org) {
+  if (pocketCache[org]) return pocketCache[org];
+  try {
+    const r = await fetch(`data/pockets_${org}.json`);
+    pocketCache[org] = r.ok ? await r.json() : {};
+  } catch (e) { pocketCache[org] = {}; }
+  return pocketCache[org];
+}
+function ensureMolViewer(slot) {
+  if (!window.$3Dmol) return null;
+  if (!_mol) {
+    const el = document.createElement("div");
+    el.className = "mol3dhost";
+    slot.appendChild(el);
+    _mol = { el, viewer: $3Dmol.createViewer(el, { backgroundColor: "0xf4f4f8", antialias: true }) };
+  } else if (_mol.el.parentNode !== slot) {
+    slot.appendChild(_mol.el);
+  }
+  return _mol;
+}
+function plddtAtomColor(atom) {
+  const b = atom.b;
+  return b >= 90 ? 0x0053D6 : b >= 70 ? 0x65CBF3 : b >= 50 ? 0xFFDB13 : 0xFF7D45;
+}
+async function fetchAFModel(acc) {
+  for (const v of ["v6", "v4"]) {
+    try {
+      const r = await fetch(`https://alphafold.ebi.ac.uk/files/AF-${acc}-F1-model_${v}.pdb`);
+      if (r.ok) return await r.text();
+    } catch (e) {}
+  }
+  return null;
+}
+async function renderStructure(row) {
+  const slot = document.getElementById("pdbslot");
+  if (!slot) return;
+  const acc = row.uniprot_accession;
+  const msg = (html) => { if (document.getElementById("pdbslot") === slot) slot.innerHTML = `<div class="pdbmsg">${html}</div>`; };
+  if (row.af_available === false) {
+    msg(`No AlphaFold model for this protein.`);
+    const cap = document.getElementById("pdbcap"); if (cap) cap.textContent = "";
+    return;
+  }
+  try { await load3Dmol(); } catch (e) { msg("3D viewer could not be loaded."); return; }
+  const [pdb, pockets] = await Promise.all([fetchAFModel(acc), loadPockets(state.org)]);
+  if (state._sel !== acc) return;                    // user moved on while awaiting
+  if (!pdb || !window.$3Dmol) {
+    msg(`Structure unavailable · <a href="https://alphafold.ebi.ac.uk/entry/${acc}" target="_blank" rel="noopener">open in AlphaFold ↗</a>`);
+    return;
+  }
+  slot.innerHTML = "";
+  // wait for the slot to have a real layout size before creating/resizing the
+  // WebGL viewer, otherwise 3Dmol renders into a zero-size framebuffer (warnings)
+  const paint = () => {
+    if (document.getElementById("pdbslot") !== slot || state._sel !== acc) return;
+    if (!slot.clientWidth || !slot.clientHeight) { requestAnimationFrame(paint); return; }
+    const m = ensureMolViewer(slot);
+    if (!m) { msg("3D viewer unavailable."); return; }
+    const v = m.viewer;
+    v.resize();
+    v.clear();
+    v.addModel(pdb, "pdb");
+    v.setStyle({}, { cartoon: { colorfunc: plddtAtomColor } });
+    const resids = pockets && pockets[acc];
+    if (resids && resids.length) {
+      const sel = { resi: resids };
+      v.setStyle(sel, { cartoon: { color: 0x2FBF71 } });
+      v.addStyle(sel, { stick: { color: 0x1E7A45, radius: 0.18 } });
+      try { v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.62, color: 0x2FBF71 }, sel); } catch (e) {}
+      v.zoomTo(sel); v.zoom(0.85);
+    } else {
+      v.zoomTo();
+    }
+    v.render();
+    const cap = document.getElementById("pdbcap");
+    if (cap) cap.innerHTML = (resids && resids.length)
+      ? `AlphaFold model · cartoon coloured by pLDDT · <span class="pk">green = top predicted pocket</span> (${resids.length} residues). Drag to rotate, scroll to zoom.`
+      : `AlphaFold model · cartoon coloured by pLDDT. Drag to rotate, scroll to zoom.`;
+  };
+  requestAnimationFrame(paint);
+}
 function openDrawer(row) {
   state._sel = row.uniprot_accession;
   document.querySelectorAll("#tbody tr").forEach((tr) =>
@@ -583,6 +679,12 @@ function openDrawer(row) {
     `<a href="${l.href}" target="_blank" rel="noopener">${l.icon ? `<span class="li">${l.icon}</span>` : ""}${l.label}</a>`).join("");
 
   const panels = CARD_AXES.map((spec) => axisPanelHTML(row, spec)).join("");
+  const showViewer = !has("af_available") || row.af_available !== false;
+  const viewerPanel = showViewer
+    ? `<section class="panel viewerpanel"><div class="phead"><h3 style="--pc:${CARD_GROUP_COLORS.ligandability}">3D structure</h3></div>`
+      + `<div class="pdbslot" id="pdbslot"><div class="pdbmsg">Loading 3D structure…</div></div>`
+      + `<p class="pdbcap" id="pdbcap"></p></section>`
+    : "";
   const mapPanel = (has("tsne_x") && isNum(row.tsne_x))
     ? `<section class="panel minipanel"><div class="phead"><h3 style="--pc:var(--brand)">Protein universe</h3></div>`
       + `<p class="pblurb">Where this protein sits in the ESM-C embedding map (all ${DATA.rows.length.toLocaleString()} proteins).</p>`
@@ -608,7 +710,7 @@ function openDrawer(row) {
       ${glanceHTML}
       <div class="links">${links}</div>
     </div>
-    <div class="dbody">${panels}${mapPanel}${annotation}</div>`;
+    <div class="dbody">${viewerPanel}${panels}${mapPanel}${annotation}</div>`;
   $("drawerClose").onclick = closeDrawer;
   const accBtn = $("accCopy");
   if (accBtn) accBtn.onclick = () => {
@@ -619,6 +721,7 @@ function openDrawer(row) {
   $("drawer").setAttribute("aria-hidden", "false");
   $("scrim").classList.add("open");
   requestAnimationFrame(() => drawCardMap(row));
+  if (showViewer) renderStructure(row);
 }
 function closeDrawer() {
   $("drawer").classList.remove("open");
