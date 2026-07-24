@@ -345,10 +345,11 @@ def protein_names(organism: str) -> dict:
 
 
 def localization_frame(organism: str) -> pd.DataFrame:
-    """Localization + Clp-accessibility (from scripts/09a_localization.py)."""
+    """Localization + Clp-accessibility (09a UniProt curated; 09b PSORTb-predicted fill)."""
     _, prefix = ORGANISMS[organism]
     f = PROCESSED.parent / "raw" / organism / "localization" / f"{prefix}_localization.tsv"
-    cols = ["uniprot_accession", "localization", "clp_accessibility", "has_signal_peptide", "n_transmembrane"]
+    cols = ["uniprot_accession", "localization", "clp_accessibility", "has_signal_peptide",
+            "n_transmembrane", "localization_source"]
     if not f.exists():
         return pd.DataFrame(columns=cols)
     df = pd.read_csv(f, sep="\t", dtype=str).fillna("")
@@ -358,6 +359,8 @@ def localization_frame(organism: str) -> pd.DataFrame:
         "clp_accessibility": pd.to_numeric(df["clp_accessibility"], errors="coerce"),
         "has_signal_peptide": df["has_signal_peptide"].astype(str).isin(["1", "True", "true"]),
         "n_transmembrane": pd.to_numeric(df["n_transmembrane"], errors="coerce").fillna(0).astype(int),
+        # 'uniprot' (curated) | 'psortb' (predicted) | 'none'; absent in pre-09b TSVs -> None
+        "localization_source": df["localization_source"].replace("", None) if "localization_source" in df.columns else None,
     })
     return out
 
