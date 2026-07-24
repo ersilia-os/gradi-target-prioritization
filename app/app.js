@@ -1057,6 +1057,77 @@ function buildTierPanel() {
 }
 
 // ---------- sidebar builders ----------------------------------------------
+// ---- weighted-scheme: the enabled axes always sum to 100 -------------------
+function enabledWeightKeys() {
+  return COMPONENTS.filter((c) => AVAIL[c.key] && state.weights[c.key] && state.weights[c.key].on)
+    .map((c) => c.key);
+}
+// integer allocation of `total` across `keys` proportional to rawMap[k] (largest-remainder;
+// equal split when the raw weights are all zero) — guarantees the parts sum to exactly `total`
+function allocInt(rawMap, keys, total) {
+  const out = {};
+  if (!keys.length) return out;
+  const sum = keys.reduce((s, k) => s + Math.max(0, rawMap[k] || 0), 0);
+  const rema = []; let floorSum = 0;
+  for (const k of keys) {
+    const share = sum > 0 ? total * Math.max(0, rawMap[k] || 0) / sum : total / keys.length;
+    const f = Math.floor(share);
+    out[k] = f; floorSum += f; rema.push([k, share - f]);
+  }
+  const left = total - floorSum;
+  rema.sort((a, b) => b[1] - a[1]);
+  for (let i = 0; i < left; i++) out[rema[i % rema.length][0]] += 1;
+  return out;
+}
+// pin `key` at its current weight; distribute the remaining budget over the other enabled axes
+// in proportion to their current weights (preserves their relative emphasis)
+function rebalanceDrag(key) {
+  const w = state.weights, keys = enabledWeightKeys();
+  if (!keys.includes(key)) return;                       // off axis: excluded from the 100
+  const others = keys.filter((k) => k !== key);
+  if (!others.length) { w[key].weight = 100; return; }   // only one enabled -> locked at 100
+  w[key].weight = Math.max(0, Math.min(100, w[key].weight));
+  const raw = {}; for (const k of others) raw[k] = w[k].weight;
+  const alloc = allocInt(raw, others, 100 - w[key].weight);
+  for (const k of others) w[k].weight = alloc[k];
+}
+// after enabling/disabling an axis, re-establish the sum-100 invariant over the enabled set
+function rebalanceToggle(key, nowOn) {
+  const w = state.weights, keys = enabledWeightKeys();
+  if (!keys.length) return;                              // all off -> weights irrelevant
+  if (nowOn) {                                           // give the new axis a fair share, then fill the rest
+    const others = keys.filter((k) => k !== key);
+    w[key].weight = others.length ? Math.round(100 / keys.length) : 100;
+    const raw = {}; for (const k of others) raw[k] = w[k].weight;
+    const alloc = allocInt(raw, others, 100 - w[key].weight);
+    for (const k of others) w[k].weight = alloc[k];
+  } else {                                               // renormalise whoever is left back up to 100
+    const raw = {}; for (const k of keys) raw[k] = w[k].weight;
+    const alloc = allocInt(raw, keys, 100);
+    for (const k of keys) w[k].weight = alloc[k];
+  }
+}
+// enforce the invariant on the current enabled set (init / reset / preset / migrating old state)
+function enforceWeightSum() {
+  const keys = enabledWeightKeys();
+  if (!keys.length) return;
+  const raw = {}; for (const k of keys) raw[k] = state.weights[k].weight;
+  const alloc = allocInt(raw, keys, 100);
+  for (const k of keys) state.weights[k].weight = alloc[k];
+}
+// push current state.weights values back onto every slider + number, and the running total
+function syncWeightSliders() {
+  document.querySelectorAll("#weights .weight").forEach((div) => {
+    const key = div.dataset.key, w = state.weights[key];
+    if (!w) return;
+    const rng = div.querySelector("input[type=range]"), wv = div.querySelector(".wv");
+    if (rng) rng.value = w.weight;
+    if (wv) wv.textContent = w.weight;
+  });
+  const keys = enabledWeightKeys();
+  const el = $("wsumval");
+  if (el) el.textContent = keys.length ? keys.reduce((s, k) => s + state.weights[k].weight, 0) : "—";
+}
 function buildWeights() {
   const host = $("weights");
   host.innerHTML = "";
@@ -1066,6 +1137,7 @@ function buildWeights() {
     const w = state.weights[c.key];
     const div = document.createElement("div");
     div.className = "weight" + (!avail ? " disabled" : (w.on ? "" : " off"));
+    div.dataset.key = c.key;
     div.style.setProperty("--wc", colColor(c.key));
     div.innerHTML = `
       <div class="top">
@@ -1073,16 +1145,26 @@ function buildWeights() {
         <span class="lab">${c.label}${c.binary ? ` <span class="btag" title="Binary axis: value is 0 or 1. The weight is added only to targets scoring 1.">0/1</span>` : ""}</span>
         ${avail ? `<span class="wv">${w.weight}</span>` : `<span class="soon">soon</span>`}
       </div>
-      ${avail ? `<input type="range" min="0" max="100" step="5" value="${w.weight}" aria-label="${c.label} weight">` : ""}
+      ${avail ? `<input type="range" min="0" max="100" step="1" value="${w.weight}" aria-label="${c.label} weight">` : ""}
       <div class="help">${c.help}</div>`;
     if (avail) {
-      const sw = div.querySelector(".sw"), rng = div.querySelector("input[type=range]"), wv = div.querySelector(".wv");
-      sw.onchange = () => { w.on = sw.checked; div.classList.toggle("off", !w.on); weightsDirty = true; save(); recompute(); };
-      rng.oninput = () => { w.weight = +rng.value; wv.textContent = rng.value; };
+      const sw = div.querySelector(".sw"), rng = div.querySelector("input[type=range]");
+      // live during drag: pin this axis, rebalance the others, reflect on every slider (no recompute yet)
+      rng.oninput = () => { w.weight = +rng.value; rebalanceDrag(c.key); syncWeightSliders(); };
       rng.onchange = () => { weightsDirty = true; save(); recompute(); };
+      sw.onchange = () => {
+        w.on = sw.checked; div.classList.toggle("off", !w.on);
+        rebalanceToggle(c.key, w.on); syncWeightSliders();
+        weightsDirty = true; save(); recompute();
+      };
     }
     host.appendChild(div);
   }
+  const foot = document.createElement("div");
+  foot.className = "wsum";
+  foot.innerHTML = `Enabled weights total <b id="wsumval">100</b> / 100`;
+  host.appendChild(foot);
+  syncWeightSliders();
 }
 function distinct(key) {
   const s = new Set();
@@ -1271,7 +1353,7 @@ function applyWeightPreset(name) {
     if (p[c.key] != null) state.weights[c.key] = { on: true, weight: p[c.key] };
     else if (state.weights[c.key]) state.weights[c.key].on = false;
   }
-  weightsDirty = true; buildWeights(); save(); recompute();
+  enforceWeightSum(); weightsDirty = true; buildWeights(); save(); recompute();
 }
 // same-gene ortholog in the other organism (gene-symbol match; needs the other org cached)
 function orthologInOther(row) {
@@ -1356,7 +1438,7 @@ async function loadOrg(org) {
   $("genInfo").innerHTML = `Data generated <code>${DATA.generated_at}</code> · ${DATA.n.toLocaleString()} proteins · `
     + `${ORGANISM_META[org].name} ${ORGANISM_META[org].strain}`;
   buildViewSwitch();
-  buildWeights(); buildTierPanel();
+  enforceWeightSum(); buildWeights(); buildTierPanel();
   buildFamilyVocab();
   buildFilterBar(); buildColMenu();
   stashEssentiality(); applyTransferMode();
@@ -1709,7 +1791,7 @@ function init() {
   };
   $("resetWeights").onclick = () => {
     for (const c of COMPONENTS) state.weights[c.key] = { on: c.on, weight: c.weight };
-    weightsDirty = true; buildWeights(); save(); recompute();
+    enforceWeightSum(); weightsDirty = true; buildWeights(); save(); recompute();
   };
   $("resetTiers").onclick = () => {
     for (const a of TIER_AXES) state.tiers[a.key] = [];
