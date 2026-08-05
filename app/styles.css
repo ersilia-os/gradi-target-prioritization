@@ -280,8 +280,12 @@ tbody tr.sel td{background:color-mix(in srgb,var(--brand) 12%,var(--surface));}
 .badge.loc-cytoplasm{background:color-mix(in srgb,var(--lime) 28%,#fff);color:#3E7A34;}
 .badge.loc-inner_membrane,.badge.loc-membrane{background:color-mix(in srgb,var(--amber) 26%,#fff);color:#9A6B12;}
 .badge.loc-periplasm{background:color-mix(in srgb,var(--orange) 26%,#fff);color:#B85A45;}
-.badge.loc-outer_membrane,.badge.loc-secreted,.badge.loc-extracellular{background:color-mix(in srgb,var(--crimson) 17%,#fff);color:#B02733;}
+.badge.loc-outer_membrane,.badge.loc-extracellular,.badge.loc-cell_wall_surface{background:color-mix(in srgb,var(--crimson) 17%,#fff);color:#B02733;}
 .badge.loc-unknown{background:var(--surface-2);color:var(--faint);}
+/* localization evidence tier: experimental > curated > predicted */
+.badge.tier-experimental{background:color-mix(in srgb,var(--lime) 26%,#fff);color:#3E7A34;}
+.badge.tier-curated{background:color-mix(in srgb,var(--amber) 26%,#fff);color:#9A6B12;}
+.badge.tier-predicted{background:var(--surface-2);color:var(--faint);}
 .badge.locpred{border:1px dashed color-mix(in srgb,var(--lime) 60%,var(--faint));}   /* PSORTb-predicted localization */
 .yes{color:var(--good);font-weight:700;}
 .no{color:var(--faint);}

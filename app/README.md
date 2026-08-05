@@ -59,7 +59,8 @@ Locally on the Mac mini: `http://localhost:8080`.
   The composite is a per-protein weighted mean over *enabled components that have a
   value*, renormalized per protein (missing components are dropped, not zero-filled).
   Essentiality + Ligandability are on by default; **Degradability** and **Novelty** are wired
-  (off by default). *Expression/localization is not yet implemented.* An **Evidence** column
+  (off by default). **Localization / Clp-accessibility** (§5.1) is wired at 100% coverage for both
+  organisms; the §5.2 expression sub-axis is not yet implemented. An **Evidence** column
   shows how well each target is supported (measured vs inferred/predicted); a **Methods ⓘ**
   panel documents every score.
 - **Orthology transfer** switch (top-left) recomputes essentiality without the E. coli→Kp
@@ -95,8 +96,8 @@ State (view, weights, filters, columns, map colour, theme) persists in `localSto
   components) · `app.js` (logic) · `serve.sh` (server) · `data/` (generated, gitignored).
 
 ## Maintenance
-- **Regenerate data:** `python scripts/08a_webapp_export.py` (needs `09a_localization.py` for the
-  localization/Clp-accessibility columns and the various `06*`/`07*` result CSVs).
+- **Regenerate data:** `python scripts/08a_webapp_export.py` (needs `09g_localization_merge.py` for
+  the localization/Clp-accessibility columns and the various `06*`/`07*` result CSVs).
 - **Validate the export:** `python scripts/08b_validate_export.py` — schema + coverage smoke-check
   (required columns, columnar format, 0–1 ranges, unique accessions, no NaN); non-zero exit on failure.
 - **Cache-busting is automatic:** the Pages workflow stamps `?v=<commit-sha>` onto the CSS/JS asset

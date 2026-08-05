@@ -144,6 +144,39 @@ also `human`); they default to `kpneumoniae`.
   Run log: `docs/essentiality_log.md`.
   Needs `cobra`/`scikit-learn`/`openpyxl` + ProteomeLM from git (see `install.sh`); DIAMOND from
   `gradi-ortho`; `unar` for the Geptop `.rar`; optional `gradi-prokka` env.
+- `08a_webapp_export.py` / `08b_validate_export.py` — build and validate the `app/data/{kp,ec}.json`
+  payloads consumed by the webapp (the only generated artifacts tracked in Git, not eosvc).
+- `09a`–`09h` — **localization** axis (docs §5.1). Emits `localization` + a graded
+  `clp_accessibility` [0–1] per protein (`output/results/<org>/<prefix>_localization.csv` +
+  `_shortlist.csv`), at **100% coverage** for both organisms (was 40% Kp / 51% Ec).
+  Tracks: `09a` UniProt (curated + ECO experimental split + lipid anchors), `09b` **PSORTb 3.0 taken
+  precomputed from PSORTdb** (per-genome download + RefSeq→UniProt id-mapping; we do *not* run
+  PSORTb — the Docker image hangs for ~19 h under Rosetta), `09c` **DeepLocPro** (primary predictor;
+  ESM-2 650M, beats PSORTb 3.0 on the post-2010 Gram-neg benchmark), `09d` **TMbed** topology
+  (β-barrels + cytoplasm-facing residue fraction), `09e` SignalP 6.0 / lipobox Sec/SPII typing +
+  Lol "+2 rule", `09f` **STEPdb 2.0** for Ec and its ortholog transfer onto Kp (this is what takes Kp
+  from *1* experimentally-evidenced localization to ~1,680). `09g` merges them under an
+  evidence-before-prediction precedence with topology overrides; `09h` is the stylia slide.
+  Shared helpers in `src/localization.py`. `09c`/`09d` need the **`gradi-loc`** env (see *Setup*).
+
+### Degradability (docs §3) — SPEC ONLY, no code
+
+**There is no degradability pipeline.** `scripts/03_annotate_clp_degradability.py` and `src/degradability.py`
+were deleted in `8327de3`, and the `03x` slot is now orthology. What the webapp currently serves:
+
+- **Kp**: a frozen legacy file, `data/processed/legacy/klebsiella_pneumoniae_clp_degradability.tsv`, written by
+  that deleted regex script. Its "experimental" inputs under `data/raw/legacy/clp_substrates/` are
+  **hand-curated 45- and 35-protein substitutes**, not the papers' supplementary tables (see their
+  `SOURCE.md`). Net signal: 5 proteins with an ssrA-like C-terminus, 21 with trap evidence, 10 in the `high`
+  tier.
+- **E. coli**: a **deterministic MD5 mock** (`08a_webapp_export.py:degradability_frame`), flagged
+  `PROVISIONAL` in `app/config.js:37`. Do not treat `comp_degradability` for `ec` as data.
+
+Do not extend the legacy file or the mock. The re-specified axis — three compartment-routed handles
+(ClpXP / FtsH / DegP), since *Klebsiella* encodes **no ClpC or McsB** — is documented in
+`docs/03_degradability.md`, with the full audit, dataset inventory and access routes in
+`docs/degradability_report.md` and citations in `docs/degradability_references.md`. Planned home is stage
+`10*` plus a prerequisite `09c_deeplocpro.py`.
 
 ## Setup
 
@@ -161,6 +194,12 @@ Conda environments (commands documented in `install.sh`):
   See `install.sh`.
 - **`gradi-pymol`** (conda-forge `pymol-open-source`) — ray-traced AlphaFold cartoons for
   `06n_structure_snapshots.py` only (invoked from `gradi` via subprocess). See `install.sh`.
+- **`gradi-loc`** (Python 3.11) — DeepLocPro + TMbed for the localization predictors
+  (`09c_deeplocpro.py`, `09d_tmbed.py`) only. **This env must stay separate from `gradi`**:
+  DeepLocPro needs `fair-esm`, which claims the same top-level `esm` package as the
+  EvolutionaryScale `esm` that `01a_esmc_embeddings.py` relies on. Also pins `setuptools<81`
+  (DeepLocPro imports `pkg_resources`) and `transformers==4.44.2` (TMbed's ProtT5 tokenizer breaks
+  on transformers 5.x). See `install.sh`.
 
 Do NOT use the machine's default `python3` (it resolves to an unrelated `ersilia` env). No build,
 lint, or test commands are configured yet — document them here when added.

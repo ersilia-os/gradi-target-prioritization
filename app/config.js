@@ -21,7 +21,7 @@ const AXIS_COLORS = {
 // map a column/component key to its axis (for colouring)
 function axisOf(key) {
   if (key === "__c") return "composite";
-  if (/clp_access|localization|signal_peptide|transmemb/.test(key)) return "accessibility";
+  if (/clp_access|localization|signal_peptide|transmemb|tm_helix|tm_strand|beta_barrel|lipoprotein|cyto_residue|predictor_agreement|sp_type/.test(key)) return "accessibility";
   if (/degrad|degron|clp_trap|halflife|clp_class/.test(key)) return "degradability";
   if (/conservation|human_selective|selectivity|human_homolog|ortholog|closeness/.test(key)) return "orthology";
   if (key === "comp_breadth" || /entero_pct|bacteria_pct/.test(key)) return "essentiality";
@@ -131,13 +131,27 @@ const TABLE_COLUMNS = [
   { key: "degron_feature_count", label: "Degron feats",   type: "int",   default: false, group: "Degradability",
     desc: "Number of degron features detected (C-terminal + N-terminal motifs)." },
   { key: "clp_accessibility",    label: "Clp access",     type: "score", heat: true,  default: false, group: "Degradability",
-    desc: "Clp-accessibility (0–1): reachability by the cytoplasmic Clp-protease machinery — the gating requirement for BacPROTAC / targeted degradation. Cytoplasm 1.0, inner-membrane (cytoplasm-facing) 0.5, periplasm / outer-membrane / secreted / extracellular 0.0; unknown localization = blank. Derived from UniProt subcellular location. See Methods." },
+    desc: "Clp-accessibility (0–1): reachability by the cytoplasmic Clp-protease machinery — the gating requirement for BacPROTAC / targeted degradation. Cytoplasm 1.0; inner membrane 0.6 if ≥30% of the chain faces the cytoplasm, else 0.2; periplasm 0.2; outer membrane / β-barrel / extracellular / cell-surface 0.0; unknown localization = blank. See Methods." },
   { key: "localization",         label: "Localization",   type: "tier",  default: false, group: "Accessibility",
-    desc: "Predicted subcellular localization (UniProt): cytoplasm / inner membrane / periplasm / outer membrane / secreted / extracellular / membrane / unknown. Drives the Clp-accessibility score." },
+    desc: "Subcellular localization: cytoplasm / inner membrane / periplasm / outer membrane / extracellular / cell wall & surface. Merged from UniProt, STEPdb, ortholog transfer, DeepLocPro and PSORTb 3.0 — see Methods. Drives the Clp-accessibility score." },
+  { key: "localization_evidence", label: "Loc. evidence", type: "tier",  default: false, group: "Accessibility",
+    desc: "How the localization call is supported: experimental (bench evidence, directly or via ortholog) / curated / predicted." },
+  { key: "localization_confidence", label: "Loc. conf.",  type: "score", heat: true, default: false, group: "Accessibility",
+    desc: "Confidence in the localization call (0–1): 1.0 experimental, 0.8 curated, otherwise the predictor's own probability." },
+  { key: "predictor_agreement",  label: "Loc. agree",     type: "score", heat: true,  default: false, group: "Accessibility",
+    desc: "Fraction of the independent opinions (UniProt · DeepLocPro · PSORTb 3.0) that agree with the final call." },
   { key: "has_signal_peptide",   label: "Signal pep.",    type: "bool",  default: false, group: "Accessibility",
     desc: "A signal peptide is annotated (protein is exported across the inner membrane) — lowers Clp-accessibility." },
+  { key: "is_lipoprotein",       label: "Lipoprotein",    type: "bool",  default: false, group: "Accessibility",
+    desc: "Sec/SPII lipoprotein. Sorted to the inner or outer membrane by the Lol '+2 rule' (Asp at +2 after the lipidated Cys = inner-membrane retention)." },
+  { key: "is_beta_barrel",       label: "β-barrel",       type: "bool",  default: false, group: "Accessibility",
+    desc: "Transmembrane β-barrel predicted by TMbed (≥8 strands) — an outer-membrane protein, so Clp-inaccessible." },
   { key: "n_transmembrane",      label: "TM helices",     type: "int",   default: false, group: "Accessibility",
-    desc: "Number of predicted transmembrane segments (UniProt)." },
+    desc: "Number of transmembrane segments annotated by UniProt." },
+  { key: "n_tm_helix",           label: "TMbed helices",  type: "int",   default: false, group: "Accessibility",
+    desc: "Transmembrane α-helices predicted by TMbed." },
+  { key: "cyto_residue_fraction", label: "Cyto. fraction", type: "score", heat: true, default: false, group: "Accessibility",
+    desc: "Fraction of residues TMbed places on the cytoplasmic side. For a membrane protein this is what decides whether ClpXP can engage it (≥0.30 → accessible)." },
   { key: "comp_novelty",         label: "Novelty",        type: "score", heat: true,  default: false, group: "Novelty",
     desc: "Novelty / neglectedness (0–1) = 1 − bibliometric studiedness. High = under-studied protein — a more novel target. Sources: Europe PMC, UniProt. See Methods." },
   { key: "comp_human_selective", label: "Selective",      type: "binary01", default: true, group: "Orthology",
@@ -262,8 +276,9 @@ const TABLE_VIEWS = [
     "pdb_has_structure", "pdb_n_structures", "pdb_best_resolution_A",
     "disorder_frac", "fpocket_max_drug_score" ] },
   { key: "localization", label: "Localization", cols: [
-    "clp_accessibility", "localization", "has_signal_peptide", "n_transmembrane",
-    "comp_degradability", "degradability_tier", "functional_class" ] },
+    "clp_accessibility", "localization", "localization_evidence", "predictor_agreement",
+    "cyto_residue_fraction", "n_tm_helix", "is_beta_barrel", "is_lipoprotein",
+    "has_signal_peptide", "comp_degradability", "degradability_tier", "functional_class" ] },
   { key: "crossspecies", label: "Cross-species", cols: [
     "comp_breadth", "comp_human_selective", "selectivity", "entero_pct_essential",
     "ec_transfer_essential", "n_ecoli_orthologs", "family" ] },
@@ -316,10 +331,15 @@ const METHODS = [
       ["Bhat 2013 (<i>Mol. Microbiol.</i>) · Feng 2013 (<i>J. Proteome Res.</i>) — cross-bacterial Clp traps", ""],
     ] },
   { title: "Localization & accessibility", color: "var(--lime)", body:
-    "Subcellular localization and <b>Clp-accessibility</b> — whether the cytoplasmic Clp-protease machinery can reach the protein (the gating requirement for BacPROTAC / targeted degradation). Cytoplasm 1.0, inner-membrane 0.5, periplasm / outer-membrane / secreted / extracellular 0.0. Localization is UniProt-curated where available, otherwise predicted with <b>PSORTb 3.0</b> (Gram-negative) — predicted calls are marked (dashed badge).",
+    "Subcellular localization and <b>Clp-accessibility</b> — whether the cytoplasmic Clp-protease machinery can reach the protein (the gating requirement for BacPROTAC / targeted degradation). Six sources are merged in precedence order, evidence before prediction: UniProt annotations carrying experimental evidence; <b>STEPdb 2.0</b> for <i>E. coli</i>, and its calls carried onto <i>K. pneumoniae</i> by orthology; UniProt curated-by-similarity; then <b>DeepLocPro</b> (ESM-2 based, outperforms PSORTb 3.0 on the post-2010 Gram-negative benchmark) and <b>PSORTb 3.0</b> (taken precomputed from PSORTdb) as the predictors. Predicted calls are marked with a dashed badge. " +
+    "<b>TMbed</b> topology and Sec/SPII lipoprotein sorting may overrule a <i>predicted</i> call in two cases they resolve definitively: a transmembrane β-barrel is an outer-membrane protein, and a lipoprotein is sorted by the Lol '+2 rule'. " +
+    "Clp-accessibility is then graded: cytoplasm 1.0; inner membrane 0.6 when ≥30% of the chain faces the cytoplasm, else 0.2; periplasm 0.2; outer membrane / β-barrel / extracellular / cell surface 0.0.",
     refs: [
       ["UniProt — curated subcellular location", "https://www.uniprot.org/"],
-      ["PSORTb 3.0 — Gram-negative localization predictor (Yu et al. 2010, Bioinformatics)", "https://www.psort.org/psortb/"],
+      ["DeepLocPro 1.0 — prokaryotic localization (Moreno et al. 2024, Bioinformatics)", "https://services.healthtech.dtu.dk/services/DeepLocPro-1.0/"],
+      ["PSORTb 3.0 / PSORTdb — precomputed Gram-negative calls (Yu et al. 2010; Lau et al. 2021)", "https://db.psort.org/"],
+      ["TMbed — TM topology &amp; β-barrels from LM embeddings (Bernhofer &amp; Rost 2022, BMC Bioinformatics)", "https://github.com/BernhoferM/TMbed"],
+      ["STEPdb 2.0 — E. coli subcellular topology (Loos et al., Mol. Cell. Proteomics)", "http://stepdb.eu/"],
     ] },
   { title: "Novelty & studiedness", color: "var(--orchid)", body:
     "1 − bibliometric studiedness (Europe PMC / UniProt, propagated across orthologs). High = under-studied / neglected target. Tiers: dark / studied / well-studied.",
@@ -354,7 +374,8 @@ const CAT_ABBREV = {
   ligandability_tier: { tractable: "Tr", partial: "Pa", intractable: "In" },
   degradability_tier: { high: "Hi", medium: "Me", low: "Lo" },
   localization: { cytoplasm: "Cyt", inner_membrane: "IM", periplasm: "Peri", outer_membrane: "OM",
-                  secreted: "Sec", extracellular: "Ext", membrane: "Mem", unknown: "?" },
+                  extracellular: "Ext", cell_wall_surface: "CW", membrane: "Mem", unknown: "?" },
+  localization_evidence: { experimental: "Exp", curated: "Cur", predicted: "Prd", none: "—" },
   selectivity:        { broad_selective: "BS", narrow_selective: "NS",
                         broad_human_homolog: "BH", narrow_human_homolog: "NH" },
   popularity_tier:    { dark: "Dk", studied: "St", well_studied: "Ws" },
@@ -443,9 +464,14 @@ const CARD_AXES = [
   { key: "accessibility", title: "Localization & accessibility", axis: "accessibility",
     headline: "clp_accessibility", tier: "localization",
     blurb: "Reachability by the cytoplasmic Clp-protease machinery — gates BacPROTAC / targeted degradation.",
-    stats: [ ["n_transmembrane", "TM helices", "int"] ],
-    flags: [ ["has_signal_peptide", "Signal peptide (exported)"] ],
-    text: [ ["localization_source", "Localization source"] ] },
+    stats: [ ["n_tm_helix", "TM helices", "int"], ["cyto_residue_fraction", "Cytoplasm-facing", "score"],
+             ["predictor_agreement", "Predictor agreement", "score"] ],
+    flags: [ ["has_signal_peptide", "Signal peptide (exported)"],
+             ["is_lipoprotein", "Sec/SPII lipoprotein"],
+             ["is_beta_barrel", "Outer-membrane β-barrel"] ],
+    text: [ ["localization_source", "Localization source"],
+            ["localization_evidence", "Evidence tier"],
+            ["localization_override", "Topology override"] ] },
 
   { key: "structure", title: "Structure", axis: "ligandability",
     plddt: "af_mean_plddt",
@@ -546,6 +572,7 @@ const MAP_COLORS = [
   { key: "human_closeness", label: "Human closeness" },
   { key: "functional_class", label: "Functional class" },
   { key: "localization", label: "Localization" },
+  { key: "localization_evidence", label: "Localization evidence" },
   { key: "essentiality_tier", label: "Essentiality tier" },
   { key: "ligandability_tier", label: "Ligandability tier" },
   { key: "selectivity", label: "Selectivity" },
@@ -558,8 +585,10 @@ const MAP_CAT_PALETTE = ["#E63946", "#457B9D", "#2EC4B6", "#B05CC8", "#F4845F", 
 const MAP_CATEGORICAL = {
   functional_class: Object.fromEntries(FUNCTIONAL_CLASSES.map((c) => [c.id, c.color])),
   localization: { cytoplasm: "var(--lime)", inner_membrane: "var(--amber)", membrane: "var(--amber)",
-    periplasm: "var(--orange)", outer_membrane: "var(--crimson)", secreted: "var(--crimson)",
+    periplasm: "var(--orange)", outer_membrane: "var(--crimson)", cell_wall_surface: "var(--plum)",
     extracellular: "var(--fuchsia)", unknown: "var(--silver)" },
+  localization_evidence: { experimental: "var(--lime)", curated: "var(--amber)",
+    predicted: "var(--silver)", none: "var(--silver)" },
   essentiality_tier: { essential: "var(--crimson)", likely_essential: "var(--amber)", non_essential: "var(--silver)" },
   ligandability_tier: { tractable: "var(--lime)", partial: "var(--amber)", intractable: "var(--silver)" },
   selectivity: { broad_selective: "var(--turquoise)", narrow_selective: "var(--blue)",

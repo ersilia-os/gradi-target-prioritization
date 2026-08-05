@@ -81,6 +81,14 @@ FAM_IP_COLS = [
 FAM_PANTHER_COLS = [
     "uniprot_accession", "panther_family_names", "panther_subfamily_names",
 ]
+LOC_COLS = [
+    "uniprot_accession", "localization", "clp_accessibility",
+    "localization_source", "localization_evidence", "localization_confidence",
+    "localization_override", "predictor_agreement",
+    "has_signal_peptide", "n_transmembrane",
+    "n_tm_helix", "n_tm_strand", "is_beta_barrel", "cyto_residue_fraction",
+    "is_lipoprotein", "sp_type",
+]
 
 # --- task-agnostic functional class (heuristic keyword map) -----------------
 # Ordered: first matching class wins. Keys are matched (substring, lowercased)
@@ -344,27 +352,6 @@ def protein_names(organism: str) -> dict:
     return out
 
 
-def localization_frame(organism: str) -> pd.DataFrame:
-    """Localization + Clp-accessibility (09a UniProt curated; 09b PSORTb-predicted fill)."""
-    _, prefix = ORGANISMS[organism]
-    f = PROCESSED.parent / "raw" / organism / "localization" / f"{prefix}_localization.tsv"
-    cols = ["uniprot_accession", "localization", "clp_accessibility", "has_signal_peptide",
-            "n_transmembrane", "localization_source"]
-    if not f.exists():
-        return pd.DataFrame(columns=cols)
-    df = pd.read_csv(f, sep="\t", dtype=str).fillna("")
-    out = pd.DataFrame({
-        "uniprot_accession": df["uniprot_accession"],
-        "localization": df["localization"].replace("", None),
-        "clp_accessibility": pd.to_numeric(df["clp_accessibility"], errors="coerce"),
-        "has_signal_peptide": df["has_signal_peptide"].astype(str).isin(["1", "True", "true"]),
-        "n_transmembrane": pd.to_numeric(df["n_transmembrane"], errors="coerce").fillna(0).astype(int),
-        # 'uniprot' (curated) | 'psortb' (predicted) | 'none'; absent in pre-09b TSVs -> None
-        "localization_source": df["localization_source"].replace("", None) if "localization_source" in df.columns else None,
-    })
-    return out
-
-
 def build_organism(organism: str) -> dict:
     pid, prefix = ORGANISMS[organism]
     rdir = RESULTS / organism
@@ -431,14 +418,16 @@ def build_organism(organism: str) -> dict:
     pn = protein_names(organism)
     df["protein_name"] = df["uniprot_accession"].map(pn)
 
-    # localization + Clp-accessibility (§5)
-    loc = localization_frame(organism)
-    if not loc.empty:
+    # localization + Clp-accessibility (§5) — merged axis table from 09g
+    loc = _read_subset(rdir / f"{prefix}_localization.csv", LOC_COLS)
+    if len(loc.columns) > 1:
         df = df.merge(loc, on="uniprot_accession", how="left")
-        if "has_signal_peptide" in df.columns:
-            df["has_signal_peptide"] = df["has_signal_peptide"].fillna(False).astype(bool)
-        if "n_transmembrane" in df.columns:
-            df["n_transmembrane"] = pd.to_numeric(df["n_transmembrane"], errors="coerce").fillna(0).astype(int)
+        for c in ("has_signal_peptide", "is_beta_barrel", "is_lipoprotein"):
+            if c in df.columns:
+                df[c] = df[c].fillna(False).astype(bool)
+        for c in ("n_transmembrane", "n_tm_helix", "n_tm_strand"):
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
 
     df["name"] = df["gene"].where(df["gene"].notna() & (df["gene"].astype(str) != ""),
                                   df["uniprot_accession"])

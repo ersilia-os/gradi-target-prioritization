@@ -499,7 +499,7 @@ function cellHTML(row, c) {
   if (c.type === "class") return classBadgeHTML(v);
   if (c.key === "localization") {
     const b = badgeHTML(tierType(c.key), v, c.key);
-    return row.localization_source === "psortb" ? b.replace('class="badge ', 'class="badge locpred ') : b;
+    return row.localization_evidence === "predicted" ? b.replace('class="badge ', 'class="badge locpred ') : b;
   }
   if (c.type === "tier") return badgeHTML(tierType(c.key), v, c.key);
   if (c.type === "score" && c.heat) return `<span class="heat" style="${heatStyle(v, colColor(c.key))}">${fmt("score", v)}</span>`;
@@ -750,7 +750,16 @@ function axisPanelHTML(row, spec) {
   if (spec.text) for (const [k, label] of spec.text) {
     if (!has(k) || row[k] === null || row[k] === undefined || row[k] === "") continue;
     let disp = String(row[k]);
-    if (k === "localization_source") disp = ({ uniprot: "UniProt (curated)", psortb: "PSORTb (predicted)", none: "—" })[row[k]] || disp;
+    if (k === "localization_source") disp = ({
+      uniprot_experimental: "UniProt (experimental)", uniprot_curated: "UniProt (curated)",
+      stepdb: "STEPdb 2.0 (experimental)", stepdb_curated: "STEPdb 2.0 (curated)",
+      ortholog_transfer: "E. coli ortholog (experimental)",
+      deeplocpro: "DeepLocPro (predicted)", psortb: "PSORTb 3.0 (predicted)", none: "—",
+    })[row[k]] || disp;
+    if (k === "localization_override") disp = ({
+      beta_barrel: "β-barrel → outer membrane", lipoprotein_lol_rule: "Lol +2 rule",
+      membrane_resolved: "membrane side resolved from topology",
+    })[row[k]] || disp;
     body += `<div class="kv"><span class="kvk">${label}</span><span class="kvv">${esc(disp)}</span></div>`;
   }
   if (spec.homolog) {
