@@ -148,8 +148,7 @@ def main() -> None:
         ax.text(v + max(vals) * 0.015, i, f"{v:,}", va="center", ha="left", fontsize=SS,
                 color="#2B2333")
     ax.set_yticks(y)
-    ax.set_yticklabels([f"{lv:g}   {lab}\n        {sub}" for lv, lab, sub in LADDER],
-                       fontsize=SS - 1)
+    ax.set_yticklabels([f"{lab}\n{sub}" for _, lab, sub in LADDER], fontsize=SS - 1)
     ax.invert_yaxis()
     ax.margins(x=0.22)
     n_reach = int((d["clp_accessibility"] >= LOC.MIN_CLP_ACCESSIBILITY).sum())
