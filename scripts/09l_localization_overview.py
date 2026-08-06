@@ -215,7 +215,8 @@ def main() -> None:
         if m.any():
             ax.scatter(mem.loc[m, "n_tm_helix"] + jitter[m.to_numpy()],
                        mem.loc[m, "cyto_residue_fraction"], s=11, alpha=0.65,
-                       color=LOC.LOC_CLASS_COLOR[c], linewidths=0, rasterized=True)
+                       color=LOC.LOC_CLASS_COLOR[c], linewidths=0, rasterized=True,
+                       label=f"{LOC.LOC_ABBREV[c]} ({int(m.sum()):,})")
     b = mem["is_beta_barrel"].fillna(False).astype(bool)
     if b.any():
         ax.scatter(mem.loc[b, "n_tm_helix"] + jitter[b.to_numpy()],
@@ -225,8 +226,10 @@ def main() -> None:
     ax.text(0.98, LOC.CYTO_DOMAIN_FRACTION_MIN + 0.02, "≥ 0.30 → Clp-reachable (0.6)",
             transform=ax.get_yaxis_transform(), fontsize=SS, va="bottom", ha="right",
             color="#555555")
-    if b.any():
-        ax.legend(fontsize=SS, frameon=False, loc="upper right")
+    # Colour = compartment, same palette as panels 1/2/4; the legend has to say so.
+    ax.legend(fontsize=SS - 1, loc="upper right", ncol=2, handletextpad=0.25,
+              columnspacing=0.7, borderpad=0.35, frameon=True, facecolor="white",
+              framealpha=0.9, edgecolor="none")
     ax.set_ylim(-0.03, 1.03)
     # Bottom-left is where the β-barrels pile up (no helices, little cytoplasmic face), so the
     # count goes bottom-right instead.
