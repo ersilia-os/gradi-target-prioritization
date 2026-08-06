@@ -209,6 +209,37 @@ Mean `predictor_agreement` 0.895 (Kp) / 0.919 (Ec).
 - **Sequences are truncated at 2,000 residues** for DeepLocPro (ESM-2 cost is quadratic in length).
   Localization signal is overwhelmingly N-terminal; affected proteins carry `dlp_truncated`.
 
+## Figures
+
+Four slides per organism, all stylia "slide" format, NPG palette, every panel single-organism. The
+compartment order and palette live in `src/localization.py` (`LOC_CLASS_ORDER`, `LOC_CLASS_COLOR`)
+so colours cannot drift between figures.
+
+| Script | Output | What it is for |
+|---|---|---|
+| `09h` | `09h_localization_{kp,ec}.png` | The axis summary: composition, coverage gained, evidence tier, DeepLocPro-vs-PSORTb concordance, topology, accessibility ladder. |
+| `09i` | `09i_atlas_{kp,ec}.png` | **Compartment atlas** — small multiples over the ESM-C map, one panel per compartment. |
+| `09j` | `09j_evidence_{kp,ec}.png` | Where the calls came from: source × compartment, corroboration depth, agreement, confidence, DeepLocPro decisiveness and what it conflates. |
+| `09k` | `09k_topology_{kp,ec}.png` | Structural evidence: the 0.30 cut, β-barrel strand counts, TM helices per compartment, architecture composition, export signals, overrides. |
+
+Two results worth reading off the figures:
+
+- **Localization is legible in sequence space.** On the ESM-C map the compartments occupy visibly
+  distinct territory — cytoplasm dominating one lobe, inner membrane a separate cluster, periplasm
+  and outer membrane concentrated in their own regions. The axis is describing structure the protein
+  language model already sees, not a label bolted on top.
+- **DeepLocPro is least decisive on extracellular proteins.** Its within-model probability profile
+  (09j panel 6) is diagonal at 0.90 cytoplasm / 0.93 inner membrane / 0.86 periplasm / 0.82 outer
+  membrane but only **0.63 extracellular**, leaking 0.17 back to cytoplasm. Extracellular is also
+  where Kp has *no* experimental evidence at all, so that class is the axis's weakest corner and
+  should be treated with the most caution.
+
+One thing 09k surfaces that is easy to misread as a bug: **231 Kp proteins labelled inner-membrane
+have `cyto_residue_fraction = 1.0` and no TM helix at all** (193 of them also have zero UniProt
+transmembrane segments). These are peripheral, membrane-associated proteins rather than
+membrane-spanning ones. Scoring them 0.6 is intended — they sit on the cytoplasmic face and are
+Clp-reachable — and the panel annotates them rather than hiding the spike.
+
 ## Artifacts and where they live
 
 Code, docs and the webapp payload are in Git (commit `c7c7222`, branch `localization-axis`).

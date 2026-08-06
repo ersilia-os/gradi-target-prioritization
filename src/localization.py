@@ -65,6 +65,25 @@ LOC_CLASSES: tuple[str, ...] = (
     "unknown",
 )
 
+# Plot order and palette for the compartments, shared by every 09* slide so the colours cannot
+# drift between figures. Ordered inward -> outward through the cell envelope, which is also the
+# order Clp accessibility falls in.
+LOC_CLASS_ORDER: tuple[str, ...] = (
+    "cytoplasm", "inner_membrane", "periplasm", "outer_membrane",
+    "extracellular", "cell_wall_surface", "membrane", "unknown",
+)
+
+LOC_CLASS_COLOR: dict[str, str] = {
+    "cytoplasm": "#00A087",
+    "inner_membrane": "#F39B7F",
+    "periplasm": "#E64B35",
+    "outer_membrane": "#8491B4",
+    "extracellular": "#3C5488",
+    "cell_wall_surface": "#7E6148",
+    "membrane": "#F39B7F",
+    "unknown": "#C9C9C7",
+}
+
 # Short labels for plots and the webapp badge.
 LOC_ABBREV: dict[str, str] = {
     "cytoplasm": "Cyt",

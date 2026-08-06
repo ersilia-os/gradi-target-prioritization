@@ -33,18 +33,9 @@ from src import localization as LOC  # noqa: E402
 NPG = stylia.CategoricalPalette("npg").colors
 SS = stylia.SLIDE_FONTSIZE_SMALL
 
-# One colour per compartment, ordered cytoplasm -> cell exterior.
-CLASS_ORDER = ["cytoplasm", "inner_membrane", "periplasm", "outer_membrane",
-               "extracellular", "cell_wall_surface", "unknown"]
-CLASS_COLOR = {
-    "cytoplasm": "#00A087",
-    "inner_membrane": "#F39B7F",
-    "periplasm": "#E64B35",
-    "outer_membrane": "#8491B4",
-    "extracellular": "#3C5488",
-    "cell_wall_surface": "#7E6148",
-    "unknown": "#C9C9C7",
-}
+# Compartment order + palette live in src/localization.py so every 09* slide shares one definition.
+CLASS_ORDER = [c for c in LOC.LOC_CLASS_ORDER if c != "membrane"]
+CLASS_COLOR = LOC.LOC_CLASS_COLOR
 EVIDENCE_COLOR = {"experimental": NPG[2], "curated": NPG[4], "predicted": "#C9C9C7", "none": "#EEEEEE"}
 
 

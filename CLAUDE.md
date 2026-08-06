@@ -156,7 +156,11 @@ also `human`); they default to `kpneumoniae`.
   (β-barrels + cytoplasm-facing residue fraction), `09e` SignalP 6.0 / lipobox Sec/SPII typing +
   Lol "+2 rule", `09f` **STEPdb 2.0** for Ec and its ortholog transfer onto Kp (this is what takes Kp
   from *1* experimentally-evidenced localization to ~1,680). `09g` merges them under an
-  evidence-before-prediction precedence with topology overrides; `09h` is the stylia slide.
+  evidence-before-prediction precedence with topology overrides. **Four slides per organism:**
+  `09h` axis summary · `09i` **compartment atlas** (small multiples over the ESM-C map — compartments
+  occupy visibly distinct territory in sequence space) · `09j` evidence & predictor behaviour ·
+  `09k` topology & envelope architecture. Compartment order/palette are shared via
+  `LOC_CLASS_ORDER`/`LOC_CLASS_COLOR` in `src/localization.py` so they cannot drift between figures.
   Shared helpers in `src/localization.py`. `09c`/`09d` need the **`gradi-loc`** env (see *Setup*).
   Run log, calibration evidence and caveats: `docs/localization_log.md`. Access routes, assembly ids
   and identifier bridges: `docs/localization_downloads.md`. Two traps worth knowing before touching
@@ -210,11 +214,24 @@ compartment router, the merge, plots.
 - **E. coli**: a **deterministic MD5 mock** (`08a_webapp_export.py:degradability_frame`), flagged
   `PROVISIONAL` in `app/config.js:37`. Not data.
 
-Do not extend either; retire both when the merge lands. Spec: `docs/03_degradability.md` (see the
-protease-decision block at the top and the 2026-08-06 composite revision). Audit, Gr-ADI project context and the
-four-target check: `docs/degradability_report.md` (§12 supersedes parts of §1–§7). Citations:
-`docs/degradability_references.md` (§10 = project documents + the activator layer). Download routes and the
-identifier bridge: `docs/degradability_downloads.md` (§A″).
+Do not extend either; retire both when the merge lands.
+
+Docs, in the order they are useful:
+- **`docs/degradability_datasets.md`** — start here to build anything. The full dataset inventory (size, key,
+  access, orthology-transfer verdict, effort), the computational-tool table, the PDF-extraction strategy, and the
+  **column schemas for Ec and Kp separately** plus a 12-column minimum viable set. Headline: **one MobiDB bulk
+  `curl` supplies `disorder_fraction` *and* the Pfam/Gene3D boundaries for `two_domain_architecture` at 100% of
+  both proteomes** (⚠ its endpoint answers `405` to HEAD — use GET).
+- `docs/03_degradability.md` — the spec; see the protease-decision block at the top and the 2026-08-06 composite
+  revision (two bars, `bar_disagreement`, track 3.3c).
+- `docs/degradability_report.md` — audit, Gr-ADI project context, the four-target check (**§12 supersedes parts
+  of §1–§7**).
+- `docs/degradability_references.md` — citations (§10 = project documents + the activator layer).
+- `docs/degradability_downloads.md` — download routes (§A″ activator, §A‴ in-hand literature + route corrections).
+- `data/raw/other/degradability/literature/` — **PDFs of three previously-gated papers**: Flynn 2003 and Neher 2006 (the E. coli ClpXP
+  trap sets, ~60 + ~100 proteins) and Ziemski 2021 Table S1. Note Flynn's real N-M1 consensus is
+  `T-X-K-[ILV]` at positions 1–4, which **contradicts the reason `src/degradability.py` gives for dropping
+  NM1/NM3** — see `degradability_datasets.md` §3.1.
 
 ## Setup
 
