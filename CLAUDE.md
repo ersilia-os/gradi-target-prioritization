@@ -175,6 +175,15 @@ also `human`); they default to `kpneumoniae`.
   2020 (ONC212) *S. aureus* proteomics, mapped on by NCBI-efetch → DIAMOND RBH (needs DIAMOND from
   `gradi-ortho`), writing `output/results/<org>/<prefix>_clpp_activator.csv`. Shared helpers in
   `src/degradability.py` (reuses `src/ligandability.py` and `src/essentiality.py`).
+- `10e_measured_turnover.py` — the **measured** turnover/attribution layer: Nagar 2021 half-lives
+  (materialises `D.load_nagar()`, which had only ever been used in memory), Gupta 2024 (13 conditions
+  + the ΔclpP/Δlon/ΔhslV/triple/ΔsmpB panel) and Niwa 2022 (Lon vs ClpXP vs HslUV) →
+  `<prefix>_deg_measured.csv`. Ec 74.7% / Kp 48.3% (transferred). **MacKrell 2026 deliberately not
+  ingested** — no published half-life column, only raw timecourses; `sd04` is ML predictions.
+  Slides `10l` (activator) · `10m` (turnover + attribution) · `10n` (cross-dataset landscape).
+  Run log and findings: `docs/degradability_measured_log.md`. Headlines worth knowing: the two
+  half-life datasets agree at only **ρ = 0.11**, ADEP4 abundance vs cleavage at **ρ = 0.06**, and
+  growth correction leaves just **54** E. coli proteins with a positive proteolytic half-life.
 
 ### Degradability (docs §3) — partially built, stage `10*`
 
