@@ -158,25 +158,63 @@ also `human`); they default to `kpneumoniae`.
   from *1* experimentally-evidenced localization to ~1,680). `09g` merges them under an
   evidence-before-prediction precedence with topology overrides; `09h` is the stylia slide.
   Shared helpers in `src/localization.py`. `09c`/`09d` need the **`gradi-loc`** env (see *Setup*).
+  Run log, calibration evidence and caveats: `docs/localization_log.md`. Access routes, assembly ids
+  and identifier bridges: `docs/localization_downloads.md`. Two traps worth knowing before touching
+  any axis: the 03a kp→ec ortholog table has **empty `pident`/`coverage`/`bitscore`** (OrthoFinder
+  orthogroups only), so identity thresholds on transfer silently drop everything; and `fair-esm`
+  collides with the EvolutionaryScale `esm` used by `01a`, hence the separate env.
+- `10a`–`10c` — **degradability** axis (docs §3), partially built; see the dedicated section below for the
+  protease decision and the two-bar design. `10a_fetch_degradability.py` robust fetcher (9-dataset manifest;
+  ladder publisher-CDN → Europe-PMC → NCBI-OA → placeholder, plus `--stage` to ingest browser-obtained files);
+  `10b_degrons.py` degron motifs + terminal pLDDT exposure/initiation-region length at full proteome coverage;
+  `10c_clpp_activator.py` the **activated-ClpP (partnerless)** evidence track — Conlon 2013 (ADEP4) + Jacques
+  2020 (ONC212) *S. aureus* proteomics, mapped on by NCBI-efetch → DIAMOND RBH (needs DIAMOND from
+  `gradi-ortho`), writing `output/results/<org>/<prefix>_clpp_activator.csv`. Shared helpers in
+  `src/degradability.py` (reuses `src/ligandability.py` and `src/essentiality.py`).
 
-### Degradability (docs §3) — SPEC ONLY, no code
+### Degradability (docs §3) — partially built, stage `10*`
 
-**There is no degradability pipeline.** `scripts/03_annotate_clp_degradability.py` and `src/degradability.py`
-were deleted in `8327de3`, and the `03x` slot is now orthology. What the webapp currently serves:
+**The protease is settled: the recruiting handle is `ClpP`, engaged directly by a small-molecule activator,
+with NO unfoldase partner.** The funded Gr-ADI research vision names it (WP2 is called *WP2_ClpPELs* —
+ClpP-Engaging Ligands) and explicitly rules out ClpC for Gram-negatives. Consequences that govern the whole
+axis:
+
+- Activated ClpP **cannot unfold anything** — the activator occupies the ClpX/ClpA docking cleft, opening the
+  pore, but nothing pulls. So the initiation-region rule (~5/~20/~37 aa) is an **unfoldase** rule and applies to
+  ClpXP/ClpAP/Lon/HslUV/FtsH only. Under the Gr-ADI modality the substrate must **already be unstructured**:
+  disorder, low stability, nascent chain, or a natively dynamic assembly. Disorder and
+  `two_domain_architecture` are therefore first-class features, not minor ones.
+- The proposal's WP1 criterion (c) **changed between drafts** (v3 "partnerless activated ClpP" → v5 "substrate
+  of a ClpP protease *complex*") while the validation assay stayed partnerless. So the axis emits **two bars
+  that are never averaged**: `clpP_complex_substrate` (selection, well populated) and `partnerless_clpP`
+  (validation, sparse), plus `bar_disagreement`.
+- ClpC/McsB are **absent** from both organisms, so every published (ClpC1-based) BacPROTAC describes a machine
+  they do not have.
+
+Built and run: `src/degradability.py` (helpers; corrected degron motifs with archetype self-tests;
+growth-corrected turnover; per-paper trap weights with a ClpC cap), `10a_fetch_degradability.py` (9-dataset
+manifest + fetch ladder + `--stage` for browser-obtained files), `10b_degrons.py` (motifs + terminal pLDDT
+exposure, full proteome coverage), `10c_clpp_activator.py` (**track 3.3c** — the ADEP4/ONC212 activated-ClpP
+evidence, transferred onto Kp/Ec by NCBI-efetch → DIAMOND RBH; 608/5,728 Kp and 609/4,403 Ec, ~11–14% coverage,
+which is the honest ceiling). Not built: global disorder/architecture, turnover, biophysics, assembly state, the
+compartment router, the merge, plots.
+
+**The webapp still serves the OLD values — do not trust `comp_degradability` yet:**
 
 - **Kp**: a frozen legacy file, `data/processed/legacy/klebsiella_pneumoniae_clp_degradability.tsv`, written by
-  that deleted regex script. Its "experimental" inputs under `data/raw/legacy/clp_substrates/` are
-  **hand-curated 45- and 35-protein substitutes**, not the papers' supplementary tables (see their
-  `SOURCE.md`). Net signal: 5 proteins with an ssrA-like C-terminus, 21 with trap evidence, 10 in the `high`
-  tier.
+  a since-deleted regex script (`scripts/03_annotate_clp_degradability.py`, removed in `8327de3`; the `03x` slot
+  is now orthology). Its "experimental" inputs under `data/raw/legacy/clp_substrates/` are **hand-curated 45-
+  and 35-protein substitutes**, not the papers' supplementary tables (see their `SOURCE.md`). Net signal: 5
+  proteins with an ssrA-like C-terminus, 21 with trap evidence, 10 in the `high` tier. It has **four verified
+  defects**, including an **inverted N-end rule** that supplies 680 of its 698 `medium` calls.
 - **E. coli**: a **deterministic MD5 mock** (`08a_webapp_export.py:degradability_frame`), flagged
-  `PROVISIONAL` in `app/config.js:37`. Do not treat `comp_degradability` for `ec` as data.
+  `PROVISIONAL` in `app/config.js:37`. Not data.
 
-Do not extend the legacy file or the mock. The re-specified axis — three compartment-routed handles
-(ClpXP / FtsH / DegP), since *Klebsiella* encodes **no ClpC or McsB** — is documented in
-`docs/03_degradability.md`, with the full audit, dataset inventory and access routes in
-`docs/degradability_report.md` and citations in `docs/degradability_references.md`. Planned home is stage
-`10*` plus a prerequisite `09c_deeplocpro.py`.
+Do not extend either; retire both when the merge lands. Spec: `docs/03_degradability.md` (see the
+protease-decision block at the top and the 2026-08-06 composite revision). Audit, Gr-ADI project context and the
+four-target check: `docs/degradability_report.md` (§12 supersedes parts of §1–§7). Citations:
+`docs/degradability_references.md` (§10 = project documents + the activator layer). Download routes and the
+identifier bridge: `docs/degradability_downloads.md` (§A″).
 
 ## Setup
 

@@ -65,6 +65,32 @@ lipobox, the categorical ortholog transfer, and the accessibility ladder.
   membership only — `pident`/`coverage`/`bitscore` are entirely empty — so there is no identity to
   threshold on either. `transfer_categorical_ecoli_to_kp` uses donor consensus and **abstains on
   ties** (only 81 of 3,179 anchors have >1 E. coli ortholog).
+  **This limitation is not specific to localization** — any axis planning to threshold kp→ec
+  transfer on percent identity will hit the same empty columns and should check before designing
+  around them.
+- **The peripheral-membrane trap in the UniProt CC text.** A protein annotated
+  `"Cytoplasm. Cell inner membrane; Peripheral membrane protein."` (DnaK is the archetype) was being
+  classified `inner_membrane`, because the keyword cascade tested "inner membrane" before
+  "cytoplasm" and CC order carries no priority. That understates exactly what this axis measures: a
+  peripherally-attached protein on the cytoplasmic face is as ClpXP-reachable as a soluble one, and
+  it is the distinction `classify_stepdb()` already drew explicitly for STEPdb's `F1` class — so the
+  UniProt parse was also *internally inconsistent* with the STEPdb parse. `classify_uniprot()` now
+  resolves peripheral membrane proteins by the side they sit on before the compartment cascade
+  runs. **43 E. coli proteins** carry `peripheral membrane protein` + `cytoplasmic side`; 40 were
+  mis-binned. Caught by the known-marker spot check, which is the argument for keeping that check.
+- **The β-barrel threshold is ≥8 predicted strands** (`tmbed_features`). Gram-negative OM barrels
+  start at 8; one or two stray predicted strands are noise. Validated by the strand counts below —
+  and by TolC, which sits at 4 because it is a trimer contributing 4 per monomer, and is correctly
+  not flagged.
+- **The topology overrides are a safety net, not a workhorse.** Across both organisms the β-barrel
+  override fired **once** and the Lol "+2 rule" **5 times**, because the higher-precedence sources
+  had already got those proteins right. `membrane_resolved` is the one that does real work (329 Kp /
+  24 Ec) — that is UniProt's side-less "Membrane" label being resolved from topology. Worth knowing
+  before anyone concludes the override machinery is redundant: its value is bounding the worst case,
+  not its hit rate.
+- **A DIAMOND fallback was deliberately not written** in 09b — see
+  `docs/localization_downloads.md` §C. At 100% / 93.4% accession coverage it would have been dead
+  code that never executed; there is a loud coverage assert and a documented remedy instead.
 
 ## Merge precedence (09g)
 
@@ -96,10 +122,36 @@ All of §5.1 is complete, run end-to-end and exported. Coverage went from **40.4
 | `clp_accessibility` ≥ 0.5 (shortlist) | 4,174 | 3,139 |
 | β-barrels (TMbed) | 67 | 66 |
 
-`clp_accessibility` distribution (Kp): 0.0 → 599, 0.2 → 955, 0.6 → 704, 1.0 → 3,470.
+| `clp_accessibility` | meaning | Kp | Ec |
+|---|---|---|---|
+| 1.0 | cytoplasm (incl. peripheral IM, cytoplasmic face) | 3,470 | 2,645 |
+| 0.6 | inner membrane, ≥30% cytoplasm-facing | 704 | 494 |
+| 0.2 | IM mostly buried, or periplasmic | 955 | 842 |
+| 0.0 | OM / β-barrel / extracellular / cell surface | 599 | 422 |
 
-TMbed took ~4 min per 250-protein shard once it had the machine to itself (~2.5 h for both
-proteomes), not the ~17 min/shard measured while DeepLocPro was still competing for CPU.
+| compartment | Kp | Ec |
+|---|---|---|
+| cytoplasm | 3,470 | 2,645 |
+| inner_membrane | 1,425 | 1,099 |
+| extracellular | 389 | 204 |
+| periplasm | 234 | 240 |
+| outer_membrane | 193 | 181 |
+| cell_wall_surface | 17 | 34 |
+
+Winning source: Kp `deeplocpro` 2,874 · `ortholog_transfer` 1,680 · `uniprot_curated` 1,173 ·
+`uniprot_experimental` 1. Ec `deeplocpro` 1,664 · `stepdb` 1,229 · `uniprot_experimental` 802 ·
+`uniprot_curated` 708. **`psortb` never wins** — DeepLocPro always has a call and outranks it — which
+is by design: PSORTb's role here is corroboration through `predictor_agreement`, not adjudication.
+
+Mean `predictor_agreement` 0.895 (Kp) / 0.919 (Ec).
+
+### Runtime
+
+- **09c DeepLocPro** ~2.3 proteins/s on MPS → ~75 min for both proteomes.
+- **09d TMbed** ~4 min per 250-protein shard with the machine to itself, ≈2.5 h for both. An earlier
+  ~17 min/shard measurement was taken while DeepLocPro was still competing for CPU — worth
+  remembering before extrapolating an ETA from a contended run.
+- Both are resumable, so neither needs babysitting.
 
 ### Validation
 
@@ -126,10 +178,27 @@ proteomes), not the ~17 min/shard measured while DeepLocPro was still competing 
   E. coli labels is a **sanity check, not independent validation**. The meaningful number is
   DeepLocPro vs PSORTb — two fully independent predictors — at **92.6%**.
 - **SignalP 6.0 is not installed.** It is licensed software requiring manual acceptance of the DTU
-  academic terms; `09e` runs without it using a lipobox motif calibrated against UniProt's 99 E. coli
-  lipid-anchor entries (**precision 0.74 / recall 0.82**; the bare Prosite motif alone is 0.36
-  precision). The fallback finds lipoproteins only — it does not type Tat/SPI, Tat/SPII or Sec/SPIII.
-  Set `SIGNALP6_BIN` and re-run `09e` + `09g` to upgrade the track.
+  academic terms (route in `docs/localization_downloads.md` §F); `09e` runs without it using a
+  lipobox motif. The fallback finds lipoproteins only — it does not type Tat/SPI, Tat/SPII or
+  Sec/SPIII. Set `SIGNALP6_BIN` and re-run `09e` + `09g` to upgrade the track.
+
+  **How the lipobox was calibrated** — against UniProt's 99 E. coli lipid-anchor entries as truth, so
+  nobody re-derives it. The motif alone is unusable; what makes it work is adding the other two
+  defining features of a signal peptide (charged n-region, hydrophobic h-region):
+
+  | rule | n called | precision | recall | F1 |
+  |---|---|---|---|---|
+  | broad motif `[LVIFMTA][ASTVILGMF][GAS]C`, Cys ≤40 | 256 | 0.36 | 0.94 | 0.52 |
+  | Prosite PS51257 `[LVI][ASTVI][GAS]C`, Cys ≤40 | 163 | 0.52 | 0.85 | 0.64 |
+  | + Cys in [14, 35] | 138 | 0.59 | 0.83 | 0.69 |
+  | + h-region hydropathy ≥ 1.0 (Kyte-Doolittle, 12 aa) | 117 | 0.70 | 0.83 | 0.76 |
+  | **+ K/R in the first 8 residues** ← shipped | **109** | **0.74** | **0.82** | **0.78** |
+
+  Tightening hydropathy to ≥2.0 collapses recall to 0.53 — the h-region of a lipoprotein signal
+  peptide is shorter and less hydrophobic than a classic Sec/SPI one, so do not push it further.
+  Parameters live in `src/localization.py` (`LIPOBOX_*`). Note they were tuned on E. coli and applied
+  unchanged to Kp, which is the usual mild overfitting risk; the filters are textbook signal-peptide
+  architecture rather than arbitrary constants, which is the argument that it transfers.
 - **STEPdb evidence tier is a proxy.** Its CSV mixes hand-curated and inferred assignments without an
   explicit flag, so a cited reference in `Annotation References` is used as the stand-in for bench
   support (2,114/3,897 rows). The file is semicolon-delimited with semicolons inside free-text cells,
@@ -139,3 +208,33 @@ proteomes), not the ~17 min/shard measured while DeepLocPro was still competing 
   commercial deliverable.
 - **Sequences are truncated at 2,000 residues** for DeepLocPro (ESM-2 cost is quadratic in length).
   Localization signal is overwhelmingly N-terminal; affected proteins carry `dlp_truncated`.
+
+## Artifacts and where they live
+
+Code, docs and the webapp payload are in Git (commit `c7c7222`, branch `localization-axis`).
+Everything under `data/` and `output/` goes through **eosvc, and has not been pushed yet**:
+
+| | path | regenerable? |
+|---|---|---|
+| per-track + merged tables (20 CSVs) | `output/results/<org>/<prefix>_loc*.csv`, `<prefix>_localization*.csv` | yes, but cheap to keep — this is the deliverable |
+| slides | `output/plots/09h_localization_{kp,ec}.png` | yes |
+| PSORTdb tables + id-mapping cache | `data/raw/<org>/localization/psortdb/` | yes (network) |
+| STEPdb CSV | `data/raw/ecoli/localization/stepdb/` | yes (network) |
+| DeepLocPro per-protein cache | `data/processed/<org>/localization/deeplocpro/` | yes (~75 min compute) |
+| TMbed shard cache | `data/processed/<org>/localization/tmbed/` | yes (~2.5 h compute) |
+
+The two prediction caches are the bulk of the ~53 MB. Stale artifacts from the pre-rework track that
+nothing reads any more are listed in `docs/localization_downloads.md` §H.
+
+## Open leads (not done)
+
+Carried over from the §5 spec, unchanged by this build:
+
+- **PRED-TMBB2 β-barrel cross-check** — a second opinion on the call that matters most. TMbed is
+  currently the only source of it.
+- **Structure-derived surface exposure (new 5.3)** — DSSP/SASA on the AlphaFold models already
+  fetched by `04a`. Would give a continuous exposure measure rather than a compartment proxy, and
+  `src/degradability.py` already has an `exposure` helper.
+- **The whole of §5.2** — expression/abundance (PaxDb, condition-specific Kp proteomics). Localization
+  answers *can Clp reach it*; §5.2 answers *is it there at all*, and the axis is only half its name
+  until that lands.
