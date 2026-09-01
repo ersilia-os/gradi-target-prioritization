@@ -175,6 +175,16 @@ also `human`); they default to `kpneumoniae`.
   2020 (ONC212) *S. aureus* proteomics, mapped on by NCBI-efetch → DIAMOND RBH (needs DIAMOND from
   `gradi-ortho`), writing `output/results/<org>/<prefix>_clpp_activator.csv`. Shared helpers in
   `src/degradability.py` (reuses `src/ligandability.py` and `src/essentiality.py`).
+  **Degron slides (E. coli only so far):** `10k_degron_plots.py` — do sequence degrons work at all
+  (prevalence, odds ratios *with intervals*, motif × accessibility, what drives `degron_score`, the
+  ssrA-like set). `10o_degron_relevance.py` — do they work for *partnerless activated ClpP*, which is
+  the question that decides the axis; answer: no, and the mechanism is why. Headlines: only **42 of
+  4,403** proteins carry a weighted motif, ρ(exposure, `degron_score`) = **0.999** so the score is
+  exposure not motif, **0 of the 11** ssrA-like proteins has an exposed C-terminus, and only **8** of
+  the 609 activator-evidence proteins carry a weighted motif. Note `cterm_cm1_broad` holds weight
+  0.40 on an OR whose 95% CI (0.76–11.99) **covers 1**. Run log: `docs/degradability_degron_log.md`.
+  ⚠ The activated-ClpP evidence is ***S. aureus*** data (Conlon/Jacques) transferred by RBH at median
+  42% identity — no native Gram-negative dataset exists — so `10o` labels every panel using it.
 - `10e_measured_turnover.py` — the **measured** turnover/attribution layer: Nagar 2021 half-lives
   (materialises `D.load_nagar()`, which had only ever been used in memory), Gupta 2024 (13 conditions
   + the ΔclpP/Δlon/ΔhslV/triple/ΔsmpB panel) and Niwa 2022 (Lon vs ClpXP vs HslUV) →
@@ -238,9 +248,10 @@ Docs, in the order they are useful:
 - `docs/degradability_references.md` — citations (§10 = project documents + the activator layer).
 - `docs/degradability_downloads.md` — download routes (§A″ activator, §A‴ in-hand literature + route corrections).
 - `data/raw/other/degradability/literature/` — **PDFs of three previously-gated papers**: Flynn 2003 and Neher 2006 (the E. coli ClpXP
-  trap sets, ~60 + ~100 proteins) and Ziemski 2021 Table S1. Note Flynn's real N-M1 consensus is
-  `T-X-K-[ILV]` at positions 1–4, which **contradicts the reason `src/degradability.py` gives for dropping
-  NM1/NM3** — see `degradability_datasets.md` §3.1.
+  trap sets, ~60 + ~100 proteins) and Ziemski 2021 Table S1. Flynn's real N-M1 (`T-X-K-[ILV]`, 1–4
+  residues in) and N-M3 consensuses are now **implemented** in `src/degradability.py` with archetype
+  self-tests, at **weight 0 pending measurement** — see `degradability_datasets.md` §3.1. They are
+  absent from the current `*_deg_degrons.csv` vintage; re-run `10b` to materialise them.
 
 ## Setup
 

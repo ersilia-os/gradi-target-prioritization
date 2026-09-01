@@ -102,15 +102,21 @@ flowchart LR
 One class per node, and the shape must match the class's row in §1. Examples
 drawn from the existing pipeline diagrams:
 
-- *Flynn 2003 ClpXP/ClpAP trap census* → `DS[("Flynn 2003 …")]:::dataset` (cylinder, yellow).
-- *Nagar 2021 E. coli half-lives* → `NAGAR[("Nagar 2021 …")]:::dataset`.
-- *scripts/03_annotate_clp_degradability.py* → `M["scripts/03_…"]:::method` (rectangle, blue).
-- *Composite `clp_degradability_score` → tier* → `R(["Composite score …"]):::result` (stadium, mint).
+- *Eichelberger 2024 ECL8 TraDIS call set* → `DS[("Eichelberger 2024 …")]:::dataset` (cylinder, yellow).
+- *Gupta 2024 E. coli turnover rates* → `GUPTA[("Gupta 2024 …")]:::dataset`.
+- *scripts/07h_essentiality_merge.py* → `M["scripts/07h_…"]:::method` (rectangle, blue).
+- *Composite `essentiality_score` → tier* → `R(["Composite score …"]):::result` (stadium, mint).
 - *Structures (PDB + AlphaFold) — from task-agnostic layer* → `TA("Structures …"):::tagnostic` (rounded, pink).
 - *UniProt reference proteome UP000007841* → `SRC{{"UniProt …"}}:::source` (hexagon, purple).
-- *ESM2-based degradability ML (planned)* → `ML["ESM2 …"]:::planned` (rect dashed, gray).
-- *ClpK paralog handling (parser stub)* → `CLPK[/"ClpK …"\]:::stub` (parallelogram dashed, orange).
-- *ESM2 embeddings (standalone vector store)* → `ESM2(["ESM2 …"]):::embedding` (stadium, method blue) — same color as method but stadium shape signals it's a sidecar artifact, not a column joined into the main table.
+- *Terminal-disorder scoring (planned, `10b`)* → `TD["Terminal disorder …"]:::planned` (rect dashed, gray).
+- *AF2Bind binding-site prediction (parser stub)* → `AF2B[/"AF2Bind …"\]:::stub` (parallelogram dashed, orange).
+- *ESM-C embeddings (standalone vector store)* → `ESMC(["ESM-C 600M …"]):::embedding` (stadium, method blue) — same color as method but stadium shape signals it's a sidecar artifact, not a column joined into the main table.
+
+Note on `docs/03_degradability.md`: that axis is unimplemented, so **every** compute,
+dataset and result node in its diagram is a dashed rectangle carrying `:::planned` (status
+wins over role there, per §5 — a `:::planned` cylinder would mismatch shape and class), and
+every edge is dotted. Only the proteome (`:::source`) and the two pre-computed inputs
+(`:::tagnostic`) are in color — which is itself the intended signal.
 
 Edges follow the default plum line color; mark planned/stub edges with `-.->`
 (dotted) and implemented edges with `-->` (solid). The class on the *node*

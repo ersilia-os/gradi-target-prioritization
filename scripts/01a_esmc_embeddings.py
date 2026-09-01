@@ -104,11 +104,17 @@ def embed_sequence(client, seq: str) -> np.ndarray:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--organism", choices=list(ORGANISMS), default="kpneumoniae")
+    ap.add_argument("--fasta", type=Path, default=None,
+                    help="embed this FASTA instead of a reference proteome (keys = header ids). "
+                         "Requires --out. Added for the S. aureus activator set used by 10f, whose "
+                         "sequences are RefSeq/GenBank and so have no proteome TSV.")
     ap.add_argument("--device", choices=["auto", "cuda", "mps", "cpu"], default="auto")
     ap.add_argument("--limit", type=int, default=0, help="embed only first N (0 = all)")
     ap.add_argument("--out", type=Path, default=None, help="override output NPZ path")
     args = ap.parse_args()
 
+    if args.fasta and not args.out:
+        sys.exit("--fasta requires --out (there is no conventional path for a non-proteome set)")
     stem, prefix = ORGANISMS[args.organism]
     tsv_path = REPO_ROOT / "data" / "raw" / args.organism / "proteome" / f"{stem}.tsv"
     out_path = args.out or (
@@ -123,10 +129,27 @@ def main() -> None:
     device = pick_device(args.device)
     print(f"Device: {device}")
 
-    df = pd.read_csv(tsv_path, sep="\t")
+    if args.fasta:
+        ids, seqs, cur = [], [], None
+        for line in args.fasta.read_text().splitlines():
+            if line.startswith(">"):
+                cur = line[1:].split()[0]
+                ids.append(cur); seqs.append("")
+            elif cur is not None:
+                seqs[-1] += line.strip()
+        df = pd.DataFrame({"Entry": ids, "Sequence": seqs})
+        df = df[df["Sequence"].str.len() > 0].reset_index(drop=True)
+        src = args.fasta.resolve()
+    else:
+        df = pd.read_csv(tsv_path, sep="\t")
+        src = tsv_path
     if args.limit:
         df = df.head(args.limit)
-    print(f"Proteins to embed: {len(df)} (from {tsv_path.relative_to(REPO_ROOT)})")
+    try:
+        shown = src.relative_to(REPO_ROOT)
+    except ValueError:
+        shown = src
+    print(f"Proteins to embed: {len(df)} (from {shown})")
 
     print(f"Loading model {MODEL_ID} ...")
     client = load_client(device)
@@ -154,9 +177,12 @@ def main() -> None:
         pooling=np.array(POOLING),
         dim=np.array(EMBED_DIM),
     )
+    try:
+        shown_out = out_path.resolve().relative_to(REPO_ROOT)
+    except ValueError:
+        shown_out = out_path
     print(
-        f"Wrote {embeddings.shape[0]} x {embeddings.shape[1]} embeddings "
-        f"to {out_path.relative_to(REPO_ROOT)}"
+        f"Wrote {embeddings.shape[0]} x {embeddings.shape[1]} embeddings to {shown_out}"
     )
     if skipped:
         print(f"Skipped {len(skipped)} proteins: {', '.join(skipped)}")
