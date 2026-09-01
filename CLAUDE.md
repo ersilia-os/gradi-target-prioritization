@@ -125,17 +125,20 @@ Numbered so the stage is obvious. Run with the `gradi` env.
   never leave it empty. Alternatives are kept in preference order and every fill is audited.
 
   Outputs **four tables and nothing else at the top level** —
-  `data/processed/00_proteomes/<species>.tsv`, 11 columns, keyed on `uniprot_ac`. Supporting detail
-  goes in `accessory/`: the wide xref layer (`<species>_annotation.tsv`), `name_audit.tsv`,
-  `registry.tsv`, `manifest.tsv` and the UniRef90 cache. Load with `src/proteomes.py`
-  (`load`, `load_all`, `load_annotation`, `id_bridge`) rather than adding stacked artifacts — the
-  first run wrote a `proteins.parquet` and an `id_bridge.tsv` that were verified pure derivations,
-  27 MB for zero new information.
+  `data/processed/00_proteomes/<species>.tsv`, **9 columns**, keyed on `uniprot_ac`: identity and
+  nothing else. Supporting detail lives in `accessory/`: `<species>_locus_tags.tsv`,
+  `<species>_annotation.tsv` (the wide xref layer), `name_audit.tsv`, `registry.tsv`, `manifest.tsv`
+  and the UniRef90 cache.
+
+  **Load through `src/proteomes.py`** — `load`, `load_all`, `load_locus_tags`, `with_locus_tags`,
+  `load_annotation`, `id_bridge` — rather than adding stacked artifacts. The first run wrote a
+  `proteins.parquet` and an `id_bridge.tsv` that were verified pure derivations of the four tables:
+  27 MB for zero new information. **Locus tags are the join key for published bacterial data**
+  (Tn-seq, TraDIS, CRISPRi, proteomics), so reach for `with_locus_tags()` before joining anything
+  external.
+
   CLI: `--tier A,B,C,D` · `--only LABEL` · `--refresh` · `--dry-run` · `-q`.
   Details, traps and the run log: `docs/00_proteomes.md`.
-
-  **`locus_tag_all` looks redundant and is not**: it carries the Keio JW ids for 4,252 of 4,403
-  E. coli rows, which v1 needed a dedicated `jw_to_uniprot()` bridge for.
 
 Registry tiers: **A** the 4 anchors · **B** same-species name-donor pools · **C** a 26-species
 comparator panel for orthology (v1's curated panel, with every species now pinned to an explicit

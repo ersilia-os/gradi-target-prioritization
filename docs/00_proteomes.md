@@ -137,11 +137,12 @@ like a genuine conflict.
 
 ```
 data/processed/00_proteomes/
-  kpneumoniae.tsv    5,728 x 11
-  ecoli.tsv          4,403 x 11
-  saureus.tsv        2,889 x 11
-  human.tsv         20,416 x 11
+  kpneumoniae.tsv    5,728 x 9
+  ecoli.tsv          4,403 x 9
+  saureus.tsv        2,889 x 9
+  human.tsv         20,416 x 9
   accessory/
+    <species>_locus_tags.tsv   locus_tag + locus_tag_all
     <species>_annotation.tsv   the wide xref layer, free in the same request
     name_audit.tsv             every name fill: donor, candidates, contested, rule
     registry.tsv  manifest.tsv
@@ -153,7 +154,7 @@ data/raw/00_proteomes/uniprot/<label>.{fasta,tsv}   as fetched, + <label>.SOURCE
 It is `accessory/`, not `intermediate/` — these are supporting detail for a finished table, not
 staging artifacts on the way to something else.
 
-### The 11 columns
+### The 9 columns
 
 ```
 uniprot_ac         primary key
@@ -161,32 +162,24 @@ is_reviewed        near-useless for Kp (0.1%) but real for Sa (28.2%)
 gene_name          the PREFERRED name — exactly one, always
 gene_name_source   anchor | species_exact | species_uniref90 | none
 gene_synonyms      literature uses old names (e.g. yggV for rdgB)
-locus_tag          the real join key for published data
-locus_tag_all      every locus namespace for this protein
-protein_name        the only readable handle for the 37% Kp / 55% Sa still unnamed
+protein_name       the only readable handle for the 37% Kp / 55% Sa still unnamed
 sequence           kept in-table so a single file is self-contained
-refseq  geneid     the bridges to NCBI / PSORTdb / literature lookup
+refseq  geneid     the bridges to NCBI and literature lookup
 ```
 
-Two of these are load-bearing in a way that is easy to miss:
+Identity and nothing else. Everything dropped from the first run's 17 columns was measured, not
+guessed: `taxid` and `species` had exactly one distinct value per file (they existed only for a
+stacked parquet); `sequence_md5` was verified identical to `md5(sequence)`, which stays; `length` is
+`len(sequence)`; `gene_name_donor` + `gene_name_candidates` moved to `accessory/name_audit.tsv`.
 
-- **`locus_tag`** is at 100% while `gene_name` is at 18.4% on Kp, and essentially every published
-  bacterial dataset — Tn-seq, TraDIS, CRISPRi, proteomics — keys on locus tags rather than accessions
-  or gene names. v1's worst recurring cost was a gene-symbol join that lost ~27% of known essentials.
-- **`locus_tag_all`** looks like a duplicate of `locus_tag` (99.7% identical for Kp) but differs in
-  **4,252 of 4,403 E. coli rows**, because it carries the **Keio JW ids**: `b4599 JW1527.1`. v1 needed
-  a dedicated `jw_to_uniprot()` bridge for exactly this. Dropping it would recreate a known problem.
-
-**Five columns were dropped after measuring the first run**, which produced a 17-column table:
-`taxid` and `species` had exactly one distinct value per file (they existed only for a stacked
-parquet); `sequence_md5` was verified identical to `md5(sequence)`, which stays; `length` is
-`len(sequence)`; and `gene_name_donor` + `gene_name_candidates` moved to `accessory/name_audit.tsv`,
-where provenance detail belongs.
+**The locus tags moved to `accessory/<species>_locus_tags.tsv`** rather than being discarded, since
+they are the join key for published bacterial data. Coverage there: Kp 5,728/5,728 · Ec 4,402/4,403 ·
+Sa 2,844/2,889 · human 0/20,416. Join them back with `src.proteomes.with_locus_tags(species)`.
 
 **Two files were deleted outright**, not moved: `proteins.parquet` (19 MB, verified a pure concat of
-the four tables) and `id_bridge.tsv` (8 MB, a melt of four columns already present). Between them they
-carried **zero** new information. `src/proteomes.py` provides `load_all()` and `id_bridge()` instead —
-verified to reproduce both (33,436 stacked rows; JW ids reachable at 4,252).
+the four tables) and `id_bridge.tsv` (8 MB, a melt of columns already present). Between them they
+carried **zero** new information. `src/proteomes.py` provides `load`, `load_all`, `load_locus_tags`,
+`with_locus_tags`, `load_annotation` and `id_bridge` instead.
 
 ### `accessory/<species>_annotation.tsv`
 

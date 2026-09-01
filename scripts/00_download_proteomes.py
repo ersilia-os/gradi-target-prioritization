@@ -614,21 +614,25 @@ def locus_bridge_from_gff(gff_path: Path) -> pd.DataFrame:
 
 # ------------------------------------------------------------------ assemble the deliverable
 
-# Eleven columns, each carrying information. Dropped after measuring the first run:
+# Nine columns: identity and nothing else. Everything dropped from the first run's 17 was measured
+# rather than guessed:
 #   taxid, species     -- exactly 1 distinct value per file, now that there is one table per species
 #   sequence_md5       -- verified identical to md5(sequence), and `sequence` stays
 #   length             -- len(sequence)
-#   gene_name_donor, gene_name_candidates -> accessory/name_audit.tsv, where provenance belongs
-# `locus_tag_all` looks redundant (99.7% identical to locus_tag for Kp) but carries the Keio JW ids
-# for 4,252 of 4,403 E. coli rows, which v1 needed a dedicated jw_to_uniprot() bridge for.
+#   gene_name_donor, gene_name_candidates -> accessory/name_audit.tsv (provenance detail)
+#   locus_tag, locus_tag_all             -> accessory/<species>_locus_tags.tsv
+# The locus tags are the join key for published bacterial data, so they are kept in full next door
+# rather than discarded -- including `locus_tag_all`, which carries the Keio JW ids for 4,252 of
+# 4,403 E. coli rows. Join them back with src.proteomes.with_locus_tags().
 IDENTITY_OUT = [
     "uniprot_ac", "is_reviewed", "gene_name", "gene_name_source", "gene_synonyms",
-    "locus_tag", "locus_tag_all", "protein_name", "sequence", "refseq", "geneid",
+    "protein_name", "sequence", "refseq", "geneid",
 ]
+LOCUS_OUT = ["uniprot_ac", "locus_tag", "locus_tag_all"]
 
 
 def build_identity(anchor: pd.DataFrame, donor: pd.DataFrame | None,
-                   uniref: dict | None) -> tuple[pd.DataFrame, list[dict], int]:
+                   uniref: dict | None) -> tuple[pd.DataFrame, list[dict], int, pd.DataFrame]:
     df = _norm(anchor)
     df, audit = enrich_names(df, donor, uniref)
 
@@ -656,7 +660,8 @@ def build_identity(anchor: pd.DataFrame, donor: pd.DataFrame | None,
     n_contested = int(df["gene_name_candidates"].str.contains(";", na=False).sum())
 
     out = df.reindex(columns=IDENTITY_OUT)
-    return out, audit, n_contested
+    locus = df.reindex(columns=LOCUS_OUT)
+    return out, audit, n_contested, locus
 
 
 def coverage_table(df: pd.DataFrame, title: str) -> None:
@@ -799,7 +804,7 @@ def main() -> None:
         else:
             say("    no donor pool selected - names come from the anchor only")
 
-        ident, audit, n_contested = build_identity(anchor, donor, uniref)
+        ident, audit, n_contested, locus = build_identity(anchor, donor, uniref)
         for a in audit:
             a["species"] = sp
         all_audit += audit
@@ -813,6 +818,11 @@ def main() -> None:
                                       ["KEGG", "STRING", "EMBL", "eggNOG", "BioCyc", "InterPro",
                                        "Pfam", "PANTHER", "Gene Ontology IDs", "EC number",
                                        "Protein families", "PDB", "AlphaFoldDB"]])
+        lp = ACC_DIR / f"{sp}_locus_tags.tsv"
+        locus.to_csv(lp, sep="\t", index=False)
+        n_lt = int(locus["locus_tag"].str.strip().ne("").sum())
+        say(f"    wrote accessory/{lp.name}  ({n_lt}/{len(locus)} rows carry a locus tag)")
+
         ap_ = ACC_DIR / f"{sp}_annotation.tsv"
         ann.to_csv(ap_, sep="\t", index=False)
         say(f"    wrote accessory/{ap_.name}  ({ann.shape[1]} columns)")

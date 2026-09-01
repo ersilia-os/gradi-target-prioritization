@@ -43,6 +43,19 @@ def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def load_locus_tags(species: str) -> pd.DataFrame:
+    """`uniprot_ac`, `locus_tag`, `locus_tag_all` — kept out of the main table to keep it simple."""
+    path = ACCESSORY_DIR / f"{species}_locus_tags.tsv"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} -- run scripts/00_download_proteomes.py first")
+    return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+
+
+def with_locus_tags(species: str) -> pd.DataFrame:
+    """The species table with its locus tags joined back on, for identifier-based joins."""
+    return load(species).merge(load_locus_tags(species), on="uniprot_ac", how="left")
+
+
 def load_annotation(species: str) -> pd.DataFrame:
     """The wide xref layer: kegg, string, embl, eggnog, biocyc, interpro, pfam, panther, go, ec, pdb.
 
@@ -57,13 +70,13 @@ def load_annotation(species: str) -> pd.DataFrame:
 def id_bridge(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
     """Long form `uniprot_ac x (namespace, identifier)`, for joining external datasets.
 
-    `locus_tag` is the namespace that matters: it is at ~100% coverage while `gene_name` is at 18.4%
-    for K. pneumoniae, and published Tn-seq / TraDIS / CRISPRi / proteomics datasets key on locus
-    tags. Note `locus_tag_all` carries the Keio JW ids for E. coli, which is why it is included.
+    Pulls the locus tags in from accessory/ automatically, so this stays a one-call way to reach
+    every identifier a protein is known by.
     """
     rows = []
     for sp in species:
         t = load(sp)
+        t = t.merge(load_locus_tags(sp), on="uniprot_ac", how="left").fillna("")
         for ns in ("locus_tag", "locus_tag_all", "refseq", "geneid", "gene_name"):
             for ac, val in zip(t["uniprot_ac"], t[ns]):
                 for tok in str(val or "").replace(";", " ").split():
