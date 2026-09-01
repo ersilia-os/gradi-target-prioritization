@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "app/**"
+      - "legacy/app/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -29,13 +29,13 @@ jobs:
         run: |
           # rewrite ?v=… on the CSS/JS asset tags so every deploy ships uniquely-versioned
           # assets (no manual bumping, no stale-cache after a deploy)
-          sed -i "s/?v=[0-9A-Za-z._-]*/?v=${GITHUB_SHA::12}/g" app/index.html
-          grep -o '?v=[0-9A-Za-z._-]*' app/index.html | sort -u
+          sed -i "s/?v=[0-9A-Za-z._-]*/?v=${GITHUB_SHA::12}/g" legacy/app/index.html
+          grep -o '?v=[0-9A-Za-z._-]*' legacy/app/index.html | sort -u
       - uses: actions/configure-pages@v5
         with:
           enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: app          # publish the app/ folder as the site root
+          path: legacy/app          # publish the archived v1 app as the site root
       - id: deployment
         uses: actions/deploy-pages@v4

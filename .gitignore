@@ -9,9 +9,16 @@ tmp/
 .vscode/
 .obsidian/
 
-# Web app data is a committed deploy artifact — exception to the `data/` rule above
-!/app/data/
-!/app/data/**
+# Web app data is a committed deploy artifact — exception to the `data/` rule above.
+# The app moved under legacy/ when v1 was archived; the exception has to follow it.
+!/legacy/app/data/
+!/legacy/app/data/**
+
+# legacy/data and legacy/output are symlinks to the real trees one level up, so the
+# archived scripts' `parents[1]` path resolution still works. The `data/`/`output/`
+# patterns above have trailing slashes and do NOT match a symlink, so name them.
+/legacy/data
+/legacy/output
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
