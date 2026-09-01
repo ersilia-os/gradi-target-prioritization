@@ -46,13 +46,13 @@ Outputs
   data/raw/00_proteomes/uniprot/<label>.{fasta,tsv}   exactly as fetched, plus SOURCE.md
   data/raw/00_proteomes/ncbi/<label>.{faa,gff}        tier D bridge strains
   data/processed/00_proteomes/
-      registry.tsv              the registry as actually fetched
-      manifest.tsv              label, url, n, sha256, release, fetched_at
-      <species>_identity.tsv    THE deliverable
-      <species>_annotation.tsv  the wide layer, free in the same request
-      proteins.parquet          all identity tables stacked
-      id_bridge.tsv             long form: uniprot_ac x (namespace, identifier)
-      name_audit.tsv            every name fill, with its donor
+      <species>.tsv             THE deliverable -- four tables, 11 columns, one per species
+      accessory/
+          <species>_annotation.tsv  the wide xref layer, free in the same request
+          name_audit.tsv            every name fill: donor, candidates, contested, rule
+          registry.tsv              the registry as actually fetched
+          manifest.tsv              label, url, n, sha256, release, fetched_at
+          .uniref90_<species>.json  the clustering cache
 
 Run with the `gradi` env:
     python scripts/00_download_proteomes.py                      # tiers A + B
@@ -84,6 +84,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = REPO_ROOT / "src" / "proteome_registry.tsv"
 RAW_DIR = REPO_ROOT / "data" / "raw" / "00_proteomes"
 OUT_DIR = REPO_ROOT / "data" / "processed" / "00_proteomes"
+# Supporting detail, not staging artifacts on the way to something else -- hence
+# "accessory" rather than "intermediate". Keeps the top level to the four tables.
+ACC_DIR = OUT_DIR / "accessory"
 
 UNIPROT_STREAM = "https://rest.uniprot.org/uniprotkb/stream"
 UNIPROT_SEARCH = "https://rest.uniprot.org/uniprotkb/search"
@@ -139,7 +142,7 @@ def banner(args: argparse.Namespace) -> None:
     rule("=")
     say(f"  registry : {REGISTRY_PATH.relative_to(REPO_ROOT)}")
     say(f"  raw out  : {RAW_DIR.relative_to(REPO_ROOT)}/")
-    say(f"  stage out: {OUT_DIR.relative_to(REPO_ROOT)}/")
+    say(f"  stage out: {OUT_DIR.relative_to(REPO_ROOT)}/  (+ accessory/)")
     say(f"  tiers    : {', '.join(args.tier)}")
     if args.only:
         say(f"  only     : {', '.join(args.only)}")
@@ -611,29 +614,49 @@ def locus_bridge_from_gff(gff_path: Path) -> pd.DataFrame:
 
 # ------------------------------------------------------------------ assemble the deliverable
 
+# Eleven columns, each carrying information. Dropped after measuring the first run:
+#   taxid, species     -- exactly 1 distinct value per file, now that there is one table per species
+#   sequence_md5       -- verified identical to md5(sequence), and `sequence` stays
+#   length             -- len(sequence)
+#   gene_name_donor, gene_name_candidates -> accessory/name_audit.tsv, where provenance belongs
+# `locus_tag_all` looks redundant (99.7% identical to locus_tag for Kp) but carries the Keio JW ids
+# for 4,252 of 4,403 E. coli rows, which v1 needed a dedicated jw_to_uniprot() bridge for.
 IDENTITY_OUT = [
-    "uniprot_ac", "is_reviewed", "gene_name", "gene_name_source", "gene_name_donor",
-    "gene_name_candidates", "gene_synonyms", "locus_tag", "locus_tag_all", "protein_name",
-    "length", "sequence", "sequence_md5", "taxid", "species", "refseq", "geneid",
+    "uniprot_ac", "is_reviewed", "gene_name", "gene_name_source", "gene_synonyms",
+    "locus_tag", "locus_tag_all", "protein_name", "sequence", "refseq", "geneid",
 ]
 
 
-def build_identity(anchor: pd.DataFrame, row: pd.Series, donor: pd.DataFrame | None,
-                   uniref: dict | None) -> tuple[pd.DataFrame, list[dict]]:
+def build_identity(anchor: pd.DataFrame, donor: pd.DataFrame | None,
+                   uniref: dict | None) -> tuple[pd.DataFrame, list[dict], int]:
     df = _norm(anchor)
-    df["sequence_md5"] = df["sequence"].fillna("").str.strip().map(
-        lambda s: hashlib.md5(s.encode()).hexdigest() if s else "")
-    df["species"] = species_key(row)
     df, audit = enrich_names(df, donor, uniref)
 
     # locus_tag: the ordered-locus name is the real join key for published bacterial data.
-    df["locus_tag"] = df.get("gene_oln", "").fillna("").str.split().str[0].fillna("")
-    df["locus_tag_all"] = df.get("gene_oln", "").fillna("").str.strip()
+    # UniProt returns ";" (or "; ; ; ;") for an organism with no ordered locus names -- human -- so
+    # strip separator-only tokens rather than emitting punctuation as an identifier.
+    oln = df.get("gene_oln", pd.Series([""] * len(df))).fillna("").astype(str)
+    toks = oln.map(lambda v: [t for t in v.replace(";", " ").split() if t])
+    df["locus_tag"] = toks.map(lambda t: t[0] if t else "")
+    df["locus_tag_all"] = toks.map(" ".join)
     for c in ("refseq", "geneid"):
         if c not in df:
             df[c] = ""
+
+    # gene_name is a PREFERRED name, not a maybe: any protein with a candidate must have one. This
+    # is checked here rather than in source_tally() because gene_name_candidates does not survive
+    # into the 11-column output -- it lives in accessory/name_audit.tsv.
+    orphan = df[df["gene_name"].str.strip().eq("")
+                & df["gene_name_candidates"].str.strip().ne("")]
+    if len(orphan):
+        raise RuntimeError(
+            f"{len(orphan)} rows carry gene_name_candidates but no preferred gene_name "
+            f"(e.g. {orphan['uniprot_ac'].head(3).tolist()}) - the total order in _pick() should "
+            "make this impossible")
+    n_contested = int(df["gene_name_candidates"].str.contains(";", na=False).sum())
+
     out = df.reindex(columns=IDENTITY_OUT)
-    return out, audit
+    return out, audit, n_contested
 
 
 def coverage_table(df: pd.DataFrame, title: str) -> None:
@@ -649,7 +672,7 @@ def coverage_table(df: pd.DataFrame, title: str) -> None:
         say(f"      {c:<24} {filled:>7} {100 * filled / n:>6.1f}%")
 
 
-def source_tally(df: pd.DataFrame) -> None:
+def source_tally(df: pd.DataFrame, n_contested: int = 0) -> None:
     say("      gene_name_source:")
     counts = df["gene_name_source"].value_counts()
     for k in ("anchor", "species_exact", "species_uniref90", "none"):
@@ -661,16 +684,7 @@ def source_tally(df: pd.DataFrame) -> None:
     if bad:
         raise RuntimeError(f"unexpected gene_name_source values (cross-species leak?): {bad}")
 
-    # gene_name is a PREFERRED name, not a maybe. Any protein with a candidate must have one.
-    orphan = df[df["gene_name"].str.strip().eq("")
-                & df["gene_name_candidates"].str.strip().ne("")]
-    if len(orphan):
-        raise RuntimeError(
-            f"{len(orphan)} rows carry gene_name_candidates but no preferred gene_name "
-            f"(e.g. {orphan['uniprot_ac'].head(3).tolist()}) - the total order in _pick() should "
-            "make this impossible")
-    contested = int(df["gene_name_candidates"].str.contains(";", na=False).sum())
-    say(f"      contested (>1 candidate, all resolved to a preferred name): {contested}")
+    say(f"      contested (>1 candidate, all resolved to a preferred name): {n_contested}")
 
 
 # ------------------------------------------------------------------ main
@@ -718,6 +732,7 @@ def main() -> None:
         return
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    ACC_DIR.mkdir(parents=True, exist_ok=True)
     manifest: list[dict] = []
 
     # ---- fetch
@@ -767,7 +782,7 @@ def main() -> None:
                 accs = sorted(set(_norm(anchor)["uniprot_ac"]) | set(donor["uniprot_ac"]))
             # Cache the clustering: it is ~22 s per 5,000 accessions, so a re-run of the assembly
             # step would otherwise cost ~10 min of pure re-mapping. Keyed on the accession set.
-            cache = OUT_DIR / f".uniref90_{sp}.json"
+            cache = ACC_DIR / f".uniref90_{sp}.json"
             key = hashlib.md5("\n".join(accs).encode()).hexdigest()
             if not accs:
                 pass
@@ -784,26 +799,26 @@ def main() -> None:
         else:
             say("    no donor pool selected - names come from the anchor only")
 
-        ident, audit = build_identity(anchor, r, donor, uniref)
+        ident, audit, n_contested = build_identity(anchor, donor, uniref)
         for a in audit:
             a["species"] = sp
         all_audit += audit
 
-        ip = OUT_DIR / f"{sp}_identity.tsv"
+        ip = OUT_DIR / f"{sp}.tsv"
         ident.to_csv(ip, sep="\t", index=False)
-        say(f"    wrote {ip.name}  ({len(ident)} rows)")
+        say(f"    wrote {ip.name}  ({len(ident)} rows x {ident.shape[1]} cols)")
 
         ann = _norm(anchor).reindex(
             columns=["uniprot_ac"] + [RENAME.get(c, c) for c in
                                       ["KEGG", "STRING", "EMBL", "eggNOG", "BioCyc", "InterPro",
                                        "Pfam", "PANTHER", "Gene Ontology IDs", "EC number",
                                        "Protein families", "PDB", "AlphaFoldDB"]])
-        ap_ = OUT_DIR / f"{sp}_annotation.tsv"
+        ap_ = ACC_DIR / f"{sp}_annotation.tsv"
         ann.to_csv(ap_, sep="\t", index=False)
-        say(f"    wrote {ap_.name}  ({ann.shape[1]} columns)")
+        say(f"    wrote accessory/{ap_.name}  ({ann.shape[1]} columns)")
 
-        source_tally(ident)
-        stacked.append(ident)
+        source_tally(ident, n_contested)
+        stacked.append((sp, ident))
         say()
 
     # ---- tier D locus bridges
@@ -815,47 +830,39 @@ def main() -> None:
             say(f"  bridge {r['label']}: {len(b)} CDS, "
                 f"{int(b['old_locus_tags'].ne('').sum())} with legacy tags")
 
-    # ---- combined artifacts
+    # ---- outputs
+    rule()
+    say("OUTPUTS")
+    rule()
     if stacked:
-        rule()
-        say("OUTPUTS")
-        rule()
-        allp = pd.concat(stacked, ignore_index=True)
-        allp.to_parquet(OUT_DIR / "proteins.parquet", index=False)
-        say(f"  proteins.parquet   {len(allp)} rows, {allp['species'].nunique()} species")
+        say(f"  {len(stacked)} tables at the top level:")
+        for sp, d in stacked:
+            say(f"    {sp}.tsv{'':<{max(0, 18 - len(sp))}} {len(d):>6} rows x {d.shape[1]} cols")
 
-        bridge = []
-        for _, rr in allp.iterrows():
-            for ns, val in (("locus_tag", rr["locus_tag"]), ("refseq", rr["refseq"]),
-                            ("geneid", rr["geneid"]), ("gene_name", rr["gene_name"])):
-                for tok in str(val or "").replace(";", " ").split():
-                    bridge.append((rr["uniprot_ac"], rr["species"], ns, tok))
-        bdf = pd.DataFrame(bridge, columns=["uniprot_ac", "species", "namespace", "identifier"])
-        bdf.to_csv(OUT_DIR / "id_bridge.tsv", sep="\t", index=False)
-        say(f"  id_bridge.tsv      {len(bdf)} rows over {bdf['namespace'].nunique()} namespaces")
-
+        # No stacked parquet and no id_bridge: both were verified pure derivations of these tables
+        # (19 MB and 8 MB for zero new information). Use src.proteomes.load_all() for a stacked view.
         if all_audit:
             adf = pd.DataFrame(all_audit)
-            adf.to_csv(OUT_DIR / "name_audit.tsv", sep="\t", index=False)
-            say(f"  name_audit.tsv     {len(adf)} fills, "
+            adf.to_csv(ACC_DIR / "name_audit.tsv", sep="\t", index=False)
+            say(f"  accessory/name_audit.tsv  {len(adf)} fills, "
                 f"{int(adf['contested'].sum())} contested (all resolved to a preferred name)")
 
     if bridge_rows:
         pd.concat(bridge_rows, ignore_index=True).to_csv(
-            OUT_DIR / "locus_bridge_strains.tsv", sep="\t", index=False)
-        say("  locus_bridge_strains.tsv written")
+            ACC_DIR / "locus_bridge_strains.tsv", sep="\t", index=False)
+        say("  accessory/locus_bridge_strains.tsv written")
 
-    sel.to_csv(OUT_DIR / "registry.tsv", sep="\t", index=False)
-    pd.DataFrame(manifest).to_csv(OUT_DIR / "manifest.tsv", sep="\t", index=False)
-    say(f"  registry.tsv / manifest.tsv  ({len(manifest)} fetched rows)")
+    sel.to_csv(ACC_DIR / "registry.tsv", sep="\t", index=False)
+    pd.DataFrame(manifest).to_csv(ACC_DIR / "manifest.tsv", sep="\t", index=False)
+    say(f"  accessory/registry.tsv + manifest.tsv  ({len(manifest)} fetched rows)")
 
     if stacked:
         say()
         rule()
         say("COVERAGE")
         rule()
-        for d in stacked:
-            coverage_table(d, d["species"].iloc[0])
+        for sp, d in stacked:
+            coverage_table(d, sp)
             say()
     rule("=")
     say("stage 00 complete.")

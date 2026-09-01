@@ -133,46 +133,70 @@ like a genuine conflict.
 
 ## Outputs
 
+**Four tables at the top level, one per species, and nothing else but `accessory/`.**
+
 ```
-data/raw/00_proteomes/uniprot/<label>.{fasta,tsv}   exactly as fetched, + <label>.SOURCE.md
-data/raw/00_proteomes/ncbi/<label>.{faa,gff}        tier D bridge strains
 data/processed/00_proteomes/
-    registry.tsv               the registry as actually fetched
-    manifest.tsv               label, url, n, sha256, UniProt release, fetched_at
-    <species>_identity.tsv     THE deliverable
-    <species>_annotation.tsv   the wide layer, free in the same request
-    proteins.parquet           all identity tables stacked, + `species`
-    id_bridge.tsv              long form: uniprot_ac × (namespace, identifier)
-    name_audit.tsv             every name fill, with its donor and candidates
+  kpneumoniae.tsv    5,728 x 11
+  ecoli.tsv          4,403 x 11
+  saureus.tsv        2,889 x 11
+  human.tsv         20,416 x 11
+  accessory/
+    <species>_annotation.tsv   the wide xref layer, free in the same request
+    name_audit.tsv             every name fill: donor, candidates, contested, rule
+    registry.tsv  manifest.tsv
+    .uniref90_<species>.json   the clustering cache
+
+data/raw/00_proteomes/uniprot/<label>.{fasta,tsv}   as fetched, + <label>.SOURCE.md
 ```
 
-### `<species>_identity.tsv`
+It is `accessory/`, not `intermediate/` — these are supporting detail for a finished table, not
+staging artifacts on the way to something else.
 
-`uniprot_ac` · `is_reviewed` · `gene_name` · `gene_name_source` · `gene_name_donor` ·
-`gene_name_candidates` · `gene_synonyms` · `locus_tag` · `locus_tag_all` · `protein_name` · `length` ·
-`sequence` · `sequence_md5` · `taxid` · `species` · `refseq` · `geneid`
+### The 11 columns
 
-Two columns are load-bearing in a way that is easy to miss:
+```
+uniprot_ac         primary key
+is_reviewed        near-useless for Kp (0.1%) but real for Sa (28.2%)
+gene_name          the PREFERRED name — exactly one, always
+gene_name_source   anchor | species_exact | species_uniref90 | none
+gene_synonyms      literature uses old names (e.g. yggV for rdgB)
+locus_tag          the real join key for published data
+locus_tag_all      every locus namespace for this protein
+protein_name        the only readable handle for the 37% Kp / 55% Sa still unnamed
+sequence           kept in-table so a single file is self-contained
+refseq  geneid     the bridges to NCBI / PSORTdb / literature lookup
+```
 
-- **`locus_tag`** is at 100% while `gene_name` is at 18.4%. Essentially every published bacterial
-  dataset — Tn-seq, TraDIS, CRISPRi, proteomics — keys on locus tags, not accessions and not gene
-  names. This is the column that fixes v1's most expensive recurring cost.
-- **`protein_name`** is at 100%, and for the ~37% of Kp proteins that remain unnamed even after
-  enrichment it is the only human-readable handle they have.
+Two of these are load-bearing in a way that is easy to miss:
 
-`sequence_md5` is the exact-match join key and also detects a sequence changing between UniProt
-releases.
+- **`locus_tag`** is at 100% while `gene_name` is at 18.4% on Kp, and essentially every published
+  bacterial dataset — Tn-seq, TraDIS, CRISPRi, proteomics — keys on locus tags rather than accessions
+  or gene names. v1's worst recurring cost was a gene-symbol join that lost ~27% of known essentials.
+- **`locus_tag_all`** looks like a duplicate of `locus_tag` (99.7% identical for Kp) but differs in
+  **4,252 of 4,403 E. coli rows**, because it carries the **Keio JW ids**: `b4599 JW1527.1`. v1 needed
+  a dedicated `jw_to_uniprot()` bridge for exactly this. Dropping it would recreate a known problem.
 
-### `<species>_annotation.tsv`
+**Five columns were dropped after measuring the first run**, which produced a 17-column table:
+`taxid` and `species` had exactly one distinct value per file (they existed only for a stacked
+parquet); `sequence_md5` was verified identical to `md5(sequence)`, which stays; `length` is
+`len(sequence)`; and `gene_name_donor` + `gene_name_candidates` moved to `accessory/name_audit.tsv`,
+where provenance detail belongs.
+
+**Two files were deleted outright**, not moved: `proteins.parquet` (19 MB, verified a pure concat of
+the four tables) and `id_bridge.tsv` (8 MB, a melt of four columns already present). Between them they
+carried **zero** new information. `src/proteomes.py` provides `load_all()` and `id_bridge()` instead —
+verified to reproduce both (33,436 stacked rows; JW ids reachable at 4,252).
+
+### `accessory/<species>_annotation.tsv`
 
 `kegg` · `string` · `embl` · `eggnog` · `biocyc` · `interpro` · `pfam` · `panther` · `go_id` · `ec` ·
 `protein_families` · `pdb` · `alphafolddb`.
 
 These come down in the *same* stream request at zero marginal cost, and UniProt's InterPro xref is as
 complete as v1's dedicated InterPro stage (87.1% vs 86.8% on Kp), so banking them now avoids
-re-streaming later. `kegg` and `string` live here rather than in the identity table by explicit
-choice — promoting either later is a column move, not a refetch. **`eggnog` and `biocyc` are 0% on
-Kp**; nothing downstream should assume otherwise.
+re-streaming later. **`eggnog` and `biocyc` are 0% on Kp** — nothing downstream should assume
+otherwise.
 
 ## The registry
 
@@ -287,6 +311,17 @@ Every Gr-ADI target and every Clp-machinery component resolves by gene name in a
 `clpP clpX clpA clpS lon hslU hslV ftsH dnaK acpP gyrA gyrB sspB smpB`. **`clpC` is present and named
 in *S. aureus* only** (`Q2G0P5` / `SAOUHSC_00505`), confirming the asymmetry the degradability axis
 turns on — the Enterobacteriaceae do not have it.
+
+### Output simplified, same numbers (later on 2026-09-01)
+
+The first run wrote 13 files and a 17-column table. Measured, three of those files carried **27 MB and
+one column of new information** between them, so the shape was cut to **4 tables + `accessory/`** and
+the table to **11 columns** (see *Outputs*). Re-run after the change: every figure identical —
+Kp 3,630 / Ec 4,402 / Sa 1,289 / human 20,281 named, 363 contested and all resolved.
+
+A third bug surfaced while doing it: **human `locus_tag` was literally `";"`** and `locus_tag_all`
+`"; ; ; ;"`, because human has no ordered locus names and the raw UniProt field is just separators.
+Now a separator-only field yields an empty string rather than punctuation posing as an identifier.
 
 ### Two bugs found and fixed during the run
 
