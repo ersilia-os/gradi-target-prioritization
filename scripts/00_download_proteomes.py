@@ -66,6 +66,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import json
 import io
 import re
 import sys
@@ -332,19 +333,27 @@ def _is_placeholder(gene: str) -> bool:
 
 
 def build_donor_index(donor: pd.DataFrame) -> tuple[dict, dict]:
-    """sequence -> {gene: {count, reviewed}}, and sequence -> set(synonyms), same-species pool."""
+    """sequence -> {gene: {count, reviewed, acc}}, and sequence -> set(synonyms).
+
+    `acc` is an accession that actually SUPPLIES that gene name, preferring a reviewed one. It must
+    not be "the first accession sharing this sequence" -- the anchor's own entry is usually in the
+    pool (it matches `gene:*` on its locus tag) while carrying no primary name, so that shortcut
+    attributes every name to the anchor itself and destroys the audit trail.
+    """
     from collections import defaultdict
     by_seq: dict[str, dict] = defaultdict(dict)
     syn_by_seq: dict[str, set] = defaultdict(set)
     rev_col = donor["is_reviewed"] if "is_reviewed" in donor else [False] * len(donor)
-    for seq, gene, syn, rev in zip(donor["sequence"], donor["gene_primary"],
-                                   donor["gene_synonym"], rev_col):
+    for acc, seq, gene, syn, rev in zip(donor["uniprot_ac"], donor["sequence"],
+                                        donor["gene_primary"], donor["gene_synonym"], rev_col):
         seq = (seq or "").strip()
         gene = _clean_gene(gene)
         if not seq or not gene:
             continue
-        slot = by_seq[seq].setdefault(gene, {"count": 0, "reviewed": False})
+        slot = by_seq[seq].setdefault(gene, {"count": 0, "reviewed": False, "acc": acc})
         slot["count"] += 1
+        if bool(rev) and not slot["reviewed"]:
+            slot["acc"] = acc                    # a reviewed supporter outranks an unreviewed one
         slot["reviewed"] = slot["reviewed"] or bool(rev)
         for token in (syn or "").split():
             syn_by_seq[seq].add(token)
@@ -401,9 +410,6 @@ def enrich_names(ident: pd.DataFrame, donor: pd.DataFrame | None,
         return ident, audit
 
     by_seq, syn_by_seq = build_donor_index(donor)
-    acc_by_seq: dict[str, str] = {}
-    for acc, seq in zip(donor["uniprot_ac"], donor["sequence"]):
-        acc_by_seq.setdefault((seq or "").strip(), acc)
 
     # --- tier 2: identical sequence, same species
     filled = 0
@@ -414,13 +420,14 @@ def enrich_names(ident: pd.DataFrame, donor: pd.DataFrame | None,
         if seq not in by_seq:
             continue
         chosen, cands, contested, rule = _pick(by_seq[seq])
+        donor_acc = by_seq[seq][chosen]["acc"]
         ident.at[i, "gene_name_candidates"] = ";".join(cands)
         ident.at[i, "gene_name"] = chosen
         ident.at[i, "gene_name_source"] = "species_exact"
-        ident.at[i, "gene_name_donor"] = acc_by_seq.get(seq, "")
+        ident.at[i, "gene_name_donor"] = donor_acc
         filled += 1
         audit.append(dict(uniprot_ac=row["uniprot_ac"], chosen=chosen, source="species_exact",
-                          donor=acc_by_seq.get(seq, ""), candidates=";".join(cands),
+                          donor=donor_acc, candidates=";".join(cands),
                           contested=contested, rule=rule))
     say(f"      species_exact  filled {filled}")
 
@@ -442,15 +449,15 @@ def enrich_names(ident: pd.DataFrame, donor: pd.DataFrame | None,
     if uniref:
         from collections import defaultdict
         by_cluster: dict[str, dict] = defaultdict(dict)
-        acc_by_cluster: dict[str, str] = {}
         rev_col = donor["is_reviewed"] if "is_reviewed" in donor else [False] * len(donor)
         for acc, gene, rev in zip(donor["uniprot_ac"], donor["gene_primary"], rev_col):
             cid, gene = uniref.get(acc), _clean_gene(gene)
             if cid and gene:
-                slot = by_cluster[cid].setdefault(gene, {"count": 0, "reviewed": False})
+                slot = by_cluster[cid].setdefault(gene, {"count": 0, "reviewed": False, "acc": acc})
                 slot["count"] += 1
+                if bool(rev) and not slot["reviewed"]:
+                    slot["acc"] = acc
                 slot["reviewed"] = slot["reviewed"] or bool(rev)
-                acc_by_cluster.setdefault(cid, acc)
         filled = 0
         for i, row in ident.iterrows():
             if row["gene_name"]:
@@ -459,13 +466,14 @@ def enrich_names(ident: pd.DataFrame, donor: pd.DataFrame | None,
             if not cid or cid not in by_cluster:
                 continue
             chosen, cands, contested, rule = _pick(by_cluster[cid])
+            donor_acc = by_cluster[cid][chosen]["acc"]
             ident.at[i, "gene_name_candidates"] = ";".join(cands)
             ident.at[i, "gene_name"] = chosen
             ident.at[i, "gene_name_source"] = "species_uniref90"
-            ident.at[i, "gene_name_donor"] = acc_by_cluster.get(cid, "")
+            ident.at[i, "gene_name_donor"] = donor_acc
             filled += 1
             audit.append(dict(uniprot_ac=row["uniprot_ac"], chosen=chosen,
-                              source="species_uniref90", donor=acc_by_cluster.get(cid, ""),
+                              source="species_uniref90", donor=donor_acc,
                               candidates=";".join(cands), contested=contested, rule=rule))
         say(f"      species_uniref90 filled {filled}")
 
@@ -745,10 +753,34 @@ def main() -> None:
         if len(pool) and (RAW_DIR / "uniprot" / f"{pool.iloc[0]['label']}.tsv").exists():
             donor = _norm(pd.read_csv(RAW_DIR / "uniprot" / f"{pool.iloc[0]['label']}.tsv",
                                       sep="\t", dtype=str, keep_default_na=False))
-            say(f"    donor pool: {len(donor)} named entries")
-            accs = sorted(set(_norm(anchor)["uniprot_ac"]) | set(donor["uniprot_ac"]))
-            say(f"    UniRef90 clustering for {len(accs)} accessions ...")
-            uniref = uniref90_map(accs)
+            say(f"    donor pool: {len(donor)} entries with a gene field")
+            unnamed = int(_norm(anchor)["gene_primary"].fillna("").str.strip().eq("").sum())
+            say(f"    anchor proteins with no gene name: {unnamed}")
+            if unnamed == 0:
+                # Nothing for the UniRef90 tier to fill, so skip a clustering pass that would cost
+                # ~22 s per 5,000 accessions for zero names. The donor pool is still used, for
+                # synonyms. Note E. coli K-12 does NOT hit this branch: it has exactly one unnamed
+                # protein, so it clusters once and then reads its cache.
+                say("    -> anchor fully named; skipping UniRef90 (nothing to fill)")
+                accs = []
+            else:
+                accs = sorted(set(_norm(anchor)["uniprot_ac"]) | set(donor["uniprot_ac"]))
+            # Cache the clustering: it is ~22 s per 5,000 accessions, so a re-run of the assembly
+            # step would otherwise cost ~10 min of pure re-mapping. Keyed on the accession set.
+            cache = OUT_DIR / f".uniref90_{sp}.json"
+            key = hashlib.md5("\n".join(accs).encode()).hexdigest()
+            if not accs:
+                pass
+            elif cache.exists() and not args.refresh:
+                blob = json.loads(cache.read_text())
+                if blob.get("key") == key:
+                    uniref = blob["map"]
+                    say(f"    UniRef90 clusters from cache ({len(uniref)} accessions)")
+            if uniref is None and accs:
+                say(f"    UniRef90 clustering for {len(accs)} accessions ...")
+                uniref = uniref90_map(accs)
+                cache.write_text(json.dumps({"key": key, "map": uniref}))
+                say(f"    cached -> {cache.name}")
         else:
             say("    no donor pool selected - names come from the anchor only")
 

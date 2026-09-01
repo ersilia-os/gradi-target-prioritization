@@ -250,4 +250,66 @@ count matches is skipped unless `--refresh`.
 
 ## Run log
 
-*(to be filled on the first full run)*
+### 2026-09-01 — first full run, tiers A + B
+
+UniProt release **2026_02** (10 June 2026). Wall clock ~45 min, of which ~20 min was fetching and the
+rest UniRef90 clustering. All seven registry rows fetched with **exact** count agreement.
+
+| species | n | anchor | + species_exact | + species_uniref90 | **named** | synonyms gained |
+|---|---|---|---|---|---|---|
+| *K. pneumoniae* HS11286 | 5,728 | 1,055 (18.4%) | +1,259 (22.0%) | +1,316 (23.0%) | **3,630 (63.4%)** | 175 |
+| *E. coli* K-12 | 4,403 | 4,402 (100.0%) | +0 | +0 | **4,402 (100.0%)** | 180 |
+| *S. aureus* NCTC 8325 | 2,889 | 815 (28.2%) | +326 (11.3%) | +148 (5.1%) | **1,289 (44.6%)** | 159 |
+| human | 20,416 | 20,281 (99.3%) | — | — | **20,281 (99.3%)** | — |
+
+**The E. coli control passed:** enrichment added **exactly zero** names. Its one unnamed protein,
+`P75688` / `b0309` ("Putative uncharacterized protein b0309", 70 aa, reviewed), has no gene name in
+UniProt at all and no same-sequence donor that carries one — a real gap, not a join failure.
+
+Combined: `proteins.parquet` 33,436 rows · `id_bridge.tsv` 227,447 rows over 4 namespaces ·
+`name_audit.tsv` 3,049 fills of which 363 contested, **all resolved to a preferred name**.
+
+Coverage of the identity table (Kp): `uniprot_ac`, `is_reviewed`, `locus_tag`, `protein_name`,
+`length`, `sequence_md5`, `taxid`, `species`, `refseq`, `geneid` all **100%**; `gene_name` 63.4%,
+`gene_synonyms` 3.6%. Human `locus_tag` is 0.3% — expected, human has no ordered locus names.
+
+### What the run demonstrated
+
+`legacy/HISTORY.md` trap 58 records that **`clpA` and `sspB` gene symbols are absent from HS11286**,
+so v1 could only find them by a sequence-based census. Both are now resolved by `species_exact`:
+
+```
+clpA  A0A0H3GQX4  KPHS_17930  <- donor A6T6Y0  (MGH 78578)
+sspB  A0A0H3GTU5  KPHS_47670  <- donor A6TEN6  (MGH 78578)
+```
+
+Every Gr-ADI target and every Clp-machinery component resolves by gene name in all three bacteria:
+`clpP clpX clpA clpS lon hslU hslV ftsH dnaK acpP gyrA gyrB sspB smpB`. **`clpC` is present and named
+in *S. aureus* only** (`Q2G0P5` / `SAOUHSC_00505`), confirming the asymmetry the degradability axis
+turns on — the Enterobacteriaceae do not have it.
+
+### Two bugs found and fixed during the run
+
+1. **`gene_name_donor` pointed at the protein itself.** The donor index recorded "the first accession
+   sharing this sequence", and the anchor's own entry is nearly always in the pool — it matches
+   `gene:*` on its locus tag while carrying no primary name. So every attribution named the anchor and
+   the audit trail was useless. Now the index stores a supporting accession *per gene name*, preferring
+   a reviewed one. Verified: **0 of 3,049 attributions are self-referential.**
+2. **No UniRef90 cache.** Re-running the assembly cost ~10 min of pure re-mapping. Now cached per
+   species in `.uniref90_<species>.json`, keyed on an md5 of the accession set so a changed proteome
+   invalidates it. A re-run is now seconds.
+
+Also added: the clustering pass is skipped entirely when the anchor has no unnamed proteins. Note
+E. coli does **not** hit that branch — it has exactly one — so it clusters once, then reads its cache.
+
+### Residual gaps worth knowing
+
+- **37% of Kp and 55% of S. aureus still have no gene name.** For those, `protein_name` (100%) plus
+  `locus_tag` (100% / 98.4%) are the only readable handles. Cross-species transfer from E. coli would
+  reach further but is deliberately deferred to a stage that has real orthology.
+- **A second S. aureus ClpP-family protein is unnamed**: `Q2G2S1` / `SAOUHSC_01536`, "ATP-dependent
+  Clp protease proteolytic subunit". Exactly the kind of protein the degradability axis cares about,
+  and it has no gene name — a concrete reminder that the residual gap is not harmless.
+- **No entry in the NCTC 8325 proteome is annotated as a Lon protease**, so `lon` resolves in Kp and
+  E. coli but not S. aureus. Treat that as a UniProt annotation gap for this strain rather than
+  evidence of absence.
