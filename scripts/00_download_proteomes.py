@@ -46,9 +46,10 @@ Outputs
   data/raw/00_proteomes/uniprot/<label>.{fasta,tsv}   exactly as fetched, plus SOURCE.md
   data/raw/00_proteomes/ncbi/<label>.{faa,gff}        tier D bridge strains
   data/processed/00_proteomes/
-      <species>.tsv             THE deliverable -- four tables, 11 columns, one per species
+      proteome_<species>.tsv    THE deliverable -- four tables, one per species
       accessory/
-          <species>_annotation.tsv  the wide xref layer, free in the same request
+          locus_tags_<species>.tsv  locus_tag + locus_tag_all
+          annotation_<species>.tsv  the wide xref layer, free in the same request
           name_audit.tsv            every name fill: donor, candidates, contested, rule
           registry.tsv              the registry as actually fetched
           manifest.tsv              label, url, n, sha256, release, fetched_at
@@ -620,7 +621,7 @@ def locus_bridge_from_gff(gff_path: Path) -> pd.DataFrame:
 #   sequence_md5       -- verified identical to md5(sequence), and `sequence` stays
 #   length             -- len(sequence)
 #   gene_name_donor, gene_name_candidates -> accessory/name_audit.tsv (provenance detail)
-#   locus_tag, locus_tag_all             -> accessory/<species>_locus_tags.tsv
+#   locus_tag, locus_tag_all             -> accessory/locus_tags_<species>.tsv
 # The locus tags are the join key for published bacterial data, so they are kept in full next door
 # rather than discarded -- including `locus_tag_all`, which carries the Keio JW ids for 4,252 of
 # 4,403 E. coli rows. Join them back with src.proteomes.with_locus_tags().
@@ -809,7 +810,7 @@ def main() -> None:
             a["species"] = sp
         all_audit += audit
 
-        ip = OUT_DIR / f"{sp}.tsv"
+        ip = OUT_DIR / f"proteome_{sp}.tsv"
         ident.to_csv(ip, sep="\t", index=False)
         say(f"    wrote {ip.name}  ({len(ident)} rows x {ident.shape[1]} cols)")
 
@@ -818,12 +819,12 @@ def main() -> None:
                                       ["KEGG", "STRING", "EMBL", "eggNOG", "BioCyc", "InterPro",
                                        "Pfam", "PANTHER", "Gene Ontology IDs", "EC number",
                                        "Protein families", "PDB", "AlphaFoldDB"]])
-        lp = ACC_DIR / f"{sp}_locus_tags.tsv"
+        lp = ACC_DIR / f"locus_tags_{sp}.tsv"
         locus.to_csv(lp, sep="\t", index=False)
         n_lt = int(locus["locus_tag"].str.strip().ne("").sum())
         say(f"    wrote accessory/{lp.name}  ({n_lt}/{len(locus)} rows carry a locus tag)")
 
-        ap_ = ACC_DIR / f"{sp}_annotation.tsv"
+        ap_ = ACC_DIR / f"annotation_{sp}.tsv"
         ann.to_csv(ap_, sep="\t", index=False)
         say(f"    wrote accessory/{ap_.name}  ({ann.shape[1]} columns)")
 
@@ -847,7 +848,7 @@ def main() -> None:
     if stacked:
         say(f"  {len(stacked)} tables at the top level:")
         for sp, d in stacked:
-            say(f"    {sp}.tsv{'':<{max(0, 18 - len(sp))}} {len(d):>6} rows x {d.shape[1]} cols")
+            say(f"    proteome_{sp}.tsv{'':<{max(0, 14 - len(sp))}} {len(d):>6} rows x {d.shape[1]} cols")
 
         # No stacked parquet and no id_bridge: both were verified pure derivations of these tables
         # (19 MB and 8 MB for zero new information). Use src.proteomes.load_all() for a stacked view.

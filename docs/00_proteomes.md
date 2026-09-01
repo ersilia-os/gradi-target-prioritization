@@ -137,13 +137,13 @@ like a genuine conflict.
 
 ```
 data/processed/00_proteomes/
-  kpneumoniae.tsv    5,728 x 9
-  ecoli.tsv          4,403 x 9
-  saureus.tsv        2,889 x 9
-  human.tsv         20,416 x 9
+  proteome_kpneumoniae.tsv    5,728 x 9
+  proteome_ecoli.tsv          4,403 x 9
+  proteome_saureus.tsv        2,889 x 9
+  proteome_human.tsv         20,416 x 9
   accessory/
-    <species>_locus_tags.tsv   locus_tag + locus_tag_all
-    <species>_annotation.tsv   the wide xref layer, free in the same request
+    locus_tags_<species>.tsv   locus_tag + locus_tag_all
+    annotation_<species>.tsv   the wide xref layer, free in the same request
     name_audit.tsv             every name fill: donor, candidates, contested, rule
     registry.tsv  manifest.tsv
     .uniref90_<species>.json   the clustering cache
@@ -172,7 +172,7 @@ guessed: `taxid` and `species` had exactly one distinct value per file (they exi
 stacked parquet); `sequence_md5` was verified identical to `md5(sequence)`, which stays; `length` is
 `len(sequence)`; `gene_name_donor` + `gene_name_candidates` moved to `accessory/name_audit.tsv`.
 
-**The locus tags moved to `accessory/<species>_locus_tags.tsv`** rather than being discarded, since
+**The locus tags moved to `accessory/locus_tags_<species>.tsv`** rather than being discarded, since
 they are the join key for published bacterial data. Coverage there: Kp 5,728/5,728 · Ec 4,402/4,403 ·
 Sa 2,844/2,889 · human 0/20,416. Join them back with `src.proteomes.with_locus_tags(species)`.
 
@@ -181,7 +181,7 @@ the four tables) and `id_bridge.tsv` (8 MB, a melt of columns already present). 
 carried **zero** new information. `src/proteomes.py` provides `load`, `load_all`, `load_locus_tags`,
 `with_locus_tags`, `load_annotation` and `id_bridge` instead.
 
-### `accessory/<species>_annotation.tsv`
+### `accessory/annotation_<species>.tsv`
 
 `kegg` · `string` · `embl` · `eggnog` · `biocyc` · `interpro` · `pfam` · `panther` · `go_id` · `ec` ·
 `protein_families` · `pdb` · `alphafolddb`.

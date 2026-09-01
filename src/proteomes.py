@@ -2,7 +2,7 @@
 
 Stage 00 writes four tables, one per species, and nothing else at the top level:
 
-    data/processed/00_proteomes/{kpneumoniae,ecoli,saureus,human}.tsv
+    data/processed/00_proteomes/proteome_{kpneumoniae,ecoli,saureus,human}.tsv
 
 `load_all()` is the stacked view. It exists so the pipeline does not need a `proteins.parquet`
 artifact: the first run produced one and it turned out to be a byte-for-byte concat of these four
@@ -27,7 +27,7 @@ def load(species: str) -> pd.DataFrame:
     """One species table, 11 columns, keyed on `uniprot_ac`."""
     if species not in SPECIES:
         raise ValueError(f"unknown species {species!r}; expected one of {SPECIES}")
-    path = PROTEOME_DIR / f"{species}.tsv"
+    path = PROTEOME_DIR / f"proteome_{species}.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/00_download_proteomes.py first")
     return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
@@ -45,7 +45,7 @@ def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
 
 def load_locus_tags(species: str) -> pd.DataFrame:
     """`uniprot_ac`, `locus_tag`, `locus_tag_all` — kept out of the main table to keep it simple."""
-    path = ACCESSORY_DIR / f"{species}_locus_tags.tsv"
+    path = ACCESSORY_DIR / f"locus_tags_{species}.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/00_download_proteomes.py first")
     return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
@@ -61,7 +61,7 @@ def load_annotation(species: str) -> pd.DataFrame:
 
     Note `eggnog` and `biocyc` are 0% for K. pneumoniae -- do not assume otherwise.
     """
-    path = ACCESSORY_DIR / f"{species}_annotation.tsv"
+    path = ACCESSORY_DIR / f"annotation_{species}.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/00_download_proteomes.py first")
     return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
