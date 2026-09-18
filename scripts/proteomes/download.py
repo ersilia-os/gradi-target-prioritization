@@ -43,11 +43,11 @@ abstain, and every candidate is kept in `gene_name_candidates` plus a row in `na
 
 Outputs
 -------
-  data/raw/00_proteomes/uniprot/<label>.{fasta,tsv}   exactly as fetched, plus SOURCE.md
-  data/raw/00_proteomes/ncbi/<label>.{faa,gff}        tier D bridge strains
-  data/processed/00_proteomes/
+  data/source/uniprot/proteomes/<label>.{fasta,tsv}   exactly as fetched, plus SOURCE.md
+  data/source/uniprot/proteomes/ncbi/<label>.{faa,gff}        tier D bridge strains
+  data/processed/proteomes/
       proteome_<species>.tsv    THE deliverable -- four tables, one per species
-      accessory/
+      evidence/ + scratch/
           locus_tags_<species>.tsv  locus_tag + locus_tag_all
           annotation_<species>.tsv  the wide xref layer, free in the same request
           name_audit.tsv            every name fill: donor, candidates, contested, rule
@@ -56,10 +56,10 @@ Outputs
           .uniref90_<species>.json  the clustering cache
 
 Run with the `gradi` env:
-    python scripts/00_download_proteomes.py                      # tiers A + B
-    python scripts/00_download_proteomes.py --dry-run            # show the plan, fetch nothing
-    python scripts/00_download_proteomes.py --tier C --tier D    # comparator panel + bridge strains
-    python scripts/00_download_proteomes.py --only saureus__nctc8325__UP000008816 --refresh
+    python scripts/proteomes/download.py                      # tiers A + B
+    python scripts/proteomes/download.py --dry-run            # show the plan, fetch nothing
+    python scripts/proteomes/download.py --tier C --tier D    # comparator panel + bridge strains
+    python scripts/proteomes/download.py --only saureus__nctc8325__UP000008816 --refresh
 """
 
 from __future__ import annotations
@@ -81,14 +81,14 @@ import pandas as pd
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_PATH = REPO_ROOT / "src" / "proteome_registry.tsv"
-RAW_DIR = REPO_ROOT / "data" / "raw" / "00_proteomes"
-OUT_DIR = REPO_ROOT / "data" / "processed" / "00_proteomes"
+RAW_DIR = REPO_ROOT / "data" / "source" / "uniprot" / "proteomes"
+OUT_DIR = REPO_ROOT / "data" / "processed" / "proteomes"
 # Supporting detail, not staging artifacts on the way to something else -- hence
-# "accessory" rather than "intermediate". Keeps the top level to the four tables.
-ACC_DIR = OUT_DIR / "accessory"
-
+# evidence/ rather than scratch/: an audit is cited, not deleted. Top level stays the four tables.
+EVIDENCE_DIR = OUT_DIR / "evidence"
+SCRATCH_DIR = OUT_DIR / "scratch"
 UNIPROT_STREAM = "https://rest.uniprot.org/uniprotkb/stream"
 UNIPROT_SEARCH = "https://rest.uniprot.org/uniprotkb/search"
 IDMAP_RUN = "https://rest.uniprot.org/idmapping/run"
@@ -143,7 +143,7 @@ def banner(args: argparse.Namespace) -> None:
     rule("=")
     say(f"  registry : {REGISTRY_PATH.relative_to(REPO_ROOT)}")
     say(f"  raw out  : {RAW_DIR.relative_to(REPO_ROOT)}/")
-    say(f"  stage out: {OUT_DIR.relative_to(REPO_ROOT)}/  (+ accessory/)")
+    say(f"  stage out: {OUT_DIR.relative_to(REPO_ROOT)}/  (+ evidence/ + scratch/)")
     say(f"  tiers    : {', '.join(args.tier)}")
     if args.only:
         say(f"  only     : {', '.join(args.only)}")
@@ -620,8 +620,8 @@ def locus_bridge_from_gff(gff_path: Path) -> pd.DataFrame:
 #   taxid, species     -- exactly 1 distinct value per file, now that there is one table per species
 #   sequence_md5       -- verified identical to md5(sequence), and `sequence` stays
 #   length             -- len(sequence)
-#   gene_name_donor, gene_name_candidates -> accessory/name_audit.tsv (provenance detail)
-#   locus_tag, locus_tag_all             -> accessory/locus_tags_<species>.tsv
+#   gene_name_donor, gene_name_candidates -> evidence/name_audit.tsv (provenance detail)
+#   locus_tag, locus_tag_all             -> evidence/locus_tags_<species>.tsv
 # The locus tags are the join key for published bacterial data, so they are kept in full next door
 # rather than discarded -- including `locus_tag_all`, which carries the Keio JW ids for 4,252 of
 # 4,403 E. coli rows. Join them back with src.proteomes.with_locus_tags().
@@ -650,7 +650,7 @@ def build_identity(anchor: pd.DataFrame, donor: pd.DataFrame | None,
 
     # gene_name is a PREFERRED name, not a maybe: any protein with a candidate must have one. This
     # is checked here rather than in source_tally() because gene_name_candidates does not survive
-    # into the 11-column output -- it lives in accessory/name_audit.tsv.
+    # into the 11-column output -- it lives in evidence/name_audit.tsv.
     orphan = df[df["gene_name"].str.strip().eq("")
                 & df["gene_name_candidates"].str.strip().ne("")]
     if len(orphan):
@@ -738,7 +738,8 @@ def main() -> None:
         return
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    ACC_DIR.mkdir(parents=True, exist_ok=True)
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
     manifest: list[dict] = []
 
     # ---- fetch
@@ -788,7 +789,7 @@ def main() -> None:
                 accs = sorted(set(_norm(anchor)["uniprot_ac"]) | set(donor["uniprot_ac"]))
             # Cache the clustering: it is ~22 s per 5,000 accessions, so a re-run of the assembly
             # step would otherwise cost ~10 min of pure re-mapping. Keyed on the accession set.
-            cache = ACC_DIR / f".uniref90_{sp}.json"
+            cache = SCRATCH_DIR / f".uniref90_{sp}.json"
             key = hashlib.md5("\n".join(accs).encode()).hexdigest()
             if not accs:
                 pass
@@ -819,14 +820,14 @@ def main() -> None:
                                       ["KEGG", "STRING", "EMBL", "eggNOG", "BioCyc", "InterPro",
                                        "Pfam", "PANTHER", "Gene Ontology IDs", "EC number",
                                        "Protein families", "PDB", "AlphaFoldDB"]])
-        lp = ACC_DIR / f"locus_tags_{sp}.tsv"
+        lp = EVIDENCE_DIR / f"locus_tags_{sp}.tsv"
         locus.to_csv(lp, sep="\t", index=False)
         n_lt = int(locus["locus_tag"].str.strip().ne("").sum())
-        say(f"    wrote accessory/{lp.name}  ({n_lt}/{len(locus)} rows carry a locus tag)")
+        say(f"    wrote evidence/{lp.name}  ({n_lt}/{len(locus)} rows carry a locus tag)")
 
-        ap_ = ACC_DIR / f"annotation_{sp}.tsv"
+        ap_ = EVIDENCE_DIR / f"annotation_{sp}.tsv"
         ann.to_csv(ap_, sep="\t", index=False)
-        say(f"    wrote accessory/{ap_.name}  ({ann.shape[1]} columns)")
+        say(f"    wrote evidence/{ap_.name}  ({ann.shape[1]} columns)")
 
         source_tally(ident, n_contested)
         stacked.append((sp, ident))
@@ -854,18 +855,18 @@ def main() -> None:
         # (19 MB and 8 MB for zero new information). Use src.proteomes.load_all() for a stacked view.
         if all_audit:
             adf = pd.DataFrame(all_audit)
-            adf.to_csv(ACC_DIR / "name_audit.tsv", sep="\t", index=False)
-            say(f"  accessory/name_audit.tsv  {len(adf)} fills, "
+            adf.to_csv(EVIDENCE_DIR / "name_audit.tsv", sep="\t", index=False)
+            say(f"  evidence/name_audit.tsv  {len(adf)} fills, "
                 f"{int(adf['contested'].sum())} contested (all resolved to a preferred name)")
 
     if bridge_rows:
         pd.concat(bridge_rows, ignore_index=True).to_csv(
-            ACC_DIR / "locus_bridge_strains.tsv", sep="\t", index=False)
-        say("  accessory/locus_bridge_strains.tsv written")
+            EVIDENCE_DIR / "locus_bridge_strains.tsv", sep="\t", index=False)
+        say("  evidence/locus_bridge_strains.tsv written")
 
-    sel.to_csv(ACC_DIR / "registry.tsv", sep="\t", index=False)
-    pd.DataFrame(manifest).to_csv(ACC_DIR / "manifest.tsv", sep="\t", index=False)
-    say(f"  accessory/registry.tsv + manifest.tsv  ({len(manifest)} fetched rows)")
+    sel.to_csv(EVIDENCE_DIR / "registry.tsv", sep="\t", index=False)
+    pd.DataFrame(manifest).to_csv(EVIDENCE_DIR / "manifest.tsv", sep="\t", index=False)
+    say(f"  evidence/registry.tsv + manifest.tsv  ({len(manifest)} fetched rows)")
 
     if stacked:
         say()

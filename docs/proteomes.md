@@ -1,7 +1,7 @@
 # Stage 00 — reference proteomes and the identified species tables
 
-`scripts/00_download_proteomes.py` · registry `src/proteome_registry.tsv` ·
-outputs `data/processed/00_proteomes/`
+`scripts/proteomes/download.py` · registry `src/proteome_registry.tsv` ·
+outputs `data/processed/proteomes/`
 
 Four species, **one reference proteome each**. That proteome is the unit of analysis for every
 downstream stage; nothing else is an analysis organism.
@@ -136,7 +136,7 @@ like a genuine conflict.
 **Four tables at the top level, one per species, and nothing else but `accessory/`.**
 
 ```
-data/processed/00_proteomes/
+data/processed/proteomes/
   proteome_kpneumoniae.tsv    5,728 x 9
   proteome_ecoli.tsv          4,403 x 9
   proteome_saureus.tsv        2,889 x 9
@@ -148,7 +148,7 @@ data/processed/00_proteomes/
     registry.tsv  manifest.tsv
     .uniref90_<species>.json   the clustering cache
 
-data/raw/00_proteomes/uniprot/<label>.{fasta,tsv}   as fetched, + <label>.SOURCE.md
+data/source/uniprot/proteomes/<label>.{fasta,tsv}   as fetched, + <label>.SOURCE.md
 ```
 
 It is `accessory/`, not `intermediate/` — these are supporting detail for a finished table, not
@@ -236,13 +236,56 @@ The other 10 Enterobacteriaceae-TraDIS genomes (RH201207, EC958, NCTC13441, ICC1
 D23580, SL3261, SL1344, P125109) are deliberately **not** in the registry: the compendium is consumed
 through the column names in its own `giant-tab_final.tsv`, so it never needed per-genome proteomes.
 
+## Figures
+
+`scripts/plots/proteomes.py` writes `output/plots/proteomes/gene_names.png`. Three panels, all
+read from this stage's own outputs (`gene_name_source` and `accessory/name_audit.tsv`) — nothing is
+recomputed.
+
+**A — coverage by fill tier.** Stacked, so the first segment is what UniProt supplied unaided and the
+distance to the grey is what the fill bought:
+
+| species | anchor | + species_exact | + species_uniref90 | = named | unnamed |
+|---|---|---|---|---|---|
+| *K. pneumoniae* | **18.4%** | 22.0% | 23.0% | **63.4%** | 36.6% |
+| *E. coli* | 100.0% | — | — | 100.0% | 0.0% |
+| *S. aureus* | **28.2%** | 11.3% | 5.1% | **44.6%** | 55.4% |
+| *H. sapiens* | 99.3% | — | — | 99.3% | 0.7% |
+
+The two donor tiers more than **triple** Kp's naming and roughly halve Sa's gap; *E. coli* and human
+need no help at all, which is exactly why neither would have revealed the problem. The grey is left
+grey on purpose — cross-species naming is deferred to a stage that has real orthology and can label
+it as inference.
+
+**B — how the 3,049 fills were decided.** 2,686 had a single candidate. The remaining **363 were
+contested**, and the total order settled them: non-placeholder over a `y###` name (135), more
+attested (116), shortest-then-alphabetical (72), reviewed donor (40). Every one is a row in
+`accessory/name_audit.tsv` with the alternatives and the rule that fired, so no fill is a black box.
+
+**C — what you can actually join on**, and the panel that matters operationally:
+
+| species | gene_name | locus_tag | refseq | geneid |
+|---|---|---|---|---|
+| *K. pneumoniae* | 63.4% | **100.0%** | 100.0% | 100.0% |
+| *E. coli* | 100.0% | **100.0%** | 96.1% | 95.1% |
+| *S. aureus* | 44.6% | **98.4%** | 95.7% | 94.7% |
+| *H. sapiens* | 99.3% | **0.0%** | 93.5% | 93.8% |
+
+This is the figure behind CLAUDE.md's rule to join on `locus_tag`, not on gene name: on the anchor
+the name column would silently drop **36.6%** of the proteome, and on *S. aureus* **55.4%**.
+
+Two corrections to the way this has been stated: `locus_tag` is at 100% on Kp and Ec but **98.4% on
+*S. aureus***, not 100% — so a locus-tag join is near-lossless, not lossless. And human has **no
+locus tags at all** (0.0%), which is expected but means the rule is a *bacterial* rule; use
+`uniprot_ac` for human, as everywhere else.
+
 ## Running it
 
 ```bash
-python scripts/00_download_proteomes.py                      # tiers A + B
-python scripts/00_download_proteomes.py --dry-run            # show the plan, fetch nothing
-python scripts/00_download_proteomes.py --tier C --tier D    # comparator panel + bridge strains
-python scripts/00_download_proteomes.py --only saureus__nctc8325__UP000008816 --refresh
+python scripts/proteomes/download.py                      # tiers A + B
+python scripts/proteomes/download.py --dry-run            # show the plan, fetch nothing
+python scripts/proteomes/download.py --tier C --tier D    # comparator panel + bridge strains
+python scripts/proteomes/download.py --only saureus__nctc8325__UP000008816 --refresh
 ```
 
 Verbose by default (`-q` to quiet): a banner, one line per registry row with running counts, and a

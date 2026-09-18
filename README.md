@@ -45,7 +45,7 @@ The three things v1 most wants passed forward:
 
 | stage | what |
 |---|---|
-| [`scripts/00_download_proteomes.py`](scripts/00_download_proteomes.py) | the four reference proteomes, and **one identified table per species** — see [`docs/00_proteomes.md`](docs/00_proteomes.md) |
+| [`scripts/proteomes/download.py`](scripts/proteomes/download.py) | the four reference proteomes, and **one identified table per species** — see [`docs/proteomes.md`](docs/proteomes.md) |
 
 Stage 00 exists mainly to fix the problem that cost v1 the most: the anchor proteomes are badly
 under-named. Gene names cover only **18.4%** of *K. pneumoniae* HS11286 and 28.2% of *S. aureus*
@@ -61,13 +61,22 @@ selectivity.
 ## Repository layout
 
 ```
-scripts/   the numbered v2 pipeline
-src/       shared helpers + proteome_registry.tsv
-docs/      one document per stage
-legacy/    the complete v1 pipeline, frozen — start at HISTORY.md
-data/      inputs (eosvc/S3, not Git); see data/raw/PROVENANCE.md
-output/    results and figures (eosvc/S3, not Git)
+scripts/<task>/            one folder per task, no stage numbers
+scripts/plots/             all figures — separate, because many are comparative ACROSS tasks
+scripts/workers/           entry points run under a different conda interpreter
+src/                       shared helpers + proteome_registry.tsv
+docs/                      one document per axis
+legacy/                    the complete v1 pipeline, frozen — start at HISTORY.md
+data/source/<provider>/    external inputs, bucketed by WHERE THEY CAME FROM
+data/processed/<task>/     the deliverables — plus evidence/ (cite it) and scratch/ (delete it)
+data/raw/                  the frozen v1 archive; see data/raw/PROVENANCE.md
+output/{results,plots}/    results and figures
 ```
+
+Tasks: `proteomes` `embeddings` `function` `localization` `orthology` `degradability`
+`essentiality` `ligands`, plus `pockets` `studiedness` `interactome` (README only, no code yet).
+Every deliverable is a **complete matrix**: one row per protein, in the same canonical order across
+every axis — `python -m src.matrices` audits it.
 
 `data/` and `output/` are versioned with [eosvc](https://github.com/ersilia-os/eosvc) (DVC + S3), not
 Git. [`data/raw/PROVENANCE.md`](data/raw/PROVENANCE.md) indexes every raw dataset and — importantly —
@@ -88,6 +97,8 @@ untrustworthy.
 - 26/06/26: [Meeting #3](https://docs.google.com/presentation/d/1_w6N2veARYSRlDvryVdt-O0DD93AiV-iSKjaDv00N68/edit?usp=sharing). Ligandability assessment.
 - 26/07/14: [Meeting #4](https://docs.google.com/presentation/d/1gqcBd9pLYAknGwxpmVM3p7lFEUnMwRAYD2RQmBywWlE/edit?usp=sharing). Essentiality annotation and predictions.
 - 26/07/24: [Meeting #5](https://docs.google.com/presentation/d/11yDNqMQUHVPZ8q0vn-_kKcUD9v02bo4CdBhp66HPn18/edit?usp=sharing). First draft of the target prioritization browser.
+- 26/08/07: [Meeting #6](https://docs.google.com/presentation/d/1j3abSZ8P2cj0uu2M-IpfVSE1Md62ABZPlos_6fg36QE/edit?usp=sharing). Degradability studies.
+- 26/09/03: [Meeting #7](https://docs.google.com/presentation/d/1qZWv9Q3XFMoy3BCHcZZRANVXPyXxMvIuwn77fia9BQA/edit?usp=sharing). Resuming and simplifying the workflow.
 
 ## About Ersilia
 

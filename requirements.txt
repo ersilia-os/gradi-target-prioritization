@@ -5,19 +5,31 @@ biopython>=1.83
 tqdm>=4.66
 tenacity>=8.2
 
-# Protein language model embeddings (scripts/01_esmc_embeddings.py)
+# Protein language model embeddings (scripts/embeddings/esmc.py)
 torch>=2.2
 esm>=3.1   # EvolutionaryScale ESM-C local inference
 httpx>=0.27  # required by esm.sdk (not auto-installed by esm)
+h5py>=3.14   # read UniProt's published ProtT5 per-protein.h5 -- the validation control in
+             # scripts/embeddings/prott5.py. arm64 wheel; verified NOT to move numpy.
+             # ProtT5 itself runs in `gradi-loc` (transformers==4.44.2), never here.
 
-# Embedding projection / visualization (scripts/02_esm_projection.py)
-openTSNE>=1.0   # multiscale + cosine t-SNE (the projection)
-umap-learn>=0.5  # used to derive coherent cluster colors
+# Functional annotation -- COG categories (scripts/function/cog.py)
+goatools>=1.6      # GO DAG + mapslim, for scripts/function/goslim.py
+cogclassifier>=2.0   # RPS-BLAST vs the CDD COG profile DB -> COG2024 category letter.
+                     # Needs `rpsblast` on PATH; it is NOT pip-installable and NOT in `gradi`.
+                     # The script borrows it from the `gradi-prokka` env (see CLAUDE.md).
+                     # Do NOT `conda install blast` into `gradi`: no osx-arm64 build exists,
+                     # so it would drag the whole environment to osx-64.
+
+# Embedding projection / visualization (scripts/embeddings/projection.py)
+openTSNE>=1.0   # multiscale + cosine t-SNE -- the canonical projection
+umap-learn>=0.5  # comparison only (--method umap); never the deliverable
+pacmap>=0.9     # comparison only (--method pacmap); never the deliverable
 matplotlib>=3.8
 colorcet>=3.0   # glasbey categorical palette for many-family coloring
 matplotlib-venn>=1.1  # for downstream plotting of the 3-way orthology tables (03c outputs)
 
-# AlphaFold structural annotation (scripts/06_alphafold_structure.py)
+# AlphaFold structural annotation (v1 only -- legacy/scripts/)
 networkx>=3.0   # PAE-graph community detection for domain segmentation
 
 # Essentiality assessment (scripts/07*)
@@ -27,6 +39,12 @@ metapredict>=3  # sequence-based disorder for the S. aureus activator proteins (
                 # ID-free, which matters because those sequences are RefSeq not UniProt
                 # (Calloni 2012 DnaK interactome, 10a/10*)
 cobra>=0.29     # genome-scale metabolic FBA single-gene deletion on iYL1228 (07f)
-scikit-learn>=1.3  # ProteomeLM-Ess head training + calibration (07d)
+scikit-learn>=1.3  # ProteomeLM-Ess head training + calibration (07d); also PCA + trustworthiness (01 projections)
 # ProteomeLM backbone (07d) is installed separately (not on PyPI):
 #   pip install "git+https://github.com/Bitbol-Lab/ProteomeLM.git"   # Apache-2.0; pins transformers~=4.51
+
+# Ligandability (scripts/ligands/)
+rdkit>=2024.3   # Bemis-Murcko generic scaffolds, the "non-redundant ligand" count in stage 06.
+                # The macosx_11_0_arm64 wheel is on PyPI, so this does NOT drag `gradi` to osx-64
+                # the way a conda `blast`/`eggnog-mapper` install would -- which matters because
+                # that would take ESM-C (stage 01) down with it. Verify with platform.machine().

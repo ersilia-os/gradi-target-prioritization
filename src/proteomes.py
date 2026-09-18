@@ -2,7 +2,7 @@
 
 Stage 00 writes four tables, one per species, and nothing else at the top level:
 
-    data/processed/00_proteomes/proteome_{kpneumoniae,ecoli,saureus,human}.tsv
+    data/processed/proteomes/proteome_{kpneumoniae,ecoli,saureus,human}.tsv
 
 `load_all()` is the stacked view. It exists so the pipeline does not need a `proteins.parquet`
 artifact: the first run produced one and it turned out to be a byte-for-byte concat of these four
@@ -17,9 +17,9 @@ from pathlib import Path
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PROTEOME_DIR = REPO_ROOT / "data" / "processed" / "00_proteomes"
-ACCESSORY_DIR = PROTEOME_DIR / "accessory"
-
+PROTEOME_DIR = REPO_ROOT / "data" / "processed" / "proteomes"
+EVIDENCE_DIR = PROTEOME_DIR / "evidence"
+SCRATCH_DIR = PROTEOME_DIR / "scratch"
 SPECIES = ("kpneumoniae", "ecoli", "saureus", "human")
 
 
@@ -29,7 +29,7 @@ def load(species: str) -> pd.DataFrame:
         raise ValueError(f"unknown species {species!r}; expected one of {SPECIES}")
     path = PROTEOME_DIR / f"proteome_{species}.tsv"
     if not path.exists():
-        raise FileNotFoundError(f"{path} -- run scripts/00_download_proteomes.py first")
+        raise FileNotFoundError(f"{path} -- run scripts/proteomes/download.py first")
     return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
 
 
@@ -45,9 +45,9 @@ def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
 
 def load_locus_tags(species: str) -> pd.DataFrame:
     """`uniprot_ac`, `locus_tag`, `locus_tag_all` — kept out of the main table to keep it simple."""
-    path = ACCESSORY_DIR / f"locus_tags_{species}.tsv"
+    path = EVIDENCE_DIR / f"locus_tags_{species}.tsv"
     if not path.exists():
-        raise FileNotFoundError(f"{path} -- run scripts/00_download_proteomes.py first")
+        raise FileNotFoundError(f"{path} -- run scripts/proteomes/download.py first")
     return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
 
 
@@ -61,16 +61,16 @@ def load_annotation(species: str) -> pd.DataFrame:
 
     Note `eggnog` and `biocyc` are 0% for K. pneumoniae -- do not assume otherwise.
     """
-    path = ACCESSORY_DIR / f"annotation_{species}.tsv"
+    path = EVIDENCE_DIR / f"annotation_{species}.tsv"
     if not path.exists():
-        raise FileNotFoundError(f"{path} -- run scripts/00_download_proteomes.py first")
+        raise FileNotFoundError(f"{path} -- run scripts/proteomes/download.py first")
     return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
 
 
 def id_bridge(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
     """Long form `uniprot_ac x (namespace, identifier)`, for joining external datasets.
 
-    Pulls the locus tags in from accessory/ automatically, so this stays a one-call way to reach
+    Pulls the locus tags in from evidence/ + scratch/ automatically, so this stays a one-call way to reach
     every identifier a protein is known by.
     """
     rows = []

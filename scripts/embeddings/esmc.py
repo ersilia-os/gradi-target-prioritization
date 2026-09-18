@@ -33,13 +33,13 @@ decision.
 Sharding
 --------
 v1's `01a` accumulated every vector in memory and wrote once at the end, so a killed run lost
-everything. Here the work is cut into shards of 250 written under `accessory/shards/` via atomic
+everything. Here the work is cut into shards of 250 written under `scratch/shards_esmc/` via atomic
 rename, so a partial file is never cached and a restart resumes. **The shard size is part of the cache
 filename** -- changing `--shard-size` must not silently reuse mismatched shards (a trap v1 hit).
 
 Output
 ------
-    data/processed/01_embeddings/embeddings_<species>.npz
+    data/processed/embeddings/embeddings_<species>.npz
         accessions   object   (n,)       row-aligned to `embeddings`
         embeddings   float32  (n, 1152)  mean-pooled, BOS/EOS stripped
         model        scalar   "esmc_600m"
@@ -50,9 +50,9 @@ Load it with `src.embeddings.load()` rather than by hand -- `accessions` is an o
 `np.load` needs `allow_pickle=True`.
 
 Run with the `gradi` env (NOT `gradi-loc`, whose `fair-esm` claims the same top-level `esm` package):
-    python scripts/01_embeddings.py                          # the three bacteria
-    python scripts/01_embeddings.py --limit 20 --species saureus   # smoke test
-    python scripts/01_embeddings.py --species kpneumoniae --refresh
+    python scripts/embeddings/esmc.py                          # the three bacteria
+    python scripts/embeddings/esmc.py --limit 20 --species saureus   # smoke test
+    python scripts/embeddings/esmc.py --species kpneumoniae --refresh
 """
 
 from __future__ import annotations
@@ -73,13 +73,15 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import torch  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from src import proteomes as P  # noqa: E402
+from src import matrices as M  # noqa: E402
 
-OUT_DIR = REPO_ROOT / "data" / "processed" / "01_embeddings"
-ACC_DIR = OUT_DIR / "accessory"
-SHARD_DIR = ACC_DIR / "shards"
+OUT_DIR = REPO_ROOT / "data" / "processed" / "embeddings"
+EVIDENCE_DIR = OUT_DIR / "evidence"
+SCRATCH_DIR = OUT_DIR / "scratch"
+SHARD_DIR = SCRATCH_DIR / "shards_esmc"
 
 MODEL_ID = "esmc_600m"
 EMBED_DIM = 1152
@@ -203,6 +205,11 @@ def run_species(client, species: str, shard_size: int, limit: int | None,
     mat = np.vstack(all_vecs).astype(np.float32) if all_vecs \
         else np.zeros((0, EMBED_DIM), dtype=np.float32)
 
+    # Canonical row order: every matrix in this project has the same rows in the same order, so
+    # an embedding can be hstacked onto any other axis with no join. Shards are assembled in shard
+    # order, which is whatever order the FASTA happened to be in -- reorder once, here at the end.
+    all_accs, mat = M.reindex_arrays(all_accs, mat, species)
+
     out = OUT_DIR / f"embeddings_{species}.npz"
     np.savez_compressed(out,
                         accessions=np.array(all_accs, dtype=object),
@@ -245,8 +252,8 @@ def main() -> None:
     rule("=")
     say("STAGE 01 - ESM-C 600M mean-pooled embeddings")
     rule("=")
-    say(f"  in       : data/processed/00_proteomes/<species>.tsv")
-    say(f"  out      : {OUT_DIR.relative_to(REPO_ROOT)}/  (+ accessory/shards/)")
+    say(f"  in       : data/processed/proteomes/<species>.tsv")
+    say(f"  out      : {OUT_DIR.relative_to(REPO_ROOT)}/  (+ scratch/shards_esmc/)")
     say(f"  model    : {MODEL_ID}  ({EMBED_DIM}-dim, {POOLING}-pooled)")
     say(f"  species  : {', '.join(args.species)}")
     say(f"  device   : {device}   torch {torch.__version__}")
@@ -269,7 +276,7 @@ def main() -> None:
 
     man = pd.DataFrame(rows)
     man.insert(1, "device", device)
-    man.to_csv(ACC_DIR / "manifest.tsv", sep="\t", index=False)
+    man.to_csv(EVIDENCE_DIR / "esmc_manifest.tsv", sep="\t", index=False)
 
     rule()
     say("SUMMARY")
@@ -281,7 +288,7 @@ def main() -> None:
         say(f"  {r['species']:<14} {r['n']:>7} {r['n_expected']:>9} {r['dim']:>5} "
             f"{r['residues']:>11,} {r['seconds'] / 60:>7.1f} {r['skipped']:>8}{flag}")
     total_min = sum(r["seconds"] for r in rows) / 60
-    say(f"\n  total {total_min:.1f} min   manifest -> accessory/manifest.tsv")
+    say(f"\n  total {total_min:.1f} min   manifest -> evidence/esmc_manifest.tsv")
     bad = [r for r in rows if r["n"] != r["n_expected"] or r["skipped"]]
     if bad:
         sys.exit(f"\nFAILED: {len(bad)} species did not embed completely -- see above.")
