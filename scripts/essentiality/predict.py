@@ -1,4 +1,4 @@
-"""TabPFN per essentiality endpoint, and the cross-species test the axis has never had.
+"""One model per essentiality endpoint, and the cross-species test the axis has never had.
 
 Each screen from `screens.py` is fitted INDEPENDENTLY. Nothing is merged: these are different
 organisms, different assays and different base rates, and a merged label would be a number with no
@@ -21,10 +21,17 @@ TWO THINGS THAT WOULD SILENTLY INFLATE THE SCORE, both guarded:
      run through `src.tabpfn.would_cost` before a single credit is spent, and a re-run that
      recomputes nothing spends nothing.
 
-Run with the `gradi` env (TabPFN itself runs across a process boundary in `gradi-tabpfn`):
-    python scripts/essentiality/predict.py --dry-run
-    python scripts/essentiality/predict.py --endpoint keio_ess --features esmc
-    python scripts/essentiality/predict.py --endpoint keio_ess --score-on ecl8_ess
+THE DEFAULT ESTIMATOR HERE IS THE FOREST, NOT TabPFN -- see DEFAULT_ESTIMATOR below for why, and
+note that this is a deliberate exception to CLAUDE.md's standing rule, granted for this axis only
+while the datasets are still being characterised. `--estimator tabpfn` switches, through a seam
+narrow enough that nothing else about the evaluation changes.
+
+Run with the `gradi` env (TabPFN, if selected, runs across a process boundary in `gradi-tabpfn`):
+    python scripts/essentiality/predict.py
+    python scripts/essentiality/predict.py --endpoint essential_ecoli_k12_knockout
+    python scripts/essentiality/predict.py --estimator tabpfn --dry-run
+    python scripts/essentiality/predict.py --endpoint essential_ecoli_k12_knockout \
+        --score-on essential_kpneumoniae_ecl8_tradis
 """
 
 from __future__ import annotations
@@ -42,27 +49,45 @@ sys.path.insert(0, str(REPO_ROOT))
 from src import embeddings as E  # noqa: E402
 from src import orthology as O  # noqa: E402
 from src import proteomelm as PLM  # noqa: E402
+from src import degradability as D  # noqa: E402
+from src import matrices as M  # noqa: E402
 from src import tabpfn as T  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from screens import SCREENS  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "data" / "processed" / "essentiality"
 EVIDENCE_DIR = OUT_DIR / "evidence"
+TRAINING_DIR = OUT_DIR / "training_sets"
+
+# THE DEFAULT ESTIMATOR ON THIS AXIS IS THE FOREST, on the project owner's instruction: TabPFN
+# only once these datasets have earned it. CLAUDE.md's standing "always TabPFN-3.5" rule is the
+# general case; this is an explicit exception for the essentiality endpoints while they are still
+# being characterised, and it is not a licence to reach for sklearn elsewhere.
+#
+# It is also what makes the characterisation affordable. The forest is free, runs in-process, and
+# needs no token; the same 10-endpoint 5-seed sweep under hosted TabPFN is 250 calls -- ~2.5M
+# credits, 12.5% of the monthly quota -- which is not a price worth paying to find out which
+# datasets are learnable at all.
+DEFAULT_ESTIMATOR = "forest"
+ESTIMATORS = ("forest", "tabpfn")
 
 N_FOLDS = 5
 N_SEEDS = 5          # the axis-wide convention; a single seed carries ~+/-0.004 of arbitrariness
-FEATURES = ("esmc", "prott5", "proteomelm")
+# `proteomelm_orthodb` is the SAME model with the functional encoding the paper trained with (the
+# mean ESM-C vector of each protein's OrthoDB group) instead of the released inference fallback
+# (each protein's own vector). Two entries, never merged: the whole point is to compare them.
+FEATURES = ("esmc", "prott5", "proteomelm", "proteomelm_orthodb")
 
-# Which anchor proteome each endpoint's proteins live in -- i.e. whose embeddings to use.
-ECL8 = "kpneumoniae__ecl8__GCA_000315385.1"
-KPNIH1 = "kpneumoniae__kpnih1__GCA_000281535.2"
+# THE ENDPOINT LIST IS screens.py's REGISTRY, not a second copy of it. Every column, the proteome
+# its rows live in and its one-line description come from there, so renaming a screen cannot leave
+# this script pointing at a file that no longer exists.
+ENDPOINT_SPECIES = {s.column: s.features for s in SCREENS}
+ENDPOINT_COMMENT = {s.column: s.comment for s in SCREENS}
+
+ANCHORS = ("kpneumoniae", "ecoli", "saureus")
 STRAIN_DIR = REPO_ROOT / "data" / "processed" / "embeddings" / "scratch" / "strains"
-
-ENDPOINT_SPECIES = {"keio_ess": "ecoli", "goodall_ess": "ecoli", "bw25113_ess": "ecoli",
-                    "conservation": "ecoli", "bn373_ess": ECL8, "kpnih1_ess": KPNIH1}
-
-# `conservation` is a 3-class ordinal (non/mid/core), but the worker returns predict_proba[:, 1] --
-# binary only. Rather than silently mis-read a 3-class probability, it is modelled as CORE vs REST.
-# The raw `pct_essential` stays in the screen table, so the ordinal version costs no re-ingest.
-BINARISE = {"conservation": lambda y: (y == 2).astype(int)}
+CLUSTER_DIR = OUT_DIR / "scratch" / "paralog_clusters"
 
 VERBOSE = True
 
@@ -77,30 +102,36 @@ def rule(char: str = "-", width: int = 92) -> None:
 
 
 def load_endpoint(name: str) -> pd.DataFrame:
-    p = EVIDENCE_DIR / f"screen_{name}.tsv"
+    p = TRAINING_DIR / f"{name}.tsv"
     if not p.exists():
         sys.exit(f"FATAL {p} missing -- run scripts/essentiality/screens.py first")
     d = pd.read_csv(p, sep="\t")
-    if name in BINARISE:
-        d["label"] = BINARISE[name](d["label"])
-    return d
+    # The training sets key on `key`, which is NOT a UniProt accession for the five non-anchor
+    # screens. The internal name stays `uniprot_ac` only because every downstream function here
+    # already uses it as the row key; the value is whatever the screen's own proteome uses.
+    return d.rename(columns={"key": "uniprot_ac"})
 
 
 def features_for(species: str, accessions: list[str], kind: str) -> tuple[list[str], np.ndarray]:
-    # A screen strain is not a registry species: its embeddings are training features under
-    # scratch/, carry no canonical row order, and only ESM-C has been run for them.
-    if species not in ("kpneumoniae", "ecoli", "saureus"):
-        if kind != "esmc":
-            sys.exit(f"FATAL only ESM-C exists for strain {species!r}; "
-                     f"run scripts/embeddings/esmc.py --strain {species} for others")
-        f = STRAIN_DIR / f"embeddings_{species}.npz"
+    """Feature matrix for a set of proteins, from whichever proteome they actually live in.
+
+    A SCREEN STRAIN IS NOT A REGISTRY SPECIES. Its embeddings are training features, not a
+    deliverable matrix: they sit under `scratch/strains/`, carry no canonical row order, and are
+    keyed on whatever identifier the strain's own FASTA uses (a `KPNRH_*` locus tag, a
+    `lcl|...` DEG header). That is deliberate -- label, sequence and vector then share one
+    namespace and nothing has to be joined across annotations.
+    """
+    if species not in ANCHORS:
+        f = STRAIN_DIR / f"{'embeddings' if kind == 'esmc' else kind}_{species}.npz"
         if not f.exists():
-            sys.exit(f"FATAL {f} missing -- run scripts/embeddings/esmc.py --strain {species}")
+            flag = "--strain " + species
+            tool = "esmc.py" if kind == "esmc" else f"{kind}.py"
+            sys.exit(f"FATAL {f} missing -- run scripts/embeddings/{tool} {flag}")
         z = np.load(f, allow_pickle=True)
-        accs = [str(a) for a in z["accessions"]]
-        idx = {a: i for i, a in enumerate(accs)}
-        keep = [a for a in accessions if a in idx]
-        return keep, z["embeddings"][[idx[a] for a in keep]]
+        accs = [str(x) for x in z["accessions"]]
+        idx = {x: i for i, x in enumerate(accs)}
+        keep = [x for x in accessions if x in idx]
+        return keep, z["embeddings"][[idx[x] for x in keep]]
     if kind == "esmc":
         return E.vectors_for(species, accessions)
     if kind == "prott5":
@@ -108,8 +139,12 @@ def features_for(species: str, accessions: list[str], kind: str) -> tuple[list[s
         idx = {a: i for i, a in enumerate(accs)}
         keep = [a for a in accessions if a in idx]
         return keep, mat[[idx[a] for a in keep]]
-    if kind == "proteomelm":
-        return PLM.vectors_for(species, accessions)
+    if kind.startswith("proteomelm"):
+        mode = "orthodb" if kind.endswith("_orthodb") else "self"
+        # PLM.vectors_for asserts the file's recorded mode matches, so a `self` matrix can never be
+        # served as `orthodb` -- the two are the same shape over the same accessions and nothing
+        # about a matrix's appearance says which it is.
+        return PLM.vectors_for(species, accessions, mode=mode)
     sys.exit(f"FATAL unknown feature set {kind!r}")
 
 
@@ -119,14 +154,13 @@ def groups_for(species: str, accessions: list[str]) -> np.ndarray:
     This is a LEAKAGE CONTROL. Paralogs are near-duplicates in embedding space, and a random split
     would put a protein's twin in the training fold and report a score the model did not earn.
     """
-    if species not in ("kpneumoniae", "ecoli", "saureus"):
+    if species not in ANCHORS:
         # No OrthoFinder run covers a screen strain, so its groups come from an MMseqs2 clustering
         # of its own proteome at 30% id / 80% coverage -- stage 04's threshold, reused so the two
         # axes group on a comparable definition of "too similar to split". Measured on ECL8: 997 of
         # 5,178 proteins collapse into 520 paralog families, largest 22. Without this, a fifth of
         # the proteome could have its twin in the training fold.
-        cl = (REPO_ROOT / "data" / "processed" / "essentiality" / "scratch" / "paralog_clusters"
-              / f"{species}_id30_cov80.tsv")
+        cl = CLUSTER_DIR / f"{species}_id30_cov80.tsv"
         if not cl.exists():
             sys.exit(f"FATAL {cl} missing -- run\n"
                      f"  python scripts/essentiality/paralog_clusters.py --strain {species}")
@@ -160,8 +194,40 @@ def score(y: np.ndarray, p: np.ndarray) -> tuple[float, float]:
     return float(roc_auc_score(y, p)), float(average_precision_score(y, p))
 
 
+# ------------------------------------------------------------------------- the estimator seam
+#
+# ONE call site, so switching estimator cannot change anything else about the evaluation -- same
+# folds, same grouping, same metric. That is what makes a later forest-vs-TabPFN comparison a
+# comparison of estimators rather than of two scripts.
+
+def predict_fold(X_tr, y_tr, X_te, *, estimator: str, seed: int, tag: str) -> np.ndarray:
+    """Fit on (X_tr, y_tr), return P(essential) for X_te.
+
+    The forest is stage 04's, imported rather than re-specified: `D.RF_PARAMS` is
+    `n_estimators=500, max_features=0.1, min_samples_leaf=3, class_weight="balanced"`. Copying
+    those numbers into a second file is how two axes silently drift apart, and `class_weight` is
+    load-bearing here -- base rates run 0.048 to 0.194 across these ten datasets.
+    """
+    if estimator == "forest":
+        from sklearn.ensemble import RandomForestClassifier
+        m = RandomForestClassifier(n_jobs=-1, random_state=seed, **D.RF_PARAMS)
+        m.fit(X_tr, y_tr)
+        return m.predict_proba(X_te)[:, 1]
+    return T.predict_fold(X_tr, y_tr, X_te, tag=tag)
+
+
+def oof_predict(X, y, splits, *, estimator: str, seed: int, tag: str) -> np.ndarray:
+    if estimator != "forest":
+        return T.oof_predict(X, y, splits, seed=seed, tag=tag)
+    prob = np.zeros(len(y), dtype=float)
+    for k, (tr, te) in enumerate(splits):
+        prob[te] = predict_fold(X[tr], y[tr], X[te], estimator=estimator, seed=seed,
+                                tag=f"{tag}/f{k}")
+    return prob
+
+
 def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[str, ...],
-                 dry: bool) -> dict | None:
+                 dry: bool, estimator: str = DEFAULT_ESTIMATOR) -> dict | None:
     species = ENDPOINT_SPECIES[name]
     d = load_endpoint(name)
     accs = d["uniprot_ac"].astype(str).tolist()
@@ -170,19 +236,20 @@ def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[st
     y = sub["label"].to_numpy(dtype=int)
     groups = groups_for(species, found)
 
-    say(f"  {name:14s} {kind:11s} X {X.shape[0]:5d} x {X.shape[1]:4d}   "
+    say(f"  {name:42s} {kind:10s} X {X.shape[0]:5d} x {X.shape[1]:4d}   "
         f"pos {int(y.sum()):4d}  base {y.mean():.4f}  groups {len(set(groups)):5d}")
     if len(found) < len(accs):
         say(f"    {len(accs) - len(found)} of {len(accs)} proteins have no {kind} embedding "
             "-- dropped, never zero-filled")
 
-    calls = []
-    for scheme in schemes:
-        for seed in range(seeds):
-            for tr, te in splits_for(y, groups, folds, seed, scheme):
-                calls.append((X[tr], y[tr], X[te]))
-    n_un, credits = T.would_cost(calls)
-    say(f"    {len(calls)} calls, {n_un} uncached -> {credits:,} credits")
+    n_fits = len(schemes) * seeds * folds
+    if estimator == "tabpfn":
+        calls = [(X[tr], y[tr], X[te]) for scheme in schemes for seed in range(seeds)
+                 for tr, te in splits_for(y, groups, folds, seed, scheme)]
+        n_un, credits = T.would_cost(calls)
+        say(f"    {len(calls)} calls, {n_un} uncached -> {credits:,} credits")
+    else:
+        say(f"    {n_fits} forest fits, in-process, no credits")
     if dry:
         return None
 
@@ -191,7 +258,8 @@ def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[st
         aucs, prs, oofs = [], [], []
         for seed in range(seeds):
             sp = splits_for(y, groups, folds, seed, scheme)
-            p = T.oof_predict(X, y, sp, seed=seed, tag=f"ess/{name}/{kind}/{scheme}/s{seed}")
+            p = oof_predict(X, y, sp, estimator=estimator, seed=seed,
+                            tag=f"ess/{name}/{kind}/{scheme}/s{seed}")
             a, pr = score(y, p)
             aucs.append(a); prs.append(pr); oofs.append(p)
             say(f"      {scheme:8s} seed {seed}: AUROC {a:.4f}  PR {pr:.4f}")
@@ -200,7 +268,8 @@ def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[st
 
     g = out["grouped"]
     pl = out.get("plain")
-    rec = {"endpoint": name, "features": kind, "n": len(y), "n_pos": int(y.sum()),
+    rec = {"endpoint": name, "features": kind, "estimator": estimator,
+           "n": len(y), "n_pos": int(y.sum()),
            "base_rate": round(float(y.mean()), 4), "n_features": X.shape[1],
            "n_folds": folds, "n_seeds": seeds,
            "roc_auc_grouped": round(g[0], 4), "roc_auc_grouped_sd": round(g[1], 4),
@@ -211,11 +280,12 @@ def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[st
     say(f"    GROUPED AUROC {g[0]:.4f} +/- {g[1]:.4f}   PR {g[2]:.4f}"
         + (f"   leakage_gap {rec['leakage_gap']:+.4f}" if pl else "   (plain not run)"))
     oof = pd.DataFrame({"uniprot_ac": found, "label": y, "oof_prob": g[3], "group": groups})
-    oof.to_csv(EVIDENCE_DIR / f"oof_{name}_{kind}.tsv", sep="\t", index=False)
+    oof.to_csv(EVIDENCE_DIR / f"oof_{name}_{kind}_{estimator}.tsv", sep="\t", index=False)
     return rec
 
 
-def cross_species(train: str, test: str, kind: str, dry: bool) -> dict | None:
+def cross_species(train: str, test: str, kind: str, dry: bool,
+                  estimator: str = DEFAULT_ESTIMATOR) -> dict | None:
     """Fit on one organism, predict another from ITS OWN embeddings, score on ITS OWN labels.
 
     THE point of this axis. No label is copied between organisms and no orthology is involved: the
@@ -239,19 +309,101 @@ def cross_species(train: str, test: str, kind: str, dry: bool) -> dict | None:
     if X_tr.shape[1] != X_te.shape[1]:
         sys.exit(f"FATAL feature dims differ ({X_tr.shape[1]} vs {X_te.shape[1]}) -- the two sides "
                  "must use the same embedding model or the comparison is meaningless")
-    n_un, credits = T.would_cost([(X_tr, y_tr, X_te)])
-    say(f"    {n_un} uncached call -> {credits:,} credits")
+    if estimator == "tabpfn":
+        n_un, credits = T.would_cost([(X_tr, y_tr, X_te)])
+        say(f"    {n_un} uncached call -> {credits:,} credits")
     if dry:
         return None
 
-    p = T.predict_fold(X_tr, y_tr, X_te, tag=f"ess/cross/{train}->{test}/{kind}")
+    p = predict_fold(X_tr, y_tr, X_te, estimator=estimator, seed=0,
+                     tag=f"ess/cross/{train}->{test}/{kind}")
     auc, pr = score(y_te, p)
     lift = pr / y_te.mean()
     say(f"    AUROC {auc:.4f}   PR {pr:.4f}   base {y_te.mean():.4f}   lift {lift:.2f}x")
-    return {"train": train, "test": test, "features": kind,
+    return {"train": train, "test": test, "features": kind, "estimator": estimator,
             "n_train": int(X_tr.shape[0]), "n_test": int(X_te.shape[0]),
             "base_train": round(float(y_tr.mean()), 4), "base_test": round(float(y_te.mean()), 4),
             "roc_auc": round(auc, 4), "pr_auc": round(pr, 4), "pr_lift": round(lift, 2)}
+
+
+def score_proteome(species: str, kind: str, estimator: str, seeds: int,
+                   folds: int) -> pd.DataFrame:
+    """Every screen's model applied to one ANCHOR proteome -> `screens_<species>.tsv`.
+
+    THESE ARE PREDICTIONS IN EVERY COLUMN AND EVERY ROW, and the file is named and documented so
+    that cannot be misread. Each screen was measured on a strain that is not the anchor -- measured,
+    five of the nine key onto the anchor at exactly 0 of 4,930 / 4,809 / 4,981 / 4,981 / 5,433 -- so
+    transferring the labels was rejected in favour of transferring the MODEL. One comparable 0-1
+    scale across all nine columns, and no measurement is implied anywhere.
+
+    OUT-OF-FOLD WHERE THE PROTEIN WAS IN THAT SCREEN'S TRAINING SET. The four b-number E. coli
+    screens sit 100% on the E. coli anchor, so a plain fit-then-predict would be scoring its own
+    training data and the column would be optimistic exactly where it overlaps and honest
+    elsewhere -- two different quantities in one column. The existing
+    `evidence/oof_<endpoint>_<features>_<estimator>.tsv` values are substituted in for those rows,
+    which is what keeps the column on one scale.
+
+    The output is COMPLETE and CANONICAL: one row per anchor protein, in proteome order.
+    """
+    import numpy as np
+
+    accs = list(M.canonical(species))
+    found, X_target = features_for(species, accs, kind)
+    if len(found) != len(accs):
+        sys.exit(f"FATAL {species}: {len(accs) - len(found)} proteins have no {kind} embedding, so "
+                 "the column could not be complete. Fill them where the embedding is built.")
+    out = pd.DataFrame({"uniprot_ac": found})
+    audit = []
+
+    for s in SCREENS:
+        d = load_endpoint(s.column)
+        tr_accs = d["uniprot_ac"].astype(str).tolist()
+        f_tr, X_tr = features_for(s.features, tr_accs, kind)
+        y_tr = d.set_index("uniprot_ac").loc[f_tr, "label"].to_numpy(dtype=int)
+        if X_tr.shape[1] != X_target.shape[1]:
+            sys.exit(f"FATAL {s.column}: feature dims differ ({X_tr.shape[1]} vs "
+                     f"{X_target.shape[1]}) -- both sides must use the same embedding model")
+
+        probs = np.zeros((seeds, len(found)), dtype=float)
+        for seed in range(seeds):
+            probs[seed] = predict_fold(X_tr, y_tr, X_target, estimator=estimator, seed=seed,
+                                       tag=f"ess/proteome/{s.column}->{species}/{kind}/s{seed}")
+        col = probs.mean(axis=0)
+
+        # substitute out-of-fold values wherever this anchor protein WAS in the training set
+        oof_p = EVIDENCE_DIR / f"oof_{s.column}_{kind}_{estimator}.tsv"
+        n_oof = 0
+        if oof_p.exists():
+            o = pd.read_csv(oof_p, sep="\t")
+            lut = dict(zip(o["uniprot_ac"].astype(str), o["oof_prob"]))
+            hit = np.array([a in lut for a in found])
+            if hit.any():
+                col[hit] = [lut[a] for a, h in zip(found, hit) if h]
+                n_oof = int(hit.sum())
+        overlap = n_oof / len(found)
+        say(f"  {s.column:42s} -> {species:12s} mean {col.mean():.4f}  "
+            f"oof-substituted {n_oof:5d} ({overlap:.1%})")
+
+        out[s.column] = col.round(4)
+        cv = EVIDENCE_DIR / "cv_endpoints.tsv"
+        own = {}
+        if cv.exists():
+            c = pd.read_csv(cv, sep="\t")
+            c = c[(c.endpoint == s.column) & (c.features == kind) & (c.estimator == estimator)]
+            if len(c):
+                own = c.iloc[0].to_dict()
+        audit.append({"column": s.column, "scored_proteome": species,
+                      "trained_on": s.features, "organism": s.organism, "assay": s.assay,
+                      "features": kind, "estimator": estimator, "n_seeds": seeds,
+                      "n_train": int(X_tr.shape[0]), "train_base_rate": round(float(y_tr.mean()), 4),
+                      "n_scored": len(found),
+                      "own_organism_roc_auc": own.get("roc_auc_grouped"),
+                      "own_organism_pr_auc": own.get("pr_auc_grouped"),
+                      "oof_substituted": n_oof,
+                      "train_target_overlap": round(overlap, 4),
+                      "is_same_species": s.features == species
+                      or s.features.startswith(species[:2]) and species in s.features})
+    return out, pd.DataFrame(audit)
 
 
 def main() -> None:
@@ -259,7 +411,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--endpoint", nargs="+", default=list(ENDPOINT_SPECIES),
                     choices=list(ENDPOINT_SPECIES))
-    ap.add_argument("--features", nargs="+", default=["esmc"], choices=list(FEATURES))
+    ap.add_argument("--features", nargs="+", default=["prott5"], choices=list(FEATURES))
+    ap.add_argument("--estimator", default=DEFAULT_ESTIMATOR, choices=list(ESTIMATORS),
+                    help="forest (default) runs in-process and free; tabpfn bills ~10,000 credits "
+                         "per uncached call. The default is the project owner's instruction for "
+                         "this axis, not a general preference -- see CLAUDE.md.")
     ap.add_argument("--folds", type=int, default=N_FOLDS)
     ap.add_argument("--seeds", type=int, default=N_SEEDS)
     ap.add_argument("--schemes", nargs="+", default=["grouped"], choices=["grouped", "plain"],
@@ -268,6 +424,12 @@ def main() -> None:
     ap.add_argument("--score-on", nargs="+", choices=list(ENDPOINT_SPECIES),
                     help="fit on --endpoint and score on THESE endpoints' own labels and "
                          "embeddings -- the cross-species test; no orthology, no label transfer")
+    ap.add_argument("--score-proteome", nargs="+", metavar="SPECIES",
+                    choices=["ecoli", "kpneumoniae", "saureus"],
+                    help="apply EVERY screen's model to these anchor proteomes and write "
+                         "screens_<species>.tsv -- one predicted probability column per screen, "
+                         "complete and in canonical row order. Predictions throughout; see the "
+                         "transfer audit before reading any column as evidence.")
     ap.add_argument("--dry-run", action="store_true", help="price the run; spend nothing")
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args()
@@ -280,11 +442,38 @@ def main() -> None:
     say(f"  features   {', '.join(a.features)}")
     say(f"  cv         StratifiedGroupKFold({a.folds}) on stage-05 orthogroups x {a.seeds} seeds")
     say(f"  schemes    {', '.join(a.schemes)}")
-    say(f"  estimator  TabPFN-{T.MODEL} via gradi-tabpfn (non-commercial weights)")
-    say(f"  cost       ~{T.CREDITS_PER_CALL:,} credits per uncached call, flat")
+    say(f"  estimator  " + ("RandomForest(**src.degradability.RF_PARAMS), in-process"
+                              if a.estimator == "forest"
+                              else f"TabPFN-{T.MODEL} via gradi-tabpfn (non-commercial weights)"))
+    say("  cost       none -- the forest is free" if a.estimator == "forest"
+        else f"  cost       ~{T.CREDITS_PER_CALL:,} credits per uncached call, flat")
     rule()
     say("ENDPOINTS")
     rule()
+
+    if a.score_proteome:
+        for kind in a.features:
+            for sp in a.score_proteome:
+                rule()
+                say(f"SCORE PROTEOME  {sp}  ({kind}, {a.estimator})")
+                rule()
+                tbl, aud = score_proteome(sp, kind, a.estimator, a.seeds, a.folds)
+                if a.dry_run:
+                    continue
+                tbl = M.reindex(tbl, sp)
+                outp = OUT_DIR / f"screens_{sp}.tsv"
+                tbl.to_csv(outp, sep="\t", index=False)
+                ap_path = EVIDENCE_DIR / "screens_transfer_audit.tsv"
+                if ap_path.exists():
+                    prev = pd.read_csv(ap_path, sep="\t")
+                    k = ["column", "scored_proteome", "features", "estimator"]
+                    aud = pd.concat([prev[~prev.set_index(k).index.isin(aud.set_index(k).index)],
+                                     aud])
+                aud.to_csv(ap_path, sep="\t", index=False)
+                say(f"  wrote {outp.relative_to(REPO_ROOT)}  ({tbl.shape[0]} x {tbl.shape[1]})")
+                say(f"  wrote {ap_path.relative_to(REPO_ROOT)}")
+        rule("=")
+        return
 
     if a.score_on:
         rows = []
@@ -293,7 +482,7 @@ def main() -> None:
                 if tr == te:
                     continue
                 for kind in a.features:
-                    r = cross_species(tr, te, kind, a.dry_run)
+                    r = cross_species(tr, te, kind, a.dry_run, a.estimator)
                     if r:
                         rows.append(r)
                     say("")
@@ -303,7 +492,7 @@ def main() -> None:
             df = pd.DataFrame(rows)
             if out.exists():
                 prev = pd.read_csv(out, sep="\t")
-                k = ["train", "test", "features"]
+                k = [c for c in ("train", "test", "features", "estimator") if c in prev.columns]
                 df = pd.concat([prev[~prev.set_index(k).index.isin(df.set_index(k).index)], df])
             df.to_csv(out, sep="\t", index=False)
             rule()
@@ -314,7 +503,8 @@ def main() -> None:
     recs = []
     for name in a.endpoint:
         for kind in a.features:
-            r = run_endpoint(name, kind, a.folds, a.seeds, tuple(a.schemes), a.dry_run)
+            r = run_endpoint(name, kind, a.folds, a.seeds, tuple(a.schemes), a.dry_run,
+                             a.estimator)
             if r:
                 recs.append(r)
             say("")
@@ -330,14 +520,17 @@ def main() -> None:
     cv["built_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     out = EVIDENCE_DIR / "cv_endpoints.tsv"
     if out.exists():
+        # A results file written before `estimator` existed would KeyError here and throw away a
+        # completed run at the very last step -- which it did once. Merge on the keys both frames
+        # actually have, never on the keys this version happens to write.
         prev = pd.read_csv(out, sep="\t")
-        keys = ["endpoint", "features"]
+        keys = [k for k in ("endpoint", "features", "estimator") if k in prev.columns]
         cv = pd.concat([prev[~prev.set_index(keys).index.isin(cv.set_index(keys).index)], cv])
     cv.to_csv(out, sep="\t", index=False)
     rule()
     say("RESULTS")
     rule()
-    say(cv[["endpoint", "features", "n", "base_rate", "roc_auc_grouped",
+    say(cv[["endpoint", "features", "estimator", "n", "base_rate", "roc_auc_grouped",
             "pr_auc_grouped", "leakage_gap"]].to_string(index=False))
     say(f"\n  wrote {out.relative_to(REPO_ROOT)}")
     rule("=")

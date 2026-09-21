@@ -128,11 +128,62 @@ def control_sample(species: str, n: int, seed: int = 0) -> pd.DataFrame:
     return pd.concat([longest, rest]).drop(columns="_len").reset_index(drop=True)
 
 
+STRAIN_DIR = OUT_DIR / "scratch" / "strains"
+NCBI_DIR = REPO_ROOT / "data" / "source" / "uniprot" / "proteomes" / "ncbi"
+# Screen strains arrive from three places and in two formats, so resolve a label rather than
+# making every caller know where its proteome happens to live.
+STRAIN_SOURCES = (
+    (NCBI_DIR, ".faa"),                                               # registry tier-D fetches
+    (REPO_ROOT / "data" / "source" / "ncbi" / "kp_strains", ".tsv"),  # strain_proteomes.py output
+    (REPO_ROOT / "data" / "source" / "ncbi" / "deg_proteomes", ".faa"),  # DEG dataset proteomes
+)
+
+
+def resolve_strain(label: str) -> tuple[Path, str]:
+    for d, ext in STRAIN_SOURCES:
+        p = d / f"{label}{ext}"
+        if p.exists():
+            return p, ext
+    searched = "\n  ".join(str((d / f"{label}{e}").relative_to(REPO_ROOT))
+                           for d, e in STRAIN_SOURCES)
+    sys.exit(f"FATAL no proteome for {label!r}. Looked in:\n  {searched}")
+
+
+def load_strain_table(path: Path, ext: str) -> pd.DataFrame:
+    """(uniprot_ac, sequence) from either a FASTA or a two-column TSV."""
+    if ext == ".tsv":
+        d = pd.read_csv(path, sep="\t")
+        return d.rename(columns={"locus_tag": "uniprot_ac"})[["uniprot_ac", "sequence"]]
+    return load_strain_frame(path)
+
+
+def load_strain_frame(faa: Path) -> pd.DataFrame:
+    """(uniprot_ac, sequence) from a protein FASTA -- a tier-D screen strain, not a registry species.
+
+    The ids are RefSeq/GenBank protein accessions, not UniProt; the column keeps its name so every
+    consumer downstream is unchanged.
+    """
+    ids, seqs, cur, buf = [], [], None, []
+    for line in faa.read_text().splitlines():
+        if line.startswith(">"):
+            if cur:
+                ids.append(cur); seqs.append("".join(buf))
+            cur, buf = line[1:].split()[0], []
+        else:
+            buf.append(line.strip())
+    if cur:
+        ids.append(cur); seqs.append("".join(buf))
+    return pd.DataFrame({"uniprot_ac": ids, "sequence": seqs})
+
+
 def embed(species: str, binary: str, pooling: str, device: str, refresh: bool,
-          subset: pd.DataFrame | None = None, tag: str = "") -> Path:
+          subset: pd.DataFrame | None = None, tag: str = "", strain: bool = False) -> Path:
     """Dispatch a proteome (or a subset, for the control) to the gradi-loc worker."""
     stem = f"prott5_{species}{tag}" + ("" if pooling == "mean_no_eos" else f"_{pooling}")
-    out = (EVIDENCE_DIR if tag else OUT_DIR) / f"{stem}.npz"
+    # A screen strain is training features, not a deliverable matrix -> scratch/strains/
+    out = (STRAIN_DIR if strain else (EVIDENCE_DIR if tag else OUT_DIR)) / f"{stem}.npz"
+    if strain:
+        STRAIN_DIR.mkdir(parents=True, exist_ok=True)
     if out.exists() and not refresh:
         z = np.load(out, allow_pickle=True)
         say(f"  cached {out.name}: {z['embeddings'].shape}, pooling={z['pooling']}")
@@ -183,6 +234,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--species", nargs="+", default=["saureus"])
+    ap.add_argument("--strain", nargs="+", metavar="LABEL",
+                    help="embed a tier-D screen strain by registry label instead of a species; "
+                         "writes to scratch/strains/ and skips the UniProt control, which only "
+                         "exists for E. coli")
     ap.add_argument("--control-n", type=int, default=300,
                     help="E. coli proteins to validate against UniProt (half the longest)")
     ap.add_argument("--pooling", default="mean_no_eos",
@@ -251,6 +306,17 @@ def main() -> None:
     rule()
     say("EMBED")
     rule()
+    if args.strain:
+        for lbl in args.strain:
+            src, ext = resolve_strain(lbl)
+            frame = load_strain_table(src, ext)
+            say(f"  {lbl}  ({len(frame):,} proteins from {src.relative_to(REPO_ROOT)})")
+            embed(lbl, binary, pooling, args.device, args.refresh,
+                  subset=frame, strain=True)
+        rule("=")
+        say("ProtT5 strain embeddings complete.")
+        rule("=")
+        return
     for sp in species:
         embed(sp, binary, pooling, args.device, args.refresh)
 

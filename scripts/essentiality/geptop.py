@@ -359,7 +359,15 @@ def score_species(sp: str, bin_dir: Path, refs: list[Path], deg: set[str],
         say(f"    [{i:2}/{len(refs)}] {ref.stem:22} d={d:.4f} w={w:7.2f}  "
             f"RBH {len(rbh):5}  essential {len(ess):4}")
 
-    pd.DataFrame(audit).to_csv(qdir / "reference_audit.tsv", sep="\t", index=False)
+    # EVIDENCE, NOT SCRATCH. This table is the only record of which of the 37 references actually
+    # contributed and how much -- it is what makes the circularity visible (a self-reference weighs
+    # ~89-121 against ~2.0-3.3 for everything else), and CLAUDE.md quotes its numbers. It used to
+    # be written into the run directory under scratch/, where a routine `scratch/` purge deleted
+    # all three copies and cost a 90-minute re-run. The directory contract's own test settles it:
+    # "would you cite or check it" -> evidence/.
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(audit).to_csv(EVIDENCE_DIR / f"geptop_reference_audit_{sp}.tsv",
+                               sep="\t", index=False)
     lo, hi = float(raw.min()), float(raw.max())
     norm = (raw - lo) / (hi - lo) if hi > lo else raw * 0.0
     # A score of 0 has TWO meanings and they must not be conflated -- an earlier version of this

@@ -179,10 +179,44 @@ def main() -> None:
         df["essentiality"] = np.where(has, chosen.astype(float), df["geptop_ess"]).round(4)
         df["essentiality_source"] = np.where(has, "measured", "predicted")
         df["essentiality_rule"] = np.where(has, args.rule, "geptop")
-        # The two headline columns first, then the evidence, then the merged convenience column.
-        lead = ["uniprot_ac", "geptop_ess", "deg_ess"]
-        rest = [c for c in df.columns if c not in lead]
-        df = df[lead + rest]
+        # ---- DEG gets its own per-species file, symmetric with geptop_<sp>.tsv and ogee_<sp>.tsv.
+        # One file per EVIDENCE SOURCE, each carrying its own provenance columns, and a headline
+        # table that summarises them with one column each. That is the relationship
+        # geptop_<sp>.tsv already had with the headline; DEG now matches it instead of having its
+        # five provenance columns inlined into the summary.
+        deg_cols = ["uniprot_ac", "deg_ess", "deg_n_datasets", "deg_n_essential",
+                    "deg_essential_any", "deg_essential_all"]
+        deg_out = OUT_DIR / f"deg_{sp}.tsv"
+        df[deg_cols].to_csv(deg_out, sep="\t", index=False)
+        say(f"    -> {deg_out.relative_to(REPO_ROOT)}  {len(df):,} rows, "
+            f"{'all unmeasured' if not has.any() else f'{int(has.sum()):,} measured'}")
+
+        # ---- the headline: ONE COLUMN PER SOURCE plus the merge. `ogee_ess` and `screens_mean`
+        # are filled by their own scripts and are absent until those have run, which is why they
+        # are not invented here -- an invented column is indistinguishable from a measured one.
+        # ONE COLUMN PER EVIDENCE SOURCE. Each source's own file carries its provenance columns;
+        # the headline carries the summary. `ogee_ess` and `screens_mean` are joined in if their
+        # scripts have run -- absent rather than invented, because an invented column is
+        # indistinguishable from a measured one.
+        for src, col in (("ogee", "ogee_ess"), ("screens", None)):
+            f = OUT_DIR / f"{src}_{sp}.tsv"
+            if not f.exists():
+                say(f"       {src}_{sp}.tsv absent -- headline omits it (run its script to add)")
+                continue
+            t = pd.read_csv(f, sep="\t")
+            if col:
+                df = df.merge(t[["uniprot_ac", col]], on="uniprot_ac", how="left")
+            else:
+                # The nine screen columns are one opinion each; the mean is the summary. They
+                # correlate heavily (all read the same embedding), so this is NOT nine independent
+                # votes -- rank on it, do not read it as a consensus count.
+                cols = [c for c in t.columns if c != "uniprot_ac"]
+                df = df.merge(t[["uniprot_ac"]].assign(
+                    screens_mean=t[cols].mean(axis=1).round(4)), on="uniprot_ac", how="left")
+        head = ["uniprot_ac", "geptop_ess", "deg_ess", "ogee_ess", "screens_mean", "essentiality",
+                "essentiality_source", "essentiality_rule",
+                "geptop_evidence", "geptop_in_reference_set"]
+        df = df[[c for c in head if c in df.columns]]
         out = OUT_DIR / f"essentiality_{sp}.tsv"
         df.to_csv(out, sep="\t", index=False)
         n_meas = int(has.sum())

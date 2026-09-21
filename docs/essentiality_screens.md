@@ -1,179 +1,153 @@
-# Essentiality screens: what we have, what is new, what needs a human
+# Essentiality screens: what is used, what is held back, and what must not be re-derived
 
 Focus is ***E. coli* and *K. pneumoniae***. *S. aureus* findings are recorded at the end but were
 deprioritised on instruction.
 
 Every claim here is measured from the file on disk or verified against a live URL. Where a number
-came from a paper rather than the data, it says so.
+came from a paper rather than from the data, it says so.
+
+**Most of the expensive knowledge in this document is NEGATIVE** — a dead end, a wrong DOI, a file
+that is not what its size suggests, a label that is inverted. That is exactly what gets
+rediscovered at cost, so sections 2, 5 and 6 are the ones to read before starting any new search.
+
+Per-directory provenance lives beside the data, in a `SOURCE.md` in each dataset folder.
 
 ---
 
-## 1. In use as training endpoints (6)
+## 1. In use — ten training sets
 
-One endpoint per **source**, conditions aggregated within a source. Join rates are re-measured on
-every run and written to `data/processed/essentiality/evidence/screen_join_audit.tsv`.
+One column per **source**, conditions aggregated within a source. Nothing is merged: these are
+different strains, different assays and different analyses, and the base rate alone spans
+**0.048–0.194** across the set. That spread is information about method and strain, not noise to
+average away.
 
-| endpoint | organism / strain | assay | rows | pos | base | join |
-|---|---|---|---|---|---|---|
-| `keio_ess` | *E. coli* K-12 (PEC/Keio) | arrayed knockout | 4,190 | 286 | 0.068 | 97.1% b-number |
-| `goodall_ess` | *E. coli* BW25113 | TraDIS | 4,056 | 354 | 0.087 | 97.6% symbol→b-number |
-| `bn373_ess` | ***K. pneumoniae* ECL8** | TraDIS/DESeq | 4,930 | 523 | 0.106 | 97.7% GenBank tag |
-| `kpnih1_ess` | ***K. pneumoniae* KPNIH1** | Tn-seq | 5,485 | 412 | 0.075 | **424/424 listed** |
-| `conservation` | Gammaproteobacteria | clade aggregate | 4,256 | core 205 / mid 530 / non 3,521 | — | 99.0% |
-| `bw25113_ess` *(control)* | *E. coli* BW25113 | TraDIS/DESeq | 4,199 | 258 | 0.061 | 98.7% |
+Join rates are re-measured every run into
+`data/processed/essentiality/evidence/screen_join_audit.tsv`; the full table with comments is
+`output/results/essentiality/screen_summary.tsv`.
 
-**Why each matters**
+| column | organism / strain | assay | n | pos | base | join | ribo |
+|---|---|---|---|---|---|---|---|
+| `essential_kpneumoniae_ecl8_tradis` | **Kp ECL8** (K2-ST375) | TraDIS/DESeq | 4,930 | 523 | 0.106 | 97.7% `BN373_` tag | 0.942 |
+| `essential_kpneumoniae_rh201207_tradis` | **Kp RH201207** | TraDIS | 4,981 | 471 | 0.095 | 92.9% locus_tag | 0.938 |
+| `essential_kpneumoniae_atcc43816_tradis` | **Kp ATCC 43816** | TraDIS | 4,809 | 363 | 0.075 | 92.6% locus_tag | 0.906 |
+| `essential_ecoli_k12_knockout` | Ec K-12 (PEC/Keio) | **arrayed knockout** | 4,190 | 286 | 0.068 | 97.1% b-number | 0.774 |
+| `essential_ecoli_mg1655_footprinting` | Ec MG1655 (DEG1018) | genetic footprinting | 4,253 | 604 | 0.142 | 98.5% exact sequence | 0.538 |
+| `essential_ecoli_bw25113_tradis_goodall` | Ec BW25113 | TraDIS | 4,056 | 354 | 0.087 | 97.5% symbol→b-number | 0.961 |
+| `essential_ecoli_bw25113_tnseq_choe` | Ec BW25113 | Tn-seq (LB only) | 4,272 | 440 | 0.103 | 95.0% b-number | 0.906 |
+| `essential_ecoli_st131_tradis` | **Ec ST131 EC958** | TraDIS | 4,981 | 300 | 0.060 | 100% DEG `fasta_id` | 0.741 |
+| `essential_ecoli_o157h7_tnseq` | **Ec O157:H7** | Tn-seq | 5,433 | 1,055 | 0.194 | 100% DEG `fasta_id` | 1.000 |
+| `core_essential_gammaproteobacteria` | Gammaproteobacteria | clade conservation | 4,256 | 205 | 0.048 | 99.0% b-number | 0.906 |
 
-- **`keio_ess`** — the only **non-transposon** assay we hold. Every other screen infers essentiality
-  from missing insertions; Keio actually tried to build each knockout and recorded which could not
-  be made. Different failure modes, so it is genuinely independent evidence rather than a replicate.
-- **`goodall_ess`** — the standard modern E. coli TraDIS reference, and the screen whose insertion
-  index defines what "essential" means in most later papers.
-- **`bn373_ess`** — **our only measured *Klebsiella* essentiality.** Before this the anchor organism
-  had a 100%-predicted column. It is the compendium's uniform DESeq reprocessing of ECL8 TraDIS.
-- **`kpnih1_ess`** — a **second, independent Kp genetic background** (ST258, the carbapenem-resistant
-  lineage) against ECL8's K2-ST375. Two backgrounds let us ask whether an essential call is
-  lineage-specific rather than assuming it.
-- **`conservation`** — how conserved essentiality is across 12 Gammaproteobacteria genomes, as
-  core / mid / non. The only endpoint whose label is a property of the gene *family* rather than one
-  organism, which is why a per-protein embedding is straightforwardly the right feature for it.
-- **`bw25113_ess`** — demoted to control: same compendium as `bn373_ess`, so it is the cleanest
-  possible partner for a cross-species test (identical analysis pipeline on both sides).
+`ribo` is the label-polarity control — see §1.3.
 
-**A finding that shapes how these should be read.** `goodall_ess` and `bw25113_ess` are the *same
-strain and same assay*, yet agree at Jaccard **0.554** — while `keio_ess`, a completely *different*
-assay, agrees with `goodall_ess` at **0.730**. The analysis choice moves the essential call more
-than the assay does. The same pattern appears in ECL8 (authors' call 373 positives vs the
-compendium's DESeq 562 on the same experiment). **Do not treat two reprocessings of one screen as
-two opinions.**
+### 1.1 The three filters that define this set
 
----
+Each was applied on instruction from the project owner.
 
-## 2. Downloaded today, not yet endpoints
+1. **Both classes required.** A positives-only gene list is not a training set. Drops Ramage 2017
+   (KPNIH1, 424 genes) and Paczosa 2020 (310 hits).
+2. **No condition-dependent data, for now.** Drops Choe's M9 arm, Rome 2026 (iron-depleted),
+   Short 2020's four serum screens, Bruchmann's `2hpi`/`6hpi` in-host columns, and every in-vivo
+   mouse screen.
+3. **No duplicate experiments.** DEG1019 is the Keio collection again under DEG's curation; PEC's
+   is kept.
 
-### *E. coli*
+### 1.2 What the spread says, and why nothing is merged
 
-**Nichols 2011, Cell 144:143-156 — "Phenotypic landscape of a bacterial cell"**
-`data/raw/ecoli/essentiality/nichols2011_chemgen/1-s2.0-S0092867410013747-mmc2.xls`
-Verified: **3,980 genes × 325 columns** of continuous S-scores, sheet `TableS2-FinalData`, rows
-keyed `ECK####-GENENAME`.
-*Why it matters*: the widest condition-resolved fitness matrix for E. coli in existence, and the one
-resource that can answer **"essential under which stress"** rather than "essential". v1 recorded it
-as unobtainable — PMC serves it behind a reCAPTCHA. The Elsevier CDN is unprotected; the PII
-(`S0092867410013747`) is not derivable from the DOI, which is why it stayed lost for a year.
+Base rates run **0.060 to 0.194** — a 3.2× spread. The two extremes are the oldest assay (Gerdes
+2003 genetic footprinting, 0.142) and a different pathotype (O157:H7, 0.194), so the variation is
+method and strain, not measurement error.
 
-**Choe 2025, iScience — CRISPRi across 13 conditions**
-`data/raw/ecoli/essentiality/choe2025_ecoli/mmc3.xlsx` — **4,199 rows × 20**, continuous `ER`
-(enrichment ratio), carries `b number`, `KEIO*` and `COG†` columns. **Two-row header.**
-*Why it matters*: condition-resolved essentiality with a native b-number column (99.1% join), from a
-different technology (CRISPRi) than our transposon screens.
+The sharpest illustration is **one organism, one dataset, two analyses**: Goodall's own BW25113
+calls give 354 positives, and the compendium's DESeq reanalysis of *the same reads* gives 258. A
+merged E. coli essentiality label would silently pick one of those.
 
-**Choe 2023, mSystems — Tn-seq in LB *and* M9**
-`data/raw/ecoli/essentiality/choe2023_ecoli/msystems.00896-22-s0002.xlsx` — **4,499 rows × 20**,
-`IPKM` per medium.
-*Why it matters*: two media is the minimum needed to separate "essential" from "essential in rich
-medium" — the confound sitting under every single-condition screen we hold.
+### 1.3 The polarity control — `scripts/essentiality/summary.py`
 
-### Cross-organism
+`num_positives` looks identical whether a label set is right or inverted, and an inverted column
+trains a confident, well-formed, exactly wrong model. So every column is checked against biology
+that cannot be in dispute: **ribosomal proteins must be essential** (`rps*`/`rpl*`/`rpm*`) and the
+**textbook dispensables must not** (`lacZ`, `araB`, `fadB`, flagellar, fimbrial, sugar catabolism).
 
-**Fitness Browser, February 2024 release** (figshare `10.6084/m9.figshare.25236931`, **CC BY 4.0**)
-`data/raw/other/essentiality/fitness_browser_2024/` — `feba.db.gz` (2.3 GB → 7.4 GB sqlite),
-`aaseqs.gz` (**221,030 protein sequences**), plus per-organism strain-fitness tables.
-Schema: `GeneFitness(orgId, locusId, expName, fit, t)`; `Keio` = *E. coli* BW25113, 168 experiments,
-3,789 genes.
-*Why it matters*: the only large corpus that ships **graded fitness with sequences attached** — no
-identifier join at all, directly embeddable, and larger than the whole DEG corpus (173,048).
+**Both bars are calibrated on measurements, not on 1.00 — this was got wrong once.** An initial
+0.50 separation bar failed Gerdes and would have failed the gold standard too:
 
-> **Three caveats, all load-bearing.** (1) **RB-TnSeq structurally cannot see essential genes**: a
-> gene with no surviving insertions has no fitness value, so it is *absent* rather than extreme.
-> This is a FITNESS resource; an essentiality endpoint built from it would measure the wrong thing.
-> (2) **There is no *K. pneumoniae* in it.** The single Klebsiella, `Koxy`, is
-> *K. michiganensis* M5al per the database's own Organism table — a comparator, never a Kp label.
-> (3) **I downloaded the wrong file first.** `feba.db` (2.3 GB → 7.4 GB) contains
-> `GeneFitness(orgId, locusId, expName, fit, t)` and **no essentiality signal at all**. The actual
-> essentiality calls are a 2.2 MB file on a different, un-gated host:
-> `https://genomics.lbl.gov/supplemental/bigfit/essential_proteins.tab` — 13,869 calls across 32
-> organisms with `nPosCentral` and insertion `dens`, **positives only** (negatives = genome minus
-> the list). Staged alongside. Keep `feba.db` only if we want conditional fitness; for essentiality
-> the small file is the whole payload.
->
-> A newer release also exists (July 2026: 62 organisms, 9,704 experiments, figshare
-> `10.6084/m9.figshare.32865896`) — ours is the February 2024 one.
+| screen | ribosome recall | reading |
+|---|---|---|
+| Goodall 2018 TraDIS | 0.961 | the cleanest E. coli screen here |
+| **Keio arrayed knockout** | **0.774** | **the gold standard, and the realistic ceiling** |
+| Gerdes 2003 footprinting | 0.538 | noisy, correctly polarised (8× over dispensables) |
+| Ghomi BW25113 DESeq | **0.113** | **broken — retired, see §5** |
 
-**OGEE v3 — recovered, and it overturns a documented project belief**
-`data/source/ogee/gene_essentiality.txt.gz` — md5 `b42f4a3358484b490e8bffe8c90edd00`.
-CLAUDE.md recorded OGEE v3 as permanently lost: the server aborts its TLS handshake, verified
-against three TLS stacks *and* real Chrome, with no mirror found. That diagnosis was correct and the
-conclusion was still wrong — **nobody checked the Internet Archive.** Two independent mirrors return
-byte-identical content. The `id_` suffix on the Wayback URL is mandatory.
+Keio's misses (`rplA`, `rplI`, `rplK`, `rplY`, `rpmE/F/G/I`, `rpsF/O/T/U`) are genuinely
+dispensable in *E. coli*, so ~0.8 is the biological ceiling. The bars are set to catch **breakage,
+not noise**: recall ≥ 0.45, separation ≥ 0.40.
 
-Measured: **255,162 rows, 89 taxa, 124 datasets**; E. coli 16,979 rows / 1,523 essential,
-S. aureus 5,612 / 671, **K. pneumoniae ZERO**. Against the DEG corpus that is ~2× the species and
-~2.2× the positives, with the negative class shipped explicitly rather than reconstructed.
-CC BY 3.0.
+### 1.4 Identifier notes specific to these ten
 
-*Why it matters*: it roughly doubles the cross-species corpus behind `conservation`. *Why it does
-not solve the main problem*: Kp is absent here exactly as it is from DEG. **Only the Tn-seq/TraDIS
-screens close the anchor's gap.**
-
-*The lesson*: a dead server is not a lost dataset. Check Wayback with `id_`, and check for a GitHub
-mirror, before recording anything unobtainable.
+- **GenBank vs RefSeq is per-paper, not a default.** ECL8 and KPNIH1 need GenBank (PGAP dropped the
+  submitter tags: 263 of RefSeq's 281 ECL8 misses were tags absent entirely). Paczosa keys on
+  `VK055_RS*`, which **is** RefSeq, and ATCC 43816 uses the `GCF_` assembly for that reason.
+- **NCBI GFF splits what you need across two features**: `old_locus_tag` sits on the **gene**,
+  `protein_id` on the **CDS**, linked by `ID`/`Parent`. Walk both or the map comes out empty.
+- **The same strain can need different records per paper.** RH201207 is `RH201207_*` on `LT216436`
+  (Short 2020) and `KPNRH_*` on `FR997879`/`GCF_905477585.1` (Bruchmann 2021) — two assemblies of
+  one strain, chromosomes 901 bp apart. Staged separately; never merge them.
+- **The two DEG-derived columns key on `fasta_id`**, verbatim the header of
+  `data/source/ncbi/deg_proteomes/<id>.faa`, so label and embedding share one namespace and there
+  is no join at all. Measured against the E. coli anchor by exact sequence, EC958 shares only
+  13.7% and O157:H7 23.0% — genuinely different proteomes, embedded in their own namespace.
+  DEG1018 (Gerdes) is the opposite case at **99.4%**, so it maps onto the anchor and needs no
+  embedding of its own.
 
 ---
 
-## 3. Downloaded and verified — *K. pneumoniae*, seven new strains
+## 2. Held back — downloaded, parseable, deliberately unused
 
-All fetched via Europe PMC or a publisher CDN, row counts verified by reading the file.
+These are **decisions, not gaps**. Each is on disk with a `SOURCE.md`.
 
-| screen | strains | rows | readout | locus tags → assembly |
-|---|---|---|---|---|
-| **Bruchmann 2021** NAR | RH201207 | 5,390 | 3-state **+** logFC/q | `KPNRH_` → FR997879 |
-| | ATCC 43816 | 5,217 | 3-state + logFC/q | `VK055_RS` → NZ_CP009208.1 |
-| **Short 2020** IAI | B5055 | 5,309 | 3-state + contrasts | `BN49_` → FO834906 |
-| | NTUH-K2044 | 5,413 | " | `KP1_` → AP006725 |
-| | ATCC 43816 | 5,191 | " | `VK055_` → CP009208 (**GenBank, not _RS**) |
-| | RH201207 | 5,726 | " | `RH201207_` → LT216436 |
-| **Rome 2026** AAC | NJST258_2 (ST258) | 5,125 | TRANSIT ES/GD/NE/GA + log2FC | `KPNJ2_RS` → GCF_000597905.1 |
-| **Gray 2024** eLife | 4-strain bridge | 385/642/608/476 | binary | see caveats |
+| dataset | why held back |
+|---|---|
+| `ramage2017_kpnih1` | positives-only — 424 listed genes, no measured negatives |
+| `paczosa2020_kppr1` | positives-only (310 hits) **and** condition-dependent (in-vivo, neutropenic) |
+| `short2020_serum` | condition-dependent — serum resistance, 4 Kp strains |
+| `rome2026_njst258` | condition-dependent — iron-depleted medium |
+| `choe2023_m9` | condition-dependent — minimal medium; its extra 131 essentials are auxotrophies |
+| `bruchmann_2hpi_6hpi` | condition-dependent — in-host timepoints from the same TraDIS sheets |
+| `bachman2015/2023/2025_KPPR1` | condition-dependent — murine lung in-vivo fitness |
+| `deg1019_keio` | duplicate — the Keio collection again under DEG's curation |
+| CRISPRi: `cui2018`, `wang2018`, `rousset2018`, `rousset2021`, `hawkins2020`, `jana2023` | different quantity — CRISPRi measures **knockdown** fitness, with polar operon effects and guide-efficiency-dependent range. If ever used, they should form one endpoint per organism, not one per paper. |
 
-**Why this is the important block.** DEG contains **zero** *Klebsiella*. Before today the anchor had
-one measured screen; it now has **seven genetic backgrounds**, including three independent ST258
-(carbapenem-resistant lineage) reads. That is enough to ask whether an essential call is
-lineage-specific rather than assuming it.
+The identifier work on Ramage is worth keeping even though the dataset is not: joining on GenBank
+locus tags took it from v1's **212/424** by gene symbol to **424/424**.
 
-**Bruchmann is the pick of them** — plain CSV, three-state call *and* continuous logFC/q, a built-in
-cross-strain locus map, and COG letters, on two backgrounds we had nothing for.
+---
 
-### Two assembly traps, both verified against the deposited records
+## 3. Downloaded — wider corpora, not yet used
 
-- **The same strain appears under two incompatible assemblies.** RH201207 is `RH201207_*` on
-  `LT216436` in Jana/Short, and `KPNRH_*` on `FR997879` in Bruchmann/Gray — **different assemblies
-  whose chromosomes differ by 901 bp. Do not merge them.**
-- **ATCC 43816 appears as both `VK055_` (GenBank CP009208) and `VK055_RS` (RefSeq
-  NZ_CP009208.1).** Not interchangeable — the same trap that cost hours on ECL8 today.
+| corpus | size | why it is here |
+|---|---|---|
+| **OGEE v3** | 255,162 rows, 89 taxa, 124 datasets | **recovered from a dead server** — see §5. ~2× DEG's species and ~2.2× its positives, and it ships the negative class explicitly. **But *K. pneumoniae* is ZERO**, so it does not close the anchor's gap. |
+| **DEG** | 49 sets, 173,048 rows, 38 species | the corpus behind `labels.py`/`deg_proteomes.py`; two of its sets are promoted to columns above |
+| **Nichols 2011** | 3,980 × 324 continuous S-scores | the richest conditional E. coli resource. Its rows are Keio **deletion strains**, so by construction it covers only non-essential genes and cannot supply an essentiality label even in principle. |
+| **Choe 2025** | 4,199 × 13 conditions | second-best conditional E. coli source |
+| **Fitness Browser**, Feb 2024 | 221,030 sequences | conditional phenotypes only — see §5 for why it holds no essentiality signal |
+| **iML1515 / iYL1228** | 2 metabolic models | FBA essentiality is a **prediction**; circular as a label, but legitimate as an independent comparator to score against |
 
-### Dropped after checking
+---
 
-**Jung 2019 (MH258, 5,473 genes)** — its ENA project `PRJEB31265` **exists but has released zero
-records**, checked across `assembly`, `wgs_set`, `sequence`, `read_run` and `analysis`. Its
-`gene_####` IDs are PATRIC output with no public counterpart and its coordinates are against an
-unavailable assembly. Joinable only via free-text description. **Not worth it.**
+## 4. Identified, not downloaded — needs a human
 
-## 4. Needs a human
+**`paczosa2020_kppr1` — RESOLVED, then held back for a different reason.** The files were
+fetched by hand and live in `data/raw/kpneumoniae/essentiality/paczosa2020_kppr1/`. It is not used,
+but the reason is no longer access: it is **positives-only** (310 published hits, no measured
+negatives) **and** condition-dependent (in-vivo, neutropenic vs WT mouse). Two independent
+disqualifications under the current filters.
 
-**`paczosa2020_kppr1`** — *K. pneumoniae* ATCC 43816, neutropenic vs WT mouse, 166/194 genes
-depleted. Readout is a **normalized competitive index** (`WT-mean-nCI`, `PMN-mean-nCI`), not logFC,
-so it needs converting before mixing with other screens.
-
-Confirmed unreachable by automation: Europe PMC reports not-OA, curl 403s, **and an in-page
-`fetch()` from an already-loaded ASM tab also returns 403** — Cloudflare blocks XHR separately from
-navigation. No SRA/BioProject exists; the reads were never deposited.
-
-> **Navigate a browser directly to these two URLs** (do not try to script them):
-> - `https://journals.asm.org/doi/suppl/10.1128/iai.00034-20/suppl_file/iai.00034-20-sd001.xlsx` (657 KB, Tables S1–S7)
-> - `https://journals.asm.org/doi/suppl/10.1128/iai.00034-20/suppl_file/iai.00034-20-s0002.pdf` (642 KB)
->
-> Save both to `data/raw/kpneumoniae/essentiality/paczosa2020_kppr1/`.
+The access finding is still worth keeping, because it is the hardest case met so far: Europe PMC
+reports not-OA, curl 403s, **and an in-page `fetch()` from an already-loaded ASM tab also returns
+403** — Cloudflare blocks XHR separately from navigation. No SRA/BioProject exists; the reads were
+never deposited. A human navigating a browser directly to the URL is the only route.
 
 **`mazzuoli2025_saureus`** (bioRxiv) — 4 strains incl. NCTC8325-4, 307-gene core essentialome.
 bioRxiv exposes only 3 PDF figures and `aureobrowse.veeninglab.com` is a Shiny shell with no static
@@ -181,15 +155,44 @@ export. Re-check after journal publication, or email the lab.
 
 ---
 
-## 5. Measured and rejected — do not re-derive
+## 5. Measured and refuted — do not re-derive
 
 - **`ecl8_ess` (Eichelberger's own call) is unjoinable.** Their `ecl8_#####` tags annotate an
   assembly nobody deposited: **475 of 5,165** numeric suffixes shared with `BN373_`, **0 of 5,074**
   coordinates matched, gene symbols reached **3.7%** (the deposited ECL8 annotation carries symbols
   for only 144 CDS). Superseded by `bn373_ess` — same organism, same assay, 97.7% join.
+- **OGEE v3's server is dead, but the file is NOT** — and CLAUDE.md recorded it as permanently
+  lost on the strength of the server diagnosis alone. The diagnosis was right (`v3.ogee.info`
+  aborts the TLS handshake server-side; verified against LibreSSL, OpenSSL and real Chrome, with
+  and without SNI, pinned to TLS 1.2, by direct IP). The conclusion was wrong: **nobody checked
+  the Internet Archive.** Two mirrors return byte-identical content, md5
+  `b42f4a3358484b490e8bffe8c90edd00`, 1,151,931 bytes — the Wayback URL (**the `id_` suffix is
+  mandatory**, or you get the HTML wrapper) and a GitHub mirror. *A dead server is not a lost
+  dataset.*
 - **`cain2017_njst258` does not exist.** No NJST258 TraDIS screen was ever published; NJST258_1/2
   are assemblies only. The real Cain 2017 paper is RH201207 (`srep42483`) and its sole supplement is
   a 6-page PDF with no per-gene table.
+- **The compendium's `BW25113.out.DESeq.tsv` did not converge.** It looked like a free second
+  opinion on Goodall's data under a uniform pipeline. It is not: `padj` is **NaN for 2,310 of
+  4,256 genes (54.3%)** — against **7.0%** for ECL8 through the same pipeline — and of the 189
+  genes with **zero insertion sites**, **108 are called `Unchanged`** (ECL8: 91 of 91 correctly
+  `Reduced`). A gene with no insertions is the most essential thing a transposon library can show;
+  DESeq cannot compute a statistic for it, so it falls through to non-essential. **The label is
+  inverted for exactly the genes that matter most.** Caught by the ribosome control at 0.113
+  against Goodall's 0.961 on the same data. Retired; the parser is kept in `screens.py` with the
+  evidence. ECL8's column is unaffected and ships.
+- **RB-TnSeq cannot see essential genes, by construction.** No insertions survive in an essential
+  gene, so it is **absent** from the fitness table rather than carrying an extreme value.
+  `feba.db` holds no essentiality signal. Two related corrections: the 2.3 GB `feba.db.gz` is the
+  wrong file (the real one is the 2.2 MB `essential_proteins.tab`, a 1,000× difference), and
+  **`Koxy` is *Klebsiella michiganensis* M5al, not *K. pneumoniae***.
+- **BV-BRC "essentiality" is FBA prediction, not measurement** — circular as an ML label.
+- **Jung 2019** — ENA project `PRJEB31265` exists but has released zero records.
+- **MMseqs2 rewrites FASTA headers containing `|`.** It parses them as NCBI db-style fields, so
+  DEG's `>lcl|HG941718.1_prot_CDN80371.1_1` comes back out of `_cluster.tsv` with the `lcl|`
+  silently gone. That id is the key the screen table and the embedding share, so the clustering
+  mapped to **0 of 4,981** proteins — indistinguishable from a proteome with no paralogs.
+  `paralog_clusters.py` now writes index surrogates and substitutes the real ids back.
 - **Rosconi 2022** is *S. pneumoniae*, not *S. aureus*.
 - **Bae 2004** is an arrayed *C. elegans* killing screen — binary virulence, not fitness.
 

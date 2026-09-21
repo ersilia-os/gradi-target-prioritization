@@ -34,63 +34,92 @@ SCRATCH_DIR = PROTEOMELM_DIR / "scratch"
 MODEL_REPO = "Bitbol-Lab/ProteomeLM-L"
 LAYER = 8
 EMBED_DIM = 1152
-GROUP_EMBEDS_MODE = "self"
+GROUP_EMBEDS_MODE = "self"      # the default mode every loader here reads unless asked otherwise
+GROUP_MODES = ("self", "orthodb")
 LABELS = ("kpneumoniae", "ecoli", "saureus")
 
 
-def _path(label: str) -> Path:
-    path = PROTEOMELM_DIR / f"proteomelm_{label}.npz"
+def _path(label: str, mode: str = GROUP_EMBEDS_MODE) -> Path:
+    if mode not in GROUP_MODES:
+        raise ValueError(f"unknown group_embeds mode {mode!r}; expected one of {GROUP_MODES}")
+    suffix = "" if mode == "self" else f"_{mode}"
+    path = PROTEOMELM_DIR / f"proteomelm_{label}{suffix}.npz"
     if not path.exists():
         raise FileNotFoundError(
-            f"{path} -- run scripts/embeddings/proteomelm.py first")
+            f"{path} -- run scripts/embeddings/proteomelm.py --group-embeds {mode}")
     return path
 
 
-def load(label: str) -> tuple[np.ndarray, np.ndarray]:
+def _read(label: str, mode: str):
+    """Open the matrix and ASSERT THE MODE IS THE ONE ASKED FOR.
+
+    The two modes are different representations of the same proteins with the same shape and the
+    same accessions, so nothing about a matrix's appearance says which it is. Fitting a model on
+    `self` vectors and scoring it on `orthodb` ones would return plausible, well-formed, wrong
+    numbers -- the exact silent failure CLAUDE.md's *External models* rule exists to prevent. The
+    filename carries the mode and this check confirms the file agrees with its own name.
+    """
+    z = np.load(_path(label, mode), allow_pickle=True)
+    got = str(z["group_embeds_mode"])
+    if got != mode:
+        raise ValueError(
+            f"{_path(label, mode).name} says group_embeds_mode={got!r} but {mode!r} was requested. "
+            "Do not mix the two: refuse rather than return a representation the caller did not ask "
+            "for.")
+    return z
+
+
+def load(label: str, mode: str = GROUP_EMBEDS_MODE) -> tuple[np.ndarray, np.ndarray]:
     """(accessions (n,), embeddings (n, dim) float32), row-aligned."""
-    z = np.load(_path(label), allow_pickle=True)
+    z = _read(label, mode)
     return z["accessions"].astype(str), z["embeddings"].astype(np.float32)
 
 
-def load_frame(label: str) -> pd.DataFrame:
+def load_frame(label: str, mode: str = GROUP_EMBEDS_MODE) -> pd.DataFrame:
     """Indexed by uniprot_ac, columns p0..p<dim-1>."""
-    accs, mat = load(label)
+    accs, mat = load(label, mode)
     return pd.DataFrame(mat, index=pd.Index(accs, name="uniprot_ac"),
                         columns=[f"p{i}" for i in range(mat.shape[1])])
 
 
-def load_lookup(label: str) -> dict[str, np.ndarray]:
-    accs, mat = load(label)
+def load_lookup(label: str, mode: str = GROUP_EMBEDS_MODE) -> dict[str, np.ndarray]:
+    accs, mat = load(label, mode)
     return {a: mat[i] for i, a in enumerate(accs)}
 
 
-def vectors_for(label: str, accessions: list[str]) -> tuple[list[str], np.ndarray]:
+def vectors_for(label: str, accessions: list[str],
+                mode: str = GROUP_EMBEDS_MODE) -> tuple[list[str], np.ndarray]:
     """Rows in the REQUESTED order. Missing accessions are DROPPED, never zero-filled -- a zero row
     is a real position in embedding space, and silently inventing one is how a downstream model ends
     up trained on fabricated points."""
-    lut = load_lookup(label)
+    lut = load_lookup(label, mode)
     found = [a for a in accessions if a in lut]
     if not found:
         return [], np.zeros((0, EMBED_DIM), dtype=np.float32)
     return found, np.vstack([lut[a] for a in found]).astype(np.float32)
 
 
-def metadata(label: str) -> dict:
-    z = np.load(_path(label), allow_pickle=True)
+def metadata(label: str, mode: str = GROUP_EMBEDS_MODE) -> dict:
+    z = _read(label, mode)
     return {
         "model": str(z["model"]),
         "layer": int(z["layer"]),
         "n_layers": int(z["n_layers"]),
         "dim": int(z["dim"]),
         "group_embeds_mode": str(z["group_embeds_mode"]),
+        "min_group_size": int(z["min_group_size"]) if "min_group_size" in z else None,
+        "group_mapped_frac": (float(z["group_mapped_frac"])
+                              if "group_mapped_frac" in z else None),
         "esmc_pooling": str(z["esmc_pooling"]),
         "proteome_id": str(z["proteome_id"]),
         "n": int(z["embeddings"].shape[0]),
     }
 
 
-def manifest() -> pd.DataFrame:
-    path = EVIDENCE_DIR / "proteomelm_manifest.tsv"
+def manifest(mode: str = GROUP_EMBEDS_MODE) -> pd.DataFrame:
+    suffix = "" if mode == "self" else f"_{mode}"
+    path = EVIDENCE_DIR / f"proteomelm_manifest{suffix}.tsv"
     if not path.exists():
-        raise FileNotFoundError(f"{path} -- run scripts/embeddings/proteomelm.py first")
+        raise FileNotFoundError(
+            f"{path} -- run scripts/embeddings/proteomelm.py --group-embeds {mode}")
     return pd.read_csv(path, sep="\t")

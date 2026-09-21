@@ -158,7 +158,100 @@ CLI: `--species` · `--validate DEG_SPECIES ...` · `--threads` · `--cutoff` ·
 
 ---
 
-## The deliverable — `essentiality_<species>.tsv`
+## The layout — four tiers, restructured 2026-09-21
+
+The axis used to keep its clean training sets among forty-odd audit tables and had no
+machine-readable record of which datasets were actually used. Four tiers now, each answering one
+question.
+
+```
+data/{raw,source}/**/SOURCE.md        34 dirs — what each dataset IS, and whether v2 uses it
+data/processed/essentiality/
+  dataset_registry.tsv                every dataset found + its DISPOSITION          (47 rows)
+  training_sets/                      the clean ML-ready sets, one schema            (10 files)
+  geptop_<sp>.tsv                     evidence source: orthology prediction
+  deg_<sp>.tsv                        evidence source: DEG measurement
+  ogee_<sp>.tsv                       evidence source: OGEE-trained prediction
+  screens_<sp>.tsv                    evidence source: 9 published-screen predictions
+  essentiality_<sp>.tsv               the headline — one column per source + the merge
+  evidence/                           audits, controls, CV tables, manifests
+  scratch/                            caches. PURGEABLE, so nothing cited may live here
+```
+
+### `dataset_registry.tsv` — which datasets became training sets, and why not the rest
+
+| disposition | n | meaning |
+|---|---|---|
+| `training_set` | 10 | the 9 published screens + the OGEE corpus |
+| `held_back` | 30 | downloaded and parseable, deliberately unused — positives-only, condition-dependent, CRISPRi, duplicates |
+| `refuted` | 6 | measured and killed; the `reason` column carries the evidence |
+| `corpus_only` | 1 | DEG — 66 datasets feeding one column, not one column each |
+
+**Generated, never hand-written.** `registry.py` assembles it from `screens.py`'s own
+`SCREENS`/`HELD_BACK`/`UNJOINABLE`, `screen_join_audit.tsv`, `deg_datasets.tsv` and
+`ogee_taxa.tsv`. A second hand-maintained copy is how a register stops agreeing with the code it
+describes. It **reconciles both directions** and exits non-zero on a mismatch: every declared
+training set must exist as a file in `training_sets/`, and every file there must have a row.
+
+**Source directories are declared (`Screen.source_dir`), never inferred.** The first version
+guessed by substring and matched `essential_ecoli_bw25113_tradis_goodall` to `data/source/go` —
+"go" is inside "goodall". A false provenance link reads exactly like a correct one.
+
+### `training_sets/` — one schema, and a key that is not an accession
+
+`key · label · source_id · features_from`, plus any screen-specific extras.
+
+**`key` is NOT a UniProt accession for five of the nine screens.** It is whatever identifier the
+screened strain's own proteome uses:
+
+| screen | key looks like | keys onto its anchor proteome |
+|---|---|---|
+| the 4 b-number E. coli screens | `P69924` | 100% |
+| `kpneumoniae_ecl8_tradis` | `CCN31837.1` | **0 of 4,930** |
+| `kpneumoniae_atcc43816_tradis` | `WP_038431262.1` | **0 of 4,809** |
+| `kpneumoniae_rh201207_tradis` | `KPNRH_00001` | **0 of 4,981** |
+| `ecoli_st131_tradis` | `lcl|HG941718.1_prot_...` | **0 of 4,981** |
+| `ecoli_o157h7_tnseq` | `lcl|NZ_CP008957.1_prot_...` | **0 of 5,433** |
+
+That is deliberate, not a defect: label, sequence and embedding then share one namespace and
+nothing is joined across annotations. But a join to `proteome_<species>.tsv` on accession returns
+an **empty frame, not an error**, which is why the column was renamed off `uniprot_ac` and
+`features_from` now names the proteome the key indexes.
+
+### `screens_<sp>.tsv` — predictions in every column and every row
+
+Each of the nine screens was measured on a strain that is not the anchor, so **the model is
+transferred, not the label**. Transferring labels was considered and rejected: exact-sequence
+transfer onto the anchor recovers only **13.7–71.6%** of rows and **29.8–61.4%** of positives, so
+it would silently mislabel roughly 1,700 measured essential genes as non-essential — the failure
+mode `deg_proteomes.py` already documents for DEG.
+
+Where an anchor protein *was* in a screen's training set — the four b-number E. coli screens
+overlap the E. coli anchor 100% — the **out-of-fold** value is substituted. Without that the column
+would be in-sample where it overlaps and honest where it does not: two different quantities under
+one name.
+
+**Read `evidence/screens_transfer_audit.tsv` before treating a column as evidence.** It gives, per
+column, the training strain, the measured own-organism grouped AUROC/AUPR, and the train/target
+overlap. For scale, measured cross-species transfer is **Ec→Kp 0.8597** and **Kp→Ec 0.9338** mean
+AUROC, and it is better when the *assay* matches: Goodall TraDIS reaches Kp at 0.89 while Keio
+knockout reaches 0.82–0.84.
+
+### One trap the restructure created, and the rule it produced
+
+Purging `scratch/geptop/` to reclaim 5.7 GB also deleted the three `reference_audit.tsv` files —
+which `src.essentiality.geptop_reference_audit()` reads and which are the only record of which of
+the 37 references contributed. The deliverables survived; the evidence did not, and it cost a
+90-minute re-run.
+
+The files were **misfiled**. `scratch/` is documented as safe to delete, so anything cited cannot
+live there, and the directory contract's own test settles it: *would you cite or check it* →
+`evidence/`. They are now `evidence/geptop_reference_audit_<species>.tsv`.
+
+## The headline — `essentiality_<species>.tsv`
+
+### The merged column, and the units it mixes
+
 
 Two headline columns per protein, written by `scripts/essentiality/merge.py`:
 

@@ -85,6 +85,24 @@ passes when run alone.
 TabPFN-3.5.** Not RandomForest, not a hand-tuned sklearn model, not an AutoML wrapper. This is a
 standing instruction from the project owner and applies to every stage, existing and future.
 
+**ONE STANDING EXCEPTION, granted 2026-09-21: the ESSENTIALITY ENDPOINTS run a RandomForest until
+the project owner is convinced by the datasets.** Their words: *"for now, use the random forest
+option (tabpfn only when i am convinced)."* So `scripts/essentiality/predict.py` defaults to
+`--estimator forest` and `--estimator tabpfn` is opt-in. This is **scoped to that axis** — it is
+not a licence to reach for sklearn anywhere else, and it lapses when the owner says so.
+
+Two reasons it is also the right call on the merits. (1) The question being asked of these ten
+datasets is *which of them is learnable at all*, which a free in-process estimator answers as well
+as a paid one. (2) A 10-endpoint × 5-seed × 5-fold sweep is **250 hosted calls ≈ 2.5M credits,
+12.5% of the monthly quota**, which is a lot to spend before knowing whether a dataset is worth
+modelling. The forest is free and needs no token.
+
+**Keep the comparison possible.** `predict.py` routes both estimators through ONE `predict_fold` /
+`oof_predict` seam on identical folds, grouping and metrics, and the forest is
+`src.degradability.RF_PARAMS` imported rather than re-specified — so a later forest-vs-TabPFN
+result is a comparison of estimators, not of two scripts. Write `estimator` into every results row
+(`evidence/cv_endpoints.tsv` does) or the numbers become unattributable.
+
 - **Call it through `src/tabpfn.py`** — `predict_fold`, `predict_fold_regression`, `oof_predict`.
   It is transversal, so the dispatch, the content-addressed cache, the retry and the credit guard
   live in `src/` where any axis can reach them; nothing should shell out to the worker directly.
@@ -185,9 +203,12 @@ Four more rules that come with it:
 4. **Verify with a ROUND-TRIP, not a shape check.** Reconstructing the term lists from the matrix
    must reproduce the source columns exactly. Shape checks pass on wrong matrices.
 
-Status, from `python -m src.matrices`: **31/33 canonical.** The 2 exceptions are
-`prott5_{kpneumoniae,ecoli}.npz`, which do not exist yet — **ProtT5 was only ever run for
-*S. aureus***. Functional annotation is done (`function/matrix.py`). Localization has two complete,
+Status, from `python -m src.matrices`: **36/36 canonical.** (It was 31/33 while
+`prott5_{kpneumoniae,ecoli}.npz` did not exist, then 33/33, and is now 36 because the audit also
+covers `proteomelm_<species>_orthodb.npz` — a SECOND representation of the same proteins, same
+shape, same accessions. An unaudited matrix is exactly the silent misalignment this rule exists to
+catch, so a new representation goes into the audit list, not beside it.) Functional annotation is
+done (`function/matrix.py`). Localization has two complete,
 canonical tables but `deeplocpro_` is still single-label categorical and needs one-hot over the
 6-class union before it is a matrix in the sense above.
 
@@ -543,6 +564,94 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   windowed, and the affected protein is named rather than silently truncated.
   CLI: `--species` · `--pooling {mean_no_eos,mean_with_eos}` · `--compare-pooling` · `--control-n` ·
   `--device {mps,cpu}` · `--refresh` · `-q`. Details: `docs/embeddings.md`.
+
+- **`embeddings/proteomelm.py`** — **contextualised embeddings: the third project-wide matrix, and
+  the only one where a protein's vector depends on the rest of its proteome.** ProteomeLM-L
+  (Malbranke, Zalaffi & Bitbol, PNAS 2026; papers in `docs/papers/`) takes a whole proteome's ESM-C
+  vectors in one forward pass and returns **layer 8 of 18**, z-scored genome-wide. Writes
+  `proteomelm_<species>.npz` for the three bacteria.
+
+  **Layer 8 of L is not a guess — it is the paper's own best configuration** for essentiality:
+  *"the best performing version of ProteomeLM-Ess is the one trained on the embeddings of layer 8
+  of ProteomeLM-L, yielding an AUC of 0.93."* Intermediate layers beat the last one, consistently
+  with their unsupervised PPI result.
+
+  **It computes its OWN ESM-C and must**: ProteomeLM pools over non-pad tokens, so **BOS/EOS are
+  INSIDE the mean** (`ESMC_POOLING = "mean_with_bos_eos"`), while `embeddings/esmc.py` strips them.
+  Measured difference cosine 0.999970 median / 0.998291 worst — negligible in size, still a
+  different convention, and *External models* says the tool's own convention wins. Stage 01's npz
+  is cross-checked and **reported, never depended on**.
+
+  **NOT SHARDABLE.** A shard boundary changes the values, because the whole point is that the
+  proteome is the context. The ESM-C *inputs* shard and resume; the ProteomeLM forward is one pass
+  (2–3 s per proteome).
+
+  **`--group-embeds {self,orthodb}` — the functional encoding, and this is the load-bearing knob.**
+  ProteomeLM takes a per-protein `group_embeds` which during TRAINING is the **mean ESM-C embedding
+  of the protein's OrthoDB orthologous group**; per the paper's SI §6 that is the mechanism by which
+  it beats its own `ProteomeLM-Discrete` ablation. It is an **additive second branch**
+  (`embedding_main(x) + embedding_encoder(group)`), so it changes every hidden state.
+  - **`self`** (default, and what every run before 2026-09-21 used) passes `group_embeds=None`, so
+    each protein is its own functional encoding. That is the authors' **released inference**
+    default — `prepare_ppi(..., use_odb=False)`, annotated `# TODO: use odb on the fly` — not what
+    the model was trained with.
+  - **`orthodb`** uses the real thing, from the authors' `group_vectors_*.pkl` tables joined to our
+    own `orthodb_<species>.tsv`. Their own route is UniProt's `xref_orthodb`, which is **0.0% on
+    Kp**, so our DIAMOND-derived table substitutes for it.
+  - Mapped fractions, measured: **ecoli 88.2% · kpneumoniae 81.7% · saureus 76.9%** at
+    `--min-group-size 50`. Unmapped proteins fall back to their own ESM-C vector, which is the
+    authors' training dataloader's behaviour. **Always report that fraction**: where it is low the
+    two modes converge on the same input and a null result says nothing about the encoding.
+  - Provenance, byte counts, md5s and the release check: `data/source/proteomelm/SOURCE.md`.
+
+  **RUN `embeddings/orthodb_group_check.py` BEFORE TRUSTING `orthodb` MODE.** OrthoDB group ids are
+  *"not stable and re-used between releases"*; ours are `odb12v2` and the authors' pickles carry
+  whatever they trained on. Had the id spaces differed, every lookup would miss, every protein
+  would fall back to self, and the run would **silently reproduce `self`** while looking like a
+  completed experiment. Measured and **PASSED**: E. coli 88.8% of group ids present, Kp 79.6%.
+  That check also decided something unguessable — **use `orthodb_og_domain`, not
+  `orthodb_og_narrow`** (85.5% vs 18.8% per-protein on E. coli; narrow groups are clade-specific
+  and mostly absent from a size-thresholded table). Both are tried, domain first, mirroring the
+  authors' `;`-separated multi-OG semantics. Evidence:
+  `data/processed/embeddings/evidence/orthodb_group_vector_overlap.tsv`.
+
+  **Four traps, all hit at least once:**
+  1. **`scripts/embeddings/proteomelm.py` SHADOWS the installed `proteomelm` package.** Python puts
+     a script's directory on `sys.path`, so a bare `import proteomelm` resolves to *this file* and
+     any submodule import dies with `'proteomelm' is not a package` — which reads like a broken
+     install. `installed_proteomelm()` drops the directory explicitly.
+  2. **The output filename must carry the mode.** It originally did not, so an `orthodb` run would
+     have silently overwritten the `self` matrices that are the comparison's baseline and are read
+     by the stage-04 head comparison. `self` keeps the bare name; other modes get a suffix.
+  3. **The two controls must carry the group tensor.** `check_permutation` permutes it alongside
+     and `check_context` slices it alongside; otherwise permuting the proteins re-pairs every
+     protein with a *different* protein's group vector and the control fails for the wrong reason.
+  4. **Group vectors are `bfloat16`** and the model runs `.float()` — cast, or the forward dies.
+
+  **The four `group_vectors_*.pkl` files are DISJOINT SIZE BANDS, not nested supersets.** The
+  suffix is a group-size threshold and the authors' loader MERGES every file at or above
+  `min_group_size`, so a *lower* number loads *more* groups. `_0` is 18.1 GB and unpickles whole
+  (~18 GB RAM) while our proteomes use ~13,000 distinct groups — write a filtering loader before
+  reaching for it.
+
+  **Two controls that are the reason to trust the matrix**, both exiting non-zero on failure:
+  permutation invariance (there are no positional embeddings; measured max|diff| ~1e-05) and
+  **context sensitivity** — the full-proteome vs half-proteome cosine, which must stay *below*
+  0.999 or ProteomeLM has collapsed to a per-protein encoder and the stage has no reason to exist.
+  Measured under `self`: E. coli 0.9676. **Under `orthodb` it RISES** (E. coli 0.9702,
+  Kp 0.9857, **Sa 0.9924**) — expected, since the group vector is a per-protein input that dilutes
+  the contextual signal, but *S. aureus* is close enough to the floor to watch.
+
+  **Load through `src/proteomelm.py`** — `load`, `load_frame`, `load_lookup`, `vectors_for`,
+  `metadata`, `manifest`, each taking `mode="self"|"orthodb"`. **The loaders ASSERT the file's
+  recorded mode matches the one requested**: the two modes are the same shape over the same
+  accessions, so nothing about a matrix says which it is, and fitting on one while scoring on the
+  other would return plausible wrong numbers. `vectors_for` drops missing accessions rather than
+  zero-filling.
+
+  CLI: `--label` · `--size {XS,S,M,L}` · `--layer` · `--group-embeds {self,orthodb}` ·
+  `--min-group-size {0,10,50,200}` · `--shard-size` · `--device` · `--limit` · `--refresh` ·
+  `--dry-run` · `-q`. Details: `docs/embeddings.md`.
 
 - **`embeddings/projection.py`** — **the 2D map of that space**, a sibling of the stage rather
   than a stage of its own (the `function/cog.py` / `function/eggnog.py` precedent), writing
@@ -1279,6 +1388,13 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   0.231 (92.9th) sits **below** the 0.24 cutoff — correct, and worth knowing since ClpP is the
   degradation handle.
 
+  **`reference_audit.tsv` is EVIDENCE and lives in `evidence/`, not in the run directory.** It
+  used to be written under `scratch/geptop/<species>/`, where a routine `scratch/` purge deleted
+  all three copies and cost a 90-minute re-run — the deliverables survived, but the only record of
+  which references contributed did not. `scratch/` is documented as safe to delete, so anything
+  that is cited cannot live there; the directory contract's own test settles it ("would you cite or
+  check it" → `evidence/`). Now `evidence/geptop_reference_audit_<species>.tsv`.
+
   **`blastp`/`makeblastdb` are borrowed from `gradi-prokka`** (`GRADI_BLAST_BIN` overrides) — the
   `GRADI_RPSBLAST_BIN` pattern; do not install blast into `gradi`. **Human is excluded by
   construction**: all 37 references are prokaryotes, so there is no honest score, exactly as for
@@ -1289,8 +1405,71 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   CLI: `--species` · `--validate DEG_SPECIES ...` · `--threads` · `--cutoff` · `--cv-jobs` ·
   `--refresh` · `--dry-run` · `-q`. Details: `docs/essentiality.md`.
 
-- **`essentiality/merge.py`** — **the stage-07 deliverable**: `essentiality_<species>.tsv`, two
-  headline columns per protein. **`geptop_ess`** (0–1 continuous, never null — Geptop's prediction)
+- **`essentiality/ogee.py`** + **`ogee_proteomes.py`** + **`ogee_dataset.py`** — **a third
+  opinion on essentiality, learned from 26 measured prokaryotic proteomes.** OGEE v3 supplies
+  labels and no sequences; these three scripts characterise the corpus, attach sequences, and
+  train. Output `ogee_<species>.tsv`: `ogee_ess` (0–1, never null) + `ogee_evidence` (the MEASURED
+  OGEE label for that exact protein — 1, 0, or empty).
+
+  **HALF OF OGEE IS UNUSABLE, and the reason is one we had already recorded from the other side.**
+  Of 87 taxa with decided E/NE calls, **40 have ZERO negatives** — 17,743 positives-only entries —
+  and **25 of those 40 come from one paper, PMID 29769716, Price 2018, the Fitness Browser
+  RB-TnSeq collection.** RB-TnSeq cannot see essential genes by construction (no insertions survive,
+  so they are absent rather than extreme), which makes its essential list positives-only by the
+  nature of the assay. That inflates OGEE's overall base rate to **0.310** against 0.117 for our
+  DEG corpus. Applying the project's own both-classes + prokaryote filters leaves **26 taxa /
+  78,893 proteins / base 0.173**.
+
+  **Leave-species-out, not the paper's single holdout** — the project owner's instruction, and the
+  better fit: K. pneumoniae is absent from OGEE entirely, so the question is "given N measured
+  bacteria, how well can we call the N+1th?", which is exactly what a held-out taxon measures. It
+  also gives 26 estimates instead of 1, and **the spread is the result**: AUROC **0.529–0.940**,
+  mean 0.782, median 0.805 (`evidence/ogee_leave_species_out.tsv`).
+
+  **THE HEADLINE FINDING: `corr(base_rate, AUROC) = −0.643`.** Screens that call many genes
+  essential are much harder to predict, and two same-organism pairs make it unarguable —
+  *P. aeruginosa* PAO1 (base 0.081) scores **0.837** while PA14 (base 0.302) scores **0.634**;
+  *Salmonella* Typhi CT18 (0.105) scores 0.782 while Typhimurium SL1344 (0.404) scores **0.529**,
+  barely above chance. A screen calling 40% of genes essential is measuring fitness defect, not
+  essentiality. **This is what prices the Kp column**: our three measured Kp screens run base
+  0.075–0.106, squarely in the band where held-out taxa score **0.78–0.93**.
+
+  **ONE model, fit on all 26 taxa, used for all three anchors** (owner's instruction). The caveat
+  that creates is carried as DATA, per protein, in `ogee_evidence`: E. coli K-12 and S. aureus
+  NCTC 8325 ARE OGEE taxa AND our anchors — **100.0% and 97.5% of their corpus proteins are
+  literally the same SEQUENCE as an anchor protein** — so where `ogee_evidence` is non-null the
+  model was fitted on that protein with that label and `ogee_ess` is closer to recall than
+  prediction. Measured coverage: **Ec 4,193/4,403 (95.2%), Sa 2,815/2,889 (97.4%), Kp 0/5,728.**
+  The effect is visible in the output: same model, top-decile cut **0.861 on E. coli against
+  0.471 on Kp**. So `ogee_ess` is comparable WITHIN a species, never across.
+
+  **Three traps.** (1) `locus` is 100% populated but heterogeneous, and the namespace is a property
+  of the (taxon, dataset) BLOCK — pure at median 1.000, and 87 of 89 taxa use one throughout.
+  **E. coli K-12 is one of the two exceptions and carries TWO DISJOINT namespaces** (PEC gene
+  symbols, and b-numbers, zero shared ids), so a naive `(taxid, locus)` dedup counts every gene
+  twice — 9,496 "genes" for a 4,403-gene organism. Dedup only AFTER resolving to a protein.
+  (2) **A missing underscore cost three taxa entirely** — OGEE writes `HI0001`/`HP0001`/`MPN001`
+  where the assembly writes `HI_0001`/`HP_0001`/`MPN_001`, scoring 0.000 until a
+  punctuation-insensitive fallback was added (H. influenzae → 0.960, H. pylori → 0.994).
+  (3) **GCA and GCF are not interchangeable here** — Synechococcus keys on RefSeq `SYNPCC7942_RS*`
+  tags that only the GCF annotation carries, scoring 0.226 on GenBank and **0.969** on RefSeq. So
+  the assembly is chosen **by measured join rate** across candidates, not by rule; per-candidate
+  rates are in `evidence/ogee_proteome_join.tsv`.
+
+  **`--seeds 1` is deliberate here**, against the axis-wide 5. The folds are FIXED (each fold is one
+  taxon), so there is no partition randomness to average — only the forest's own, and per-seed SDs
+  on this axis run ≤0.004. It is also 26 fits instead of 130: measured ~4 min per fit on
+  76,000 × 1,152, i.e. 1.7 h against 8–9. The SD prints `(1 seed)` and stores `NA`, never
+  `+/-0.0000`.
+
+  **Load through `src/essentiality.py`** — `load_ogee`. CLI: `ogee.py --rule {any,all,majority}` ·
+  `ogee_proteomes.py --candidates N` · `ogee_dataset.py --write-fasta | --embed-plan |
+  --score-anchor SPECIES`. Provenance: `data/source/ogee/SOURCE.md`.
+
+- **`essentiality/merge.py`** — **the headline summary**: `essentiality_<species>.tsv`, one column
+  per evidence source. It also writes **`deg_<species>.tsv`**, which carries `deg_ess` and its four
+  provenance columns; those used to be inlined into the headline and were split out so every
+  evidence source has the same shape (its own file + one summary column). **`geptop_ess`** (0–1 continuous, never null — Geptop's prediction)
   and **`deg_ess`** (0 / 0.5 / 1 / **null** — the fraction of DEG screens on our exact strain calling
   it essential; null means unmeasured). Coverage: Kp `deg_ess` **null for all 5,728** (*Klebsiella*
   is absent from DEG), Ec 96.6% measured, Sa 92.7%.
@@ -1319,73 +1498,181 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   to `evidence/` in a tidy-up.
   Details: `docs/essentiality.md`.
 
-- **`essentiality/screens.py`** + **`essentiality/predict.py`** — **published screens as
-  independent TabPFN endpoints, and the cross-species test this axis never had.**
+- **The essentiality axis has FOUR tiers, and each answers one question.** Restructured
+  2026-09-21 on the project owner's instruction, because the old layout put the clean training sets
+  among 40-odd audit tables and had no machine-readable record of which datasets were used.
+
+  ```
+  data/{raw,source}/**/SOURCE.md          34 dirs: what each dataset IS and whether v2 uses it
+  data/processed/essentiality/
+    dataset_registry.tsv                  47 rows: every dataset found + its DISPOSITION
+    training_sets/                        10 files: the clean ML-ready sets, uniform schema
+    <source>_<species>.tsv                one table per EVIDENCE SOURCE, per species
+    essentiality_<species>.tsv            the headline summary, one column per source
+    evidence/ · scratch/                  audits · caches
+  ```
+
+  **`dataset_registry.tsv` is the answer to "which of these did we train on, and why not the
+  rest?"** `disposition` ∈ `training_set` (10) · `held_back` (30) · `refuted` (6) ·
+  `corpus_only` (1), each with its `reason`. **GENERATED by `essentiality/registry.py`** from
+  `screens.py`'s own `SCREENS`/`HELD_BACK`/`UNJOINABLE`, `screen_join_audit.tsv`,
+  `deg_datasets.tsv` and `ogee_taxa.tsv` — a hand-maintained second copy is how a register stops
+  agreeing with the code. It **exits non-zero unless it reconciles with `training_sets/` in both
+  directions**: every declared training set must exist as a file, and every file must have a row.
+
+  **Source directories are DECLARED, never inferred** — `Screen.source_dir` in `screens.py`. An
+  earlier version guessed by substring and matched `essential_ecoli_bw25113_tradis_goodall` to
+  `data/source/go`, because "go" is inside "goodall". A false provenance link reads exactly like a
+  correct one, which is worse than a blank.
+
+  **`training_sets/*.tsv` share one schema: `key · label · source_id · features_from`.** The key
+  column used to be called `uniprot_ac` and that was **actively misleading**: for five of the nine
+  screens it holds `CCN31837.1` (ECL8 EMBL), `WP_038431262.1` (KPPR1 RefSeq), `KPNRH_00001` (a
+  locus tag) or `lcl|HG941718.1_prot_...` (a DEG FASTA header). Measured, those five key onto their
+  species' anchor proteome at **0 of 4,930 / 4,809 / 4,981 / 4,981 / 5,433** — a join on accession
+  returns an empty frame, not an error. `features_from` names the proteome whose embedding matrix
+  the key indexes.
+
+  **One file per evidence source, per species**, each complete and canonical:
+  `geptop_<sp>.tsv` (prediction) · `deg_<sp>.tsv` (measured, null where unmeasured) ·
+  `ogee_<sp>.tsv` (prediction) · `screens_<sp>.tsv` (9 predicted columns). The headline
+  `essentiality_<sp>.tsv` carries **one column per source plus the merge** — the relationship
+  `geptop_<sp>.tsv` always had with it, now applied to every source.
+
+  **`screens_<sp>.tsv` IS PREDICTIONS THROUGHOUT.** Transferring the measured labels was
+  considered and rejected on the owner's instruction: exact-sequence transfer recovers only
+  **13.7–71.6%** of rows and **29.8–61.4%** of positives, so it would silently mislabel ~1,700
+  measured essentials as non-essential. The model is transferred instead, giving one comparable
+  0–1 scale. Where an anchor protein WAS in a screen's training set (the four b-number E. coli
+  screens overlap the E. coli anchor 100%) the **out-of-fold** value is substituted, so the column
+  is not part in-sample and part honest. `evidence/screens_transfer_audit.tsv` prices every
+  column — training strain, own-organism grouped AUROC/AUPR, overlap — and must be read before any
+  `_prob` is treated as evidence.
+
+  **Load through `src/essentiality.py`**: `list_training_sets`, `load_training_set`, `registry`,
+  `load_deg`, `load_ogee`, `load_screens`, plus the existing geptop and merge loaders.
+
+- **`essentiality/screens.py`** + **`essentiality/predict.py`** + **`essentiality/summary.py`** —
+  **published screens as independent endpoints, with a control that says the labels are not
+  inverted.**
 
   `geptop_ess` is a prediction at 100% coverage and `deg_ess` was **0% on K. pneumoniae** — DEG
-  indexes no *Klebsiella*, and neither does OGEE. The anchor's column was entirely predicted. These
-  scripts fix that from screens v1 had already fetched and then lost to a gene-symbol join.
+  indexes no *Klebsiella*, and neither does OGEE. The anchor's column was entirely predicted.
+  These scripts fix that from screens v1 had already fetched and then lost to a gene-symbol join.
 
-  **Six endpoints, one per SOURCE, conditions aggregated within a source** (the project owner's
-  rule — do not make an endpoint per condition or per DEG dataset):
+  **TEN training sets, one per SOURCE**, conditions aggregated within a source (the project
+  owner's rule — never one endpoint per condition or per DEG dataset). Column names are the output
+  matrix's names: lowercase, `_`-separated, self-explanatory, no `_ess` suffix.
 
-  | endpoint | organism | assay | rows | pos | base | join |
-  |---|---|---|---|---|---|---|
-  | `keio_ess` | *E. coli* K-12 | arrayed knockout | 4,190 | 286 | 0.068 | 97.1% |
-  | `goodall_ess` | *E. coli* BW25113 | TraDIS | 4,056 | 354 | 0.087 | 97.6% |
-  | `bn373_ess` | **Kp ECL8** | TraDIS/DESeq | 4,930 | 523 | 0.106 | 97.7% |
-  | `kpnih1_ess` | **Kp KPNIH1** | Tn-seq | 5,397 | 419 | 0.078 | **419/424 listed** |
-  | `conservation` | Gammaproteobacteria | clade aggregate | 4,256 | core 205 / mid 530 | — | 99.0% |
-  | `bw25113_ess` | *E. coli* BW25113 | TraDIS/DESeq | 4,199 | 258 | 0.061 | 98.7% (control) |
+  | column | organism | assay | n | pos | base | join | ribo |
+  |---|---|---|---|---|---|---|---|
+  | `essential_kpneumoniae_ecl8_tradis` | **Kp ECL8** | TraDIS/DESeq | 4,930 | 523 | 0.106 | 97.7% | 0.942 |
+  | `essential_kpneumoniae_rh201207_tradis` | **Kp RH201207** | TraDIS | 4,981 | 471 | 0.095 | 92.9% | 0.938 |
+  | `essential_kpneumoniae_atcc43816_tradis` | **Kp ATCC 43816** | TraDIS | 4,809 | 363 | 0.075 | 92.6% | 0.906 |
+  | `essential_ecoli_k12_knockout` | Ec K-12 | **arrayed knockout** | 4,190 | 286 | 0.068 | 97.1% | 0.774 |
+  | `essential_ecoli_mg1655_footprinting` | Ec MG1655 | footprinting | 4,253 | 604 | 0.142 | 98.5% | 0.538 |
+  | `essential_ecoli_bw25113_tradis_goodall` | Ec BW25113 | TraDIS | 4,056 | 354 | 0.087 | 97.5% | 0.961 |
+  | `essential_ecoli_bw25113_tnseq_choe` | Ec BW25113 | Tn-seq, LB only | 4,272 | 440 | 0.103 | 95.0% | 0.906 |
+  | `essential_ecoli_st131_tradis` | **Ec ST131 EC958** | TraDIS | 4,981 | 300 | 0.060 | 100% | 0.741 |
+  | `essential_ecoli_o157h7_tnseq` | **Ec O157:H7** | Tn-seq | 5,433 | 1,055 | 0.194 | 100% | 1.000 |
+  | `core_essential_gammaproteobacteria` | clade | conservation | 4,256 | 205 | 0.048 | 99.0% | 0.906 |
 
-  **The identifier work is the point, and it is tracked every run** in
-  `evidence/screen_join_audit.tsv`. v1 joined these by gene symbol: ECL8 954/5,165, Ramage 212/424,
-  KPPR1 **32 of 3,791**. Joining on stable identifiers took Ramage to **419/424**. See the
-  *Identifier mapping* section for the GenBank-over-RefSeq rule that bought most of it.
+  **Three filters define the set, each on instruction**: *both classes required* (a positives-only
+  gene list is not a training set — drops Ramage 2017 and Paczosa 2020); *no condition-dependent
+  data for now* (drops Choe's M9 arm, Rome 2026, Short 2020's serum screens, Bruchmann's
+  `2hpi`/`6hpi`, every in-vivo mouse screen); *no duplicates* (DEG1019 is Keio again). Everything
+  excluded stays parseable and is listed in `screens.py`'s `HELD_BACK` — **decisions, not gaps.**
 
-  **`ecl8_ess` is UNJOINABLE and that is recorded, not rediscovered.** Eichelberger 2024 annotated
-  an assembly nobody deposited: 475 of 5,165 tag suffixes shared, **0 of 5,074 coordinates matched**,
-  symbols 3.7%. `screens.py` keeps it in `UNJOINABLE` with those numbers. `bn373_ess` carries the
-  same organism and assay instead.
+  **Nothing is merged.** Base rates span **0.048–0.194**, and that spread is method and strain, not
+  noise. The sharpest case is one organism and one dataset under two analyses: Goodall's own
+  BW25113 calls give 354 positives and a DESeq reanalysis of the same reads gives 258.
 
-  **Features: ProtT5, measured not assumed.** On `keio_ess`, 5 seeds, byte-identical folds, paired:
-  ProtT5 − ESM-C **+0.0603 PR** [5/5 seeds]; ProteomeLM − ESM-C +0.0273 [5/5]; **ProtT5 −
+  **`summary.py` IS THE CORRECTNESS CHECK, and it has already earned its place.** `num_positives`
+  looks identical whether a label set is right or inverted, and an inverted column trains a
+  confident, well-formed, exactly wrong model. Every column is scored against the **ribosome**
+  (must be essential) and the **textbook dispensables** (`lacZ`, `araB`, `fadB`, flagellar,
+  fimbrial — must not be). It writes `output/results/essentiality/screen_summary.tsv`.
+
+  It caught a real one: **the compendium's `BW25113.out.DESeq.tsv` did not converge**, and the
+  eleventh column was retired because of it. `padj` is NaN for **2,310 of 4,256 genes (54.3%)**
+  against 7.0% for ECL8 through the same pipeline, and of the 189 genes with **zero insertion
+  sites**, **108 are called `Unchanged`** (ECL8: 91 of 91 correctly `Reduced`). DESeq cannot
+  compute a statistic for a gene with no insertions, so it falls through to non-essential — the
+  label is inverted for exactly the genes that matter most. Ribosome recall 0.113 against
+  Goodall's 0.961 on the same data. Nothing was lost; Goodall's own calls ship.
+
+  **CALIBRATE A BIOLOGICAL CONTROL ON A MEASUREMENT, NOT ON 1.00 — this was got wrong once.** A
+  first pass set the bar at 0.50 separation and failed Gerdes; it would have failed the gold
+  standard too. **Keio, an arrayed knockout collection, reaches only 0.774**, and its misses
+  (`rplA`, `rplI`, `rplK`, `rplY`, `rpmE/F/G/I`, `rpsF/O/T/U`) are genuinely dispensable in
+  *E. coli*. So ~0.8 is the ceiling; the bars are set to catch breakage, not noise (recall ≥ 0.45,
+  separation ≥ 0.40).
+
+  **Features: ProtT5, measured not assumed.** On the Keio endpoint, 5 seeds, byte-identical folds,
+  paired: ProtT5 − ESM-C **+0.0603 PR** [5/5 seeds]; ProteomeLM − ESM-C +0.0273 [5/5]; **ProtT5 −
   ProteomeLM +0.0330 PR [5/5] but −0.0002 AUROC [2/5, a tie]**. AUROC alone would have called the
-  winner a coin flip — the same failure stage 04 records. **ProtT5 is not yet computed for the
-  screen strains**, so the Kp endpoints currently run on ESM-C.
+  winner a coin flip — the same failure stage 04 records.
+
+  **Every screen strain now has its own ProtT5 matrix**, in
+  `data/processed/embeddings/scratch/strains/` (`prott5_<label>.npz`) — ECL8, KPPR1, KPNIH1,
+  RH201207, DEG1048, DEG1056, via `prott5.py --strain`. A screen strain's embeddings are training
+  features, not a deliverable matrix: no canonical row order, keyed on whatever identifier the
+  strain's own FASTA uses.
+
+  **The two DEG-derived columns key on `fasta_id`** — verbatim the header of
+  `data/source/ncbi/deg_proteomes/<id>.faa` — so label and feature vector share one namespace and
+  there is no join at all. Measured against the E. coli anchor by exact sequence, EC958 shares
+  13.7% and O157:H7 23.0%: genuinely different proteomes. DEG1018 (Gerdes) is the opposite at
+  **99.4%**, so it maps onto the anchor and needs no embedding of its own.
 
   **Grouped CV, and the gap is published.** Anchors group on stage-05 orthogroups; screen strains
-  have no OrthoFinder run, so `essentiality/paralog_clusters.py` builds MMseqs2 clusters at 30% id /
-  80% coverage (stage 04's threshold). Measured on ECL8: 997 of 5,178 proteins collapse into 520
-  families. **`bn373_ess` ungrouped 0.8743 → grouped 0.8705, leakage gap +0.0038 AUROC / +0.0096
-  PR.** Small, real, and now measured.
+  have no OrthoFinder run, so `essentiality/paralog_clusters.py` builds MMseqs2 clusters at 30% id
+  / 80% coverage (stage 04's threshold), for all five strains. Measured on ECL8: 997 of 5,178
+  proteins collapse into 520 families. **`ecl8` ungrouped 0.8743 → grouped 0.8705, leakage gap
+  +0.0038 AUROC / +0.0096 PR.**
+
+  **MMSEQS2 REWRITES FASTA HEADERS CONTAINING `|`.** It parses them as NCBI db-style fields, so
+  DEG's `>lcl|HG941718.1_prot_CDN80371.1_1` comes back out of `_cluster.tsv` with the `lcl|`
+  silently gone — and that id is exactly the key the screen table and the embedding share. The
+  clustering then mapped to **0 of 4,981** proteins, which is indistinguishable from a proteome
+  with no paralogs. `paralog_clusters.py` now writes index surrogates (`>0`, `>1`, …) and
+  substitutes the real ids back, so no header convention can break it.
 
   **THE HEADLINE: an E. coli-trained model reaches K. pneumoniae, with no orthology anywhere.**
   `--score-on` fits on one organism and scores on another's OWN labels and OWN embeddings; no
-  essentiality value crosses a species boundary. Measured (`evidence/crossspecies.tsv`):
+  essentiality value crosses a species boundary. Measured under TabPFN
+  (`evidence/crossspecies.tsv`):
 
-      Ec -> Kp   mean AUROC 0.8597   best goodall_ess -> bn373_ess 0.8934, PR 0.7359
-      Kp -> Ec   mean AUROC 0.9338   best bn373_ess -> keio_ess   0.9732, PR 0.7431
+      Ec -> Kp   mean AUROC 0.8597   best goodall -> ecl8   0.8934, PR 0.7359
+      Kp -> Ec   mean AUROC 0.9338   best ecl8 -> keio      0.9732, PR 0.7431
 
-  Geptop's measured transfer, for comparison, was 0.59-0.81 on two unrelated species and never on
-  our anchor. **Transfer is better when the ASSAY matches**: `goodall_ess` (TraDIS) reaches Kp at
-  0.89 while `keio_ess` (knockout) reaches 0.82-0.84, consistently in both directions.
+  Geptop's measured transfer, for comparison, was 0.59–0.81 on two unrelated species and never on
+  our anchor. **Transfer is better when the ASSAY matches**: Goodall (TraDIS) reaches Kp at 0.89
+  while Keio (knockout) reaches 0.82–0.84, consistently in both directions.
 
-  **Quote BOTH the grouped CV and the cross-species number, never one alone.** They answer different
-  questions and the cross-species one is higher: grouped CV holds out whole paralog FAMILIES ("can
-  we predict a family never seen?"), while cross-species trains on every family and tests on an
-  organism where most genes have a homolog ("can we recognise a known family in a new organism?").
-  The second is not label leakage -- nothing is copied -- but gene-family overlap is a real
-  information channel. The first is the honest generalisation measure; the second is the
+  **Quote BOTH the grouped CV and the cross-species number, never one alone.** They answer
+  different questions and the cross-species one is higher: grouped CV holds out whole paralog
+  FAMILIES ("can we predict a family never seen?"), while cross-species trains on every family and
+  tests on an organism where most genes have a homolog ("can we recognise a known family in a new
+  organism?"). The second is not label leakage — nothing is copied — but gene-family overlap is a
+  real information channel. The first is the honest generalisation measure; the second is the
   operationally relevant one for Kp.
 
-  **Cost.** Hosted TabPFN bills ~10,000 credits per CALL, flat, and `fit` is free -- so a whole
-  cross-species evaluation is **one call, 10k**, while a 5-seed 5-fold CV is 25. `--dry-run` prices
-  any run through `src.tabpfn.would_cost` before spending. A naive 12-combination feature sweep was
-  priced at 6M credits (30% of the monthly quota) and staged down to 600k.
+  **The estimator is the FOREST by default on this axis** — see the exception under *Supervised
+  ML* above. `--estimator tabpfn` switches through a seam narrow enough that nothing else about
+  the evaluation changes. Hosted TabPFN bills ~10,000 credits per CALL, flat, and `fit` is free —
+  so a whole cross-species evaluation is one call while a 5-seed 5-fold CV is 25. `--dry-run`
+  prices any TabPFN run through `src.tabpfn.would_cost` before spending.
 
-  CLI: `--endpoint` · `--features {esmc,prott5,proteomelm}` · `--score-on` · `--seeds` · `--folds` ·
+  **Per-dataset provenance lives beside the data**: a `SOURCE.md` in each of the 28 dataset
+  directories under `data/raw/{ecoli,kpneumoniae,other}/essentiality/` and `data/source/{deg,ogee}/`,
+  recording what the dataset is, whether v2 uses it, and — for the majority that are NOT used —
+  exactly why. `docs/essentiality_screens.md` is the cross-cutting catalogue.
+
+  CLI (`predict.py`): `--endpoint` · `--features {esmc,prott5,proteomelm}` ·
+  `--estimator {forest,tabpfn}` · `--score-on` · `--seeds` · `--folds` ·
   `--schemes {grouped,plain}` · `--dry-run` · `-q`.
+  CLI (`summary.py`): `--features`. CLI (`screens.py`): `--screen` · `--list` · `--dry-run` · `-q`.
 
 - **`essentiality/fetch_screens.py`** — **downloads published screens, and writes down what a human
   must fetch by hand.** A screen we cannot download is a task, not a dead end; the real output is

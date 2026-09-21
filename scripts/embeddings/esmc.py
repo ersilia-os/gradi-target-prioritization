@@ -311,14 +311,17 @@ def main() -> None:
     if args.strain:
         strain_dir = OUT_DIR / "scratch" / "strains"
         rows = []
+        # Resolved through src.strains so every script searches the SAME locations -- tier-D
+        # registry fetches, Kp strain tables, DEG proteomes and OGEE taxa. This used to look only
+        # in NCBI_DIR, which made a DEG or OGEE proteome report as a missing tier-D download.
+        from src import strains as S  # noqa: PLC0415
         for lbl in args.strain:
-            faa = NCBI_DIR / f"{lbl}.faa"
-            if not faa.exists():
-                sys.exit(f"FATAL {faa} missing -- run scripts/proteomes/download.py --tier D "
-                         f"--only {lbl}")
+            try:
+                frame = S.load_frame(lbl)
+            except FileNotFoundError as e:
+                sys.exit(f"FATAL {e}")
             rows.append(run_species(client, lbl, args.shard_size, args.limit, args.refresh,
-                                    frame=load_strain_frame(faa), out_dir=strain_dir,
-                                    canonical=False))
+                                    frame=frame, out_dir=strain_dir, canonical=False))
     else:
         rows = [run_species(client, sp, args.shard_size, args.limit, args.refresh)
                 for sp in args.species]

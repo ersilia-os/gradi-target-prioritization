@@ -32,6 +32,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 NCBI_DIR = REPO_ROOT / "data" / "source" / "uniprot" / "proteomes" / "ncbi"
+# A screen strain's proteome arrives from three places and in two formats. Resolve a LABEL rather
+# than making the caller know which -- the same list scripts/embeddings/prott5.py searches, so a
+# strain that can be embedded can always also be clustered.
+STRAIN_SOURCES = (
+    (NCBI_DIR, ".faa"),                                                  # registry tier-D fetches
+    (REPO_ROOT / "data" / "source" / "ncbi" / "kp_strains", ".tsv"),     # strain_proteomes.py
+    (REPO_ROOT / "data" / "source" / "ncbi" / "deg_proteomes", ".faa"),  # DEG dataset proteomes
+)
 OUT_DIR = REPO_ROOT / "data" / "processed" / "essentiality" / "scratch" / "paralog_clusters"
 DEFAULT_MMSEQS = Path.home() / "miniconda3" / "envs" / "gradi-ortho" / "bin" / "mmseqs"
 
@@ -54,19 +62,63 @@ def mmseqs_bin() -> str:
     return str(p)
 
 
+def resolve_proteome(label: str) -> tuple[Path, str]:
+    for d, ext in STRAIN_SOURCES:
+        q = d / f"{label}{ext}"
+        if q.exists():
+            return q, ext
+    searched = "\n  ".join(str((d / f"{label}{e}").relative_to(REPO_ROOT))
+                           for d, e in STRAIN_SOURCES)
+    sys.exit(f"FATAL no proteome for {label!r}. Looked in:\n  {searched}\n"
+             f"For a registry strain: scripts/proteomes/download.py --tier D --only {label}")
+
+
+def write_fasta(src: Path, ext: str, dest: Path) -> list[str]:
+    """Stage the proteome as FASTA under SURROGATE headers, and return the real ids in order.
+
+    MMSEQS2 REWRITES HEADERS THAT CONTAIN `|`. It reads them as NCBI db-style fields, so DEG's
+    `>lcl|HG941718.1_prot_CDN80371.1_1` comes back out of `_cluster.tsv` as
+    `HG941718.1_prot_CDN80371.1_1` -- the `lcl|` silently gone. That id is exactly the key the
+    screen table and the embedding share, so the clustering then maps to NOTHING, which is
+    indistinguishable from a proteome that genuinely has no paralogs. Measured: 0 of 4,981.
+
+    So nothing real is ever handed to mmseqs. Sequence i is written as `>i`, and the ids are
+    substituted back afterwards -- no header convention can break it.
+    """
+    if ext == ".faa":
+        ids, seqs, cur, buf = [], [], None, []
+        for line in src.read_text().splitlines():
+            if line.startswith(">"):
+                if cur is not None:
+                    ids.append(cur); seqs.append("".join(buf))
+                cur, buf = line[1:].split()[0], []
+            else:
+                buf.append(line.strip())
+        if cur is not None:
+            ids.append(cur); seqs.append("".join(buf))
+    else:
+        d = pd.read_csv(src, sep="\t")
+        ids = d["locus_tag"].astype(str).tolist()
+        seqs = d["sequence"].astype(str).tolist()
+    with dest.open("w") as fh:
+        for i, seq in enumerate(seqs):
+            fh.write(f">{i}\n{seq}\n")
+    return ids
+
+
 def cluster(label: str, min_id: float, min_cov: float, refresh: bool) -> pd.DataFrame:
     out = OUT_DIR / f"{label}_id{int(min_id * 100)}_cov{int(min_cov * 100)}.tsv"
     if out.exists() and not refresh:
         say(f"  cached {out.relative_to(REPO_ROOT)}")
         return pd.read_csv(out, sep="\t")
 
-    faa = NCBI_DIR / f"{label}.faa"
-    if not faa.exists():
-        sys.exit(f"FATAL {faa} missing -- run scripts/proteomes/download.py --tier D --only {label}")
-
+    src, ext = resolve_proteome(label)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         pre = Path(td) / "clu"
+        faa = Path(td) / "in.faa"
+        ids = write_fasta(src, ext, faa)
+        say(f"  {src.relative_to(REPO_ROOT)} -> {len(ids)} sequences")
         cmd = [mmseqs_bin(), "easy-cluster", str(faa), str(pre), str(Path(td) / "tmp"),
                "--min-seq-id", str(min_id), "-c", str(min_cov), "--cov-mode", "0",
                "--threads", "4", "-v", "1"]
@@ -75,7 +127,9 @@ def cluster(label: str, min_id: float, min_cov: float, refresh: bool) -> pd.Data
         tsv = Path(f"{pre}_cluster.tsv")
         if r.returncode != 0 or not tsv.exists():
             sys.exit(f"FATAL mmseqs failed (exit {r.returncode}):\n{r.stdout[-1500:]}\n{r.stderr[-1500:]}")
-        d = pd.read_csv(tsv, sep="\t", names=["cluster", "member"])
+        d = pd.read_csv(tsv, sep="\t", names=["cluster", "member"], dtype=str)
+    d["cluster"] = d["cluster"].map(lambda i: ids[int(i)])
+    d["member"] = d["member"].map(lambda i: ids[int(i)])
     d.to_csv(out, sep="\t", index=False)
     say(f"  wrote {out.relative_to(REPO_ROOT)}")
     return d

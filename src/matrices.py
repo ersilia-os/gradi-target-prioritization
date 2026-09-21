@@ -123,11 +123,24 @@ def audit(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
             ("degradability/degradability", D / "degradability" / f"degradability_{sp}.tsv"),
             ("essentiality/essentiality",   D / "essentiality"  / f"essentiality_{sp}.tsv"),
             ("embeddings/projection",       D / "embeddings"    / f"projection_{sp}.tsv"),
+            ("studiedness/studiedness",     D / "studiedness"   / f"studiedness_{sp}.tsv"),
+            # One file per essentiality EVIDENCE SOURCE, each complete and canonical. Reported
+            # ABSENT until its script has run, which is information rather than a failure.
+            ("essentiality/deg",            D / "essentiality"  / f"deg_{sp}.tsv"),
+            ("essentiality/ogee",           D / "essentiality"  / f"ogee_{sp}.tsv"),
+            ("essentiality/screens",        D / "essentiality"  / f"screens_{sp}.tsv"),
         ]
         npzs = [
             ("embeddings/esmc",       D / "embeddings" / f"embeddings_{sp}.npz"),
             ("embeddings/prott5",     D / "embeddings" / f"prott5_{sp}.npz"),
             ("embeddings/proteomelm", D / "embeddings" / f"proteomelm_{sp}.npz"),
+            # The same model under the functional encoding it was TRAINED with. A second
+            # representation of the same proteins with the same shape, so it must be audited too --
+            # an unaudited matrix is precisely the silent misalignment this module exists to catch.
+            # Reported as ABSENT until `proteomelm.py --group-embeds orthodb` has been run for a
+            # species, which is information rather than a failure.
+            ("embeddings/proteomelm_orthodb",
+             D / "embeddings" / f"proteomelm_{sp}_orthodb.npz"),
         ]
         for name, path in tables:
             if not path.exists():
