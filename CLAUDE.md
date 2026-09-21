@@ -391,15 +391,17 @@ scripts/
                   head_comparison.py  workers/lazyqsar_cv.py      -> degradability_<sp>.tsv
   essentiality/   labels.py  deg_proteomes.py  geptop.py  merge.py -> essentiality_<sp>.tsv
   ligands/        chembl.py  bindingdb.py                         -> chembl_<sp>.tsv
-  pockets/  studiedness/  interactome/      README.md only -- real axes, no code yet
-  plots/          9 scripts, ALL figures
+  studiedness/    fetch.py  gene2pubmed.py  unknome.py
+                  transfer.py  merge.py                            -> studiedness_<sp>.tsv
+  pockets/  interactome/                    README.md only -- real axes, no code yet
+  plots/          10 scripts, ALL figures
   workers/        tabpfn_cv.py             transversal; every axis may call it
 
 src/              flat. one module per task + matrices.py, tabpfn.py, interest.py, proteomelm.py
 docs/             one .md per task, named for the task (docs/function.md, not docs/02_*.md)
 tools/            one-shot migration scripts, kept for the record
 
-data/source/<provider>/       uniprot deg eggnog orthodb cdd go sprofgo geptop ncbi
+data/source/<provider>/       uniprot deg eggnog orthodb cdd go sprofgo geptop ncbi unknome
 data/processed/<task>/        THE DELIVERABLES -- nothing else at this level
 data/processed/<task>/evidence/
 data/processed/<task>/scratch/
@@ -1686,6 +1688,133 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   **Three payloads that returned HTTP 200 and were not data**, all caught by content inspection:
   a Nature article page (407 KB of HTML), a PMC `/bin/` URL (a reCAPTCHA page), a figshare 202
   (0 bytes). The house rule earns its keep; assert on content, never on status.
+
+- **`studiedness/fetch.py`** + **`gene2pubmed.py`** + **`unknome.py`** + **`transfer.py`** +
+  **`merge.py`** — **how much is already known about this protein?** Wanted in both directions: an
+  uncharacterised target is a risk, but it is also the novelty the collaboration is looking for
+  (`src.studiedness.novelty()` reads it the other way). Deliverable
+  `studiedness_<species>.tsv`: **4 columns** — `uniprot_ac · studiedness_own ·
+  studiedness_family · evidence`, complete and canonical for the three bacteria.
+
+  **The anchors' own literature is a dead column, and that is the whole shape of the axis.**
+  Measured on UniProt 2026_03: **5,710 of 5,728 Kp proteins carry exactly one PubMed id** (the
+  genome paper — 7 distinct values over the proteome) and 2,532 of 2,889 Sa proteins carry none,
+  against E. coli's median 5 / 48 distinct. This confirms v1 (`legacy/HISTORY.md:60`) and sharpens
+  it. `studiedness_own` still ships **because it IS the measurement of darkness** — keeping it
+  beside `studiedness_family` is what makes "dark in *Klebsiella*, famous in *E. coli*" readable
+  off one row. **Do not rank Kp or Sa on `_own`; rank on `_family`.**
+
+  **The number is transferred by DIAMOND from the most-cited SwissProt homolog** (575,748 reviewed
+  entries, ~14,000 species) — the house "map by sequence, not by accession" rule. The free
+  four-species ortholog table was measured against it and **reaches an Ec-or-human ortholog for
+  only Kp 68.5% / Sa 46.6%**: *S. aureus* is Gram-positive, so under half of it has an E. coli
+  ortholog at all. Both routes ship in `evidence/route_comparison.tsv`; nothing is merged. **Read
+  that table honestly — the free route reaches slightly MORE Kp (68.5% vs 66.0%)**, because it
+  applies no identity or coverage floor, but it wins nothing elsewhere (Ec 22.3% vs 99.3%) and
+  yields only the existence of an ortholog, not a literature count.
+
+  **`--max-target-seqs` was the worst bug in the axis and the lesson generalises.** DIAMOND
+  returns the top k by **bitscore** = the CLOSEST relatives, but this stage wants the **best-cited**
+  homolog, which for a conserved protein is a distant model-organism entry. At k=50 Sa `groEL`'s
+  50 candidates were all Staphylococci and Bacilli, its donor was *B. subtilis* GroEL with **9
+  papers**, and E. coli GroEL (246) never appeared — **systematically understating studiedness
+  precisely for the most conserved, most studied families**. Fixed with k=500 plus a **deep second
+  pass at k=5,000 over only the 1,403 queries (12.6%) still capped**; after it, 0 remain capped.
+  Held-out control at the 40% floor: **0.4666 → 0.5338 → 0.5436**. `n_candidates` ships per
+  protein and the run prints the capped fraction.
+
+  **One fixed global scale, and P95 was measured and rejected.** Both columns are
+  `0.6*min(1, log1p(n_pubs)/log1p(P_REF)) + 0.4*(annotation_score-1)/4` with **P_REF = the 99th
+  percentile of SwissProt publication counts (204 papers)** — NOT a per-proteome percentile, which
+  is the `geptop_score` trap. Anchoring at P95 (38) left E. coli with a median `studiedness_own` of
+  **exactly 1.000**, unrankable ties over half a proteome; a **`saturated > 20%` guard** now exits
+  the stage. `n_pubs` is the **union of UniProt `lit_pubmed_id` and NCBI gene2pubmed** — measured:
+  gene2pubmed does NOT rescue the dark anchors (Kp still 12 distinct values) but resolves a
+  well-studied organism ~4× more finely (Ec 193 distinct / max 513 vs 48 / 58), which is what the
+  donor ranking consumes, and it gives 184 Sa proteins their first paper (12.4% → 18.7%).
+
+  **Five evidence tiers, and TWO of them score 0 meaning different things.** `swissprot_direct`
+  (≥95%) ⊃ `swissprot_close` (≥60%) ⊃ `swissprot_homolog` (≥40%), then **`below_floor`** (a hit
+  exists but under the floor) and **`no_hit`** (nothing in SwissProt at all). Both score 0.0 and
+  the axis refuses to invent a number for either, but `no_hit` is the strongest novelty claim it
+  makes while `below_floor` merely has a too-distant relative — without the split a third of Kp is
+  one undifferentiated tie. **A zero is an answer, not a gap; never impute it.** The hard ceiling
+  is DIAMOND's own hit rate: any SwissProt hit exists for only **81.6% of Kp, 73.0% of Sa**.
+
+  **The floor is 40% and the trade-off is monotonic, not a calibration.** Decoys settle nothing —
+  composition-preserving shuffles of our own 13,020 sequences match at **0.0% at every floor down
+  to 20%**, so DIAMOND's e-value already handles spurious homology. The held-out control decides
+  it: 25% → Kp 77.6% / rho 0.4537; **40% → Kp 66.0% / rho 0.5436**; 60% → Kp 56.6% / rho 0.5490.
+  40% is CLAUDE.md's standing transfer threshold and sits at the knee. **Preferring the closest
+  band over the most-cited donor was tried and is WORSE** (0.4426 vs 0.4666).
+
+  **THE CONTROL HAS A CEILING WELL BELOW 1 — DO NOT MAXIMISE IT.** It correlates the transferred
+  family score against E. coli's OWN literature, which are deliberately different quantities: a
+  protein with 3 papers whose human homolog has 300 *should* score low on `_own` and high on
+  `_family`. And rho rises with the floor (0.5922 at 95%) nearly circularly, because the exclusion
+  removes *Escherichia* only and the survivors at high identity are Salmonella/Shigella
+  near-duplicates. Maximising it drives the floor to 95%, where `_family` collapses onto `_own`
+  and the axis stops doing anything. Measured: **spearman 0.5411 / pearson 0.5351 over 2,945
+  proteins**, floor 0.45, exits non-zero below.
+
+  **`family − own` is the axis working, and the contrast is the clearest number here: +0.292 on
+  Kp** (dark anchor, known family) **against +0.000 on E. coli** (its own literature already is
+  its family's). Coverage with a donor: Kp 65.8% · Ec 99.3% · Sa 55.8%.
+
+  **DONOR SCOPE: not eukaryotic, and "restrict to Bacteria" is the obvious rule that is WRONG.**
+  `--donor-scope prokaryotic` (default) admits any donor whose UniProt `lineage` lacks
+  `Eukaryota (domain)` — Bacteria, Archaea **and phages**. The restriction exists because under
+  `any`, five of Kp's ten highest-scoring proteins took human donors (HSPD1 934 papers, HADHA,
+  CTPS1, LONP1, AFG3L2), making the claim "well studied because its human mitochondrial homolog
+  is" — the ligands axis's recorded mistake in another guise (an unrestricted non-human bucket
+  gave 424 apparent potent Kp proteins against a true 175). **But strict Bacteria strands
+  prophage proteins: of the 93 proteins it left with no donor, 70 (75%) lost theirs to a VIRUS**
+  — *Escherichia* phage lambda and P1 — and a Kp prophage protein whose best relative is a lambda
+  protein is not novel. Admitting phages recovers 62 of Kp's 77 and 12 of Sa's 16.
+  **All three scopes are computed every run** into `evidence/donor_scope_comparison.tsv`, with
+  `studiedness_family_{prokaryotic,bacteria,any}` all in the transfer table — switching the
+  deliverable is a column swap, not a re-run.
+  **The honest headline is that scope barely matters numerically**: the three scores correlate at
+  **rho 0.983–0.990** and only 254 of 5,728 Kp proteins change at all, because the log scale
+  saturates above P_REF = 204 (Kp `groEL` scores 1.000 from human HSPD1 *and* 1.000 from E. coli
+  `groEL`). It is kept because it makes the number mean the right thing, not because it moves it.
+  The control cannot arbitrate — **prokaryotic 0.5411 sp / 0.5351 pe · bacteria 0.5375 / 0.5319 ·
+  any 0.5436 / 0.4998**: spearman spans 0.006 and the two metrics *disagree* on the winner, which
+  is the signal that it is noise. `prokaryotic` takes it on pearson.
+  **Tiers are scope-consistent**: `below_floor` means an IN-SCOPE hit below the floor, so a
+  protein whose only curated relative is eukaryotic reads `no_hit`, not a distant prokaryotic one.
+
+  **Unknome is EVIDENCE, kept and not promoted.** Joined via the `panther` xref already on disk to
+  the **cluster** table — and the trap is severe: the per-protein download reads
+  **`knownness = 0.000` for all 1,882 S. aureus entries** including `clpP`, `rpoB`, `ftsZ`, while
+  Sa `clpP`'s cluster `UKP00027` (shared with Ec `clpP`) reads 10.6. Joining it would have
+  silently zeroed a proteome. Coverage is capped by the xref (Kp 71.2% · Ec 78.2% · Sa 65.1%) and
+  Unknome has **no Klebsiella**. It counts **GO terms, not papers**, so it is a real second opinion
+  (spearman vs `_family` 0.35–0.52) — but it is silent exactly where the literature route is also
+  silent, so it cannot become the axis. **REJECTED and not to be re-added: training ESM-C on
+  Unknome knownness** — knownness is a cluster property so the effective N is 15,589 not 1.9M, it
+  approximates a lookup DIAMOND does exactly and auditably, mean-reversion would hide the novel
+  proteins the axis exists to surface, and a fourth ESM-C column correlates with the other axes for
+  reasons unrelated to studiedness. Reasons in full: `docs/studiedness.md` §5.
+
+  **A finding for the collaboration: the consortium's own panel is NOT novel** — `src/interest.py`
+  sits at the **86th percentile (median) on Kp, 82nd on Ec, 74th on Sa**. Read
+  `interest.coverage()` first; the panel matches by gene symbol.
+
+  **Load through `src/studiedness.py`** — `load`, `load_all`, `novelty`, `load_own`,
+  `load_transfer`, `load_unknome`, `load_gene2pubmed`, `load_route_comparison`,
+  `load_floor_sensitivity`, `load_donor_scope_comparison`, `control`, `scale`, `manifest`.
+
+  Run in order: `fetch.py` → `gene2pubmed.py` → `unknome.py` → `transfer.py` → `merge.py`. The
+  `gradi` env throughout; DIAMOND borrowed from `gradi-ortho` via `GRADI_DIAMOND_BIN`. ~20 min
+  cold. CLI: `--species` · `--refresh` · `--dry-run` · `-q`, plus `transfer.py`'s `--limit`
+  (smoke, writes only `scratch/`), `--donor-scope {prokaryotic,bacteria,any}`, `--threads`,
+  `--max-targets`, `--deep-targets`, `--sensitivity`, `--scale-quantile`, `--no-control`.
+  Figures: `scripts/plots/studiedness.py` (stylia, one at a time) → `studiedness.png`,
+  `control.png`, `interest_panel.png`.
+  **Deletable after a run** and never to be uploaded to eosvc: `uniprot_sprot.fasta.gz` (89.5 MB),
+  `gene2pubmed.gz` (273.8 MB), and `data/processed/studiedness/scratch/` (805 MB of DIAMOND hits).
+  Details, traps and the run log: `docs/studiedness.md`.
 
 Registry tiers: **A** the 4 anchors · **B** same-species name-donor pools · **C** a 26-species
 comparator panel for orthology (v1's curated panel, with every species now pinned to an explicit
