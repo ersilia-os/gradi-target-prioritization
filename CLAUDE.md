@@ -99,8 +99,13 @@ standing instruction from the project owner and applies to every stage, existing
   key change cost **1,540,000 credits**. Cache lives at `data/processed/tabpfn/cache`, shared
   across axes, filenames ARE the keys (so the directory can move safely).
 - Stage 04 under that flag reproduces **ADEP4 0.8738 / PR 0.6103, ONC212 0.7671 / PR 0.5803**.
-- **No PCA needed**: TabPFN-3.5 takes up to 20,000 features and 1,000,000 rows, so 1,152-d
-  embeddings go in whole and every estimator is compared on identical features.
+- **No PCA needed for our sizes, but know the real limits.** The installed `tabpfn` 9.0.0 declares
+  `MAX_NUMBER_OF_SAMPLES = 10_000` / `50_000` and `MAX_NUMBER_OF_FEATURES = 500` / `2_000`
+  depending on the inference config (`tabpfn/inference_config.py`). So 1,152-d embeddings go in
+  whole and every estimator is compared on identical features — but a corpus of ~170k rows does NOT
+  fit one call, which is why per-endpoint modelling is the right shape for a multi-screen axis
+  rather than a compromise. **An earlier version of this file claimed "20,000 features and
+  1,000,000 rows"; that was wrong** — measure against the installed package before sizing a corpus.
 
 **The evidence, so nobody re-litigates it.** Measured on stage 04 over a 3-estimator × 3-embedding ×
 2-activator grid with byte-identical cluster-grouped folds
@@ -289,6 +294,40 @@ lost ~27% of known essentials.
 proteome whose accessions rarely match those used by ChEMBL, BindingDB or PDB-SIFTS. v1's convention,
 which worked: DIAMOND blastp, **≥95% identity = "direct"**, **≥40% floor for transfer**, and restrict
 the bacterial bucket to *true Bacteria* rather than "non-human".
+
+## Identifier mapping: spend what it takes, and track the rate
+
+**Standing instruction from the project owner.** Identifier mapping is not plumbing to get past --
+it is where this project's data is won or lost, and the losses are silent. A decimated join looks
+exactly like a small dataset.
+
+**Measured, on the essentiality screens:**
+
+| screen | v1's route | v2's route | gain |
+|---|---|---|---|
+| Ramage 2017 KPNIH1 | gene symbol → 212/424 | GenBank `locus_tag` → **424/424** | **2.0×** |
+| BN373 / ECL8 TraDIS | never attempted | GenBank `locus_tag` → 4,930/5,048 (97.7%) | new |
+| Goodall 2018 | gene symbol | compendium symbol→b-number + symbol fallback → 97.6% | +5.3 pp |
+
+**Four rules:**
+
+1. **Try every route, MEASURE each, then pick.** Goodall: compendium route 96.4%, our own symbol
+   index 93.2%, **union 98.6%** — so the union earned its keep. Never assume one route is enough.
+2. **Prefer GenBank (`GCA_`) over RefSeq (`GCF_`) for any strain whose screen predates the current
+   annotation.** PGAP re-annotation silently drops submitter locus tags — **263 of RefSeq's 281
+   ECL8 misses were tags absent from the annotation entirely**, not proteinless genes, and GenBank
+   was a strict superset both times (RefSeq added zero). This generalises the `saureus__col` trap
+   already recorded under *Registry tiers*.
+3. **NCBI GFF splits what you need across two features**: `old_locus_tag` sits on the **gene**,
+   `protein_id` on the **CDS**, linked by `ID`/`Parent`. Walk both or the map comes out empty.
+4. **Write the rate to an audit table every run, with a floor that exits non-zero.** See
+   `data/processed/essentiality/evidence/screen_join_audit.tsv`.
+
+**And know when to stop — then write the dead end down.** Eichelberger 2024's ECL8 screen could not
+be joined at all: its `ecl8_#####` tags annotate a different assembly (475 of 5,165 numeric
+suffixes shared, **0 of 5,074 coordinates matched**, symbols reached 3.7%). That is recorded in
+`scripts/essentiality/screens.py` under `UNJOINABLE` so nobody re-derives it. It was superseded by
+`bn373_ess`, the same organism and same assay keyed on deposited tags.
 
 ## Two-track persistence: Git vs eosvc
 
@@ -1085,7 +1124,31 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   2026, `10.1073/pnas.2524201123`; papers in `docs/papers/`). These two scripts build its labels; the
   predictor itself is the next part.
 
-  **ProteomeLM-Ess as published is trained on OGEE v3, and OGEE v3 is gone.** `v3.ogee.info`
+  **OGEE v3's SERVER is gone, but the bulk file is RECOVERABLE — corrected 2026-09-18.** An earlier
+  version of this file said the dataset was lost. The server diagnosis below is right and still
+  worth keeping; the conclusion drawn from it was wrong, because nobody checked the Internet
+  Archive. Two independent mirrors return byte-identical content (md5
+  `b42f4a3358484b490e8bffe8c90edd00`, 1,151,931 B), both verified:
+
+      https://web.archive.org/web/20250620231412id_/https://v3.ogee.info/static/files/gene_essentiality.txt.gz
+      https://raw.githubusercontent.com/ThomasBeder/OGEE_ID_conversion/HEAD/Essential_gene_inormation.tar.gz
+
+  The `id_` suffix on the Wayback URL is **mandatory** — without it you get the HTML wrapper, not
+  the file. Staged at `data/source/ogee/`. CC BY 3.0.
+
+  **Measured contents**: 255,162 rows x 8 columns (`dataset · taxaID · locus · gene · score ·
+  essentiality · pmid · Ref_db`), 89 taxa, 124 datasets, `essentiality` in {E, NE, C, ND, ...}.
+  Against the DEG-derived corpus (173,048 proteins, 20,194 essential, 38 species) that is roughly
+  **2x the species and 2.2x the positives**, and it ships the negative class explicitly instead of
+  reconstructing it from NCBI proteomes. **E. coli 16,979 rows / 1,523 essential; S. aureus 5,612 /
+  671 — and *K. pneumoniae* ZERO**, the same structural gap DEG has. So this widens the corpus but
+  does NOT close the anchor's hole; only the Tn-seq/TraDIS screens in
+  `scripts/essentiality/screens.py` do that.
+
+  **The lesson worth keeping: a dead server is not a lost dataset.** Check the Wayback Machine with
+  `id_`, and check for a GitHub mirror, before recording anything as unobtainable.
+
+  The original (correct) server diagnosis: `v3.ogee.info`
   completes TCP then aborts the TLS handshake. Verified against LibreSSL 3.3.6, OpenSSL 3.5.6 **and
   real Chrome** (`ERR_SSL_PROTOCOL_ERROR`), with SNI, without SNI, pinned to TLS 1.2, ALPN disabled,
   forced http/1.1, by direct IP; plain HTTP 308-redirects into the same endpoint. Server-side, so no
@@ -1248,7 +1311,94 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
 
   Joined **by sequence, not accession** (99.4% Ec / 96.9% Sa exact match). **Load through
   `src/essentiality.py`** — `load`, `load_all`. CLI: `--species` · `--rule {any,all}` · `-q`.
+
+  **This axis ships TWO tables at the task root, deliberately** — `essentiality_<species>.tsv` and
+  `geptop_<species>.tsv`. The second is the raw Geptop output (`geptop_score`, `geptop_score_raw`,
+  `geptop_essential`, `geptop_n_rbh`, `geptop_n_essential_rbh`, + evidence/informative/reference
+  flags); it reads like evidence but the project owner chose it as a deliverable. Do not demote it
+  to `evidence/` in a tidy-up.
   Details: `docs/essentiality.md`.
+
+- **`essentiality/screens.py`** + **`essentiality/predict.py`** — **published screens as
+  independent TabPFN endpoints, and the cross-species test this axis never had.**
+
+  `geptop_ess` is a prediction at 100% coverage and `deg_ess` was **0% on K. pneumoniae** — DEG
+  indexes no *Klebsiella*, and neither does OGEE. The anchor's column was entirely predicted. These
+  scripts fix that from screens v1 had already fetched and then lost to a gene-symbol join.
+
+  **Six endpoints, one per SOURCE, conditions aggregated within a source** (the project owner's
+  rule — do not make an endpoint per condition or per DEG dataset):
+
+  | endpoint | organism | assay | rows | pos | base | join |
+  |---|---|---|---|---|---|---|
+  | `keio_ess` | *E. coli* K-12 | arrayed knockout | 4,190 | 286 | 0.068 | 97.1% |
+  | `goodall_ess` | *E. coli* BW25113 | TraDIS | 4,056 | 354 | 0.087 | 97.6% |
+  | `bn373_ess` | **Kp ECL8** | TraDIS/DESeq | 4,930 | 523 | 0.106 | 97.7% |
+  | `kpnih1_ess` | **Kp KPNIH1** | Tn-seq | 5,397 | 419 | 0.078 | **419/424 listed** |
+  | `conservation` | Gammaproteobacteria | clade aggregate | 4,256 | core 205 / mid 530 | — | 99.0% |
+  | `bw25113_ess` | *E. coli* BW25113 | TraDIS/DESeq | 4,199 | 258 | 0.061 | 98.7% (control) |
+
+  **The identifier work is the point, and it is tracked every run** in
+  `evidence/screen_join_audit.tsv`. v1 joined these by gene symbol: ECL8 954/5,165, Ramage 212/424,
+  KPPR1 **32 of 3,791**. Joining on stable identifiers took Ramage to **419/424**. See the
+  *Identifier mapping* section for the GenBank-over-RefSeq rule that bought most of it.
+
+  **`ecl8_ess` is UNJOINABLE and that is recorded, not rediscovered.** Eichelberger 2024 annotated
+  an assembly nobody deposited: 475 of 5,165 tag suffixes shared, **0 of 5,074 coordinates matched**,
+  symbols 3.7%. `screens.py` keeps it in `UNJOINABLE` with those numbers. `bn373_ess` carries the
+  same organism and assay instead.
+
+  **Features: ProtT5, measured not assumed.** On `keio_ess`, 5 seeds, byte-identical folds, paired:
+  ProtT5 − ESM-C **+0.0603 PR** [5/5 seeds]; ProteomeLM − ESM-C +0.0273 [5/5]; **ProtT5 −
+  ProteomeLM +0.0330 PR [5/5] but −0.0002 AUROC [2/5, a tie]**. AUROC alone would have called the
+  winner a coin flip — the same failure stage 04 records. **ProtT5 is not yet computed for the
+  screen strains**, so the Kp endpoints currently run on ESM-C.
+
+  **Grouped CV, and the gap is published.** Anchors group on stage-05 orthogroups; screen strains
+  have no OrthoFinder run, so `essentiality/paralog_clusters.py` builds MMseqs2 clusters at 30% id /
+  80% coverage (stage 04's threshold). Measured on ECL8: 997 of 5,178 proteins collapse into 520
+  families. **`bn373_ess` ungrouped 0.8743 → grouped 0.8705, leakage gap +0.0038 AUROC / +0.0096
+  PR.** Small, real, and now measured.
+
+  **THE HEADLINE: an E. coli-trained model reaches K. pneumoniae, with no orthology anywhere.**
+  `--score-on` fits on one organism and scores on another's OWN labels and OWN embeddings; no
+  essentiality value crosses a species boundary. Measured (`evidence/crossspecies.tsv`):
+
+      Ec -> Kp   mean AUROC 0.8597   best goodall_ess -> bn373_ess 0.8934, PR 0.7359
+      Kp -> Ec   mean AUROC 0.9338   best bn373_ess -> keio_ess   0.9732, PR 0.7431
+
+  Geptop's measured transfer, for comparison, was 0.59-0.81 on two unrelated species and never on
+  our anchor. **Transfer is better when the ASSAY matches**: `goodall_ess` (TraDIS) reaches Kp at
+  0.89 while `keio_ess` (knockout) reaches 0.82-0.84, consistently in both directions.
+
+  **Quote BOTH the grouped CV and the cross-species number, never one alone.** They answer different
+  questions and the cross-species one is higher: grouped CV holds out whole paralog FAMILIES ("can
+  we predict a family never seen?"), while cross-species trains on every family and tests on an
+  organism where most genes have a homolog ("can we recognise a known family in a new organism?").
+  The second is not label leakage -- nothing is copied -- but gene-family overlap is a real
+  information channel. The first is the honest generalisation measure; the second is the
+  operationally relevant one for Kp.
+
+  **Cost.** Hosted TabPFN bills ~10,000 credits per CALL, flat, and `fit` is free -- so a whole
+  cross-species evaluation is **one call, 10k**, while a 5-seed 5-fold CV is 25. `--dry-run` prices
+  any run through `src.tabpfn.would_cost` before spending. A naive 12-combination feature sweep was
+  priced at 6M credits (30% of the monthly quota) and staged down to 600k.
+
+  CLI: `--endpoint` · `--features {esmc,prott5,proteomelm}` · `--score-on` · `--seeds` · `--folds` ·
+  `--schemes {grouped,plain}` · `--dry-run` · `-q`.
+
+- **`essentiality/fetch_screens.py`** — **downloads published screens, and writes down what a human
+  must fetch by hand.** A screen we cannot download is a task, not a dead end; the real output is
+  `evidence/screen_fetch_status.tsv` plus a `PLACEHOLDER.md` naming what to click.
+
+  Ladder: direct URL → `curl -L` → Europe PMC `supplementaryFiles` → record manual instructions.
+  **Publishers and repositories want OPPOSITE headers** — publishers 403 a bare client, while
+  **figshare returns HTTP 202 forever to a full Chrome User-Agent and 200 to a short one**. Both are
+  tried. Full route table and the recovered datasets: `docs/essentiality_screens.md`.
+
+  **Three payloads that returned HTTP 200 and were not data**, all caught by content inspection:
+  a Nature article page (407 KB of HTML), a PMC `/bin/` URL (a reCAPTCHA page), a figshare 202
+  (0 bytes). The house rule earns its keep; assert on content, never on status.
 
 Registry tiers: **A** the 4 anchors · **B** same-species name-donor pools · **C** a 26-species
 comparator panel for orthology (v1's curated panel, with every species now pinned to an explicit

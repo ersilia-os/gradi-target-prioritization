@@ -79,6 +79,7 @@ from src import proteomes as P  # noqa: E402
 from src import matrices as M  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "data" / "processed" / "embeddings"
+NCBI_DIR = REPO_ROOT / "data" / "source" / "uniprot" / "proteomes" / "ncbi"
 EVIDENCE_DIR = OUT_DIR / "evidence"
 SCRATCH_DIR = OUT_DIR / "scratch"
 SHARD_DIR = SCRATCH_DIR / "shards_esmc"
@@ -150,10 +151,32 @@ def shard_path(species: str, shard_size: int, idx: int) -> Path:
     return SHARD_DIR / f"embeddings_{species}_{shard_size}_{idx:04d}.npz"
 
 
+def load_strain_frame(faa: Path) -> pd.DataFrame:
+    """(uniprot_ac, sequence) from a plain protein FASTA, keyed on its record id.
+
+    For TRAINING proteomes that are not one of the four registry species -- the tier-D screen
+    strains. `uniprot_ac` keeps its name so everything downstream is identical, but the ids here
+    are RefSeq `WP_*` protein accessions, not UniProt. That is deliberate: the column is the row
+    key, and renaming it per source would fork every consumer.
+    """
+    ids, seqs, cur, buf = [], [], None, []
+    for line in faa.read_text().splitlines():
+        if line.startswith(">"):
+            if cur:
+                ids.append(cur); seqs.append("".join(buf))
+            cur, buf = line[1:].split()[0], []
+        else:
+            buf.append(line.strip())
+    if cur:
+        ids.append(cur); seqs.append("".join(buf))
+    return pd.DataFrame({"uniprot_ac": ids, "sequence": seqs})
+
+
 def run_species(client, species: str, shard_size: int, limit: int | None,
-                refresh: bool) -> dict:
+                refresh: bool, frame: pd.DataFrame | None = None,
+                out_dir: Path | None = None, canonical: bool = True) -> dict:
     t0 = time.time()
-    df = P.load(species)[["uniprot_ac", "sequence"]]
+    df = frame if frame is not None else P.load(species)[["uniprot_ac", "sequence"]]
     df = df[df["sequence"].str.strip().ne("")].sort_values("uniprot_ac").reset_index(drop=True)
     if limit:
         df = df.head(limit)
@@ -208,9 +231,18 @@ def run_species(client, species: str, shard_size: int, limit: int | None,
     # Canonical row order: every matrix in this project has the same rows in the same order, so
     # an embedding can be hstacked onto any other axis with no join. Shards are assembled in shard
     # order, which is whatever order the FASTA happened to be in -- reorder once, here at the end.
-    all_accs, mat = M.reindex_arrays(all_accs, mat, species)
+    if canonical:
+        all_accs, mat = M.reindex_arrays(all_accs, mat, species)
+    else:
+        # A screen strain is NOT one of the four anchor proteomes, so it has no canonical order to
+        # match and `src.matrices` must not be asked for one. These are training features, not a
+        # deliverable matrix -- which is also why they are written under scratch/.
+        order = np.argsort(np.array(all_accs, dtype=object))
+        all_accs = [all_accs[i] for i in order]
+        mat = mat[order]
 
-    out = OUT_DIR / f"embeddings_{species}.npz"
+    out = (out_dir or OUT_DIR) / f"embeddings_{species}.npz"
+    out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out,
                         accessions=np.array(all_accs, dtype=object),
                         embeddings=mat,
@@ -237,6 +269,11 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--species", nargs="+", default=list(DEFAULT_SPECIES), choices=list(P.SPECIES),
                     help="species to embed (default: the three bacteria; human is out of scope)")
+    ap.add_argument("--strain", nargs="+", metavar="LABEL",
+                    help="embed a tier-D screen strain by registry label instead of a species. "
+                         "Reads data/source/uniprot/proteomes/ncbi/<LABEL>.faa and writes to "
+                         "scratch/strains/ -- these are TRAINING FEATURES, not a deliverable "
+                         "matrix, so they carry no canonical row order")
     ap.add_argument("--shard-size", type=int, default=250)
     ap.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
     ap.add_argument("--limit", type=int, help="only the first N proteins per species (smoke test)")
@@ -255,7 +292,8 @@ def main() -> None:
     say(f"  in       : data/processed/proteomes/<species>.tsv")
     say(f"  out      : {OUT_DIR.relative_to(REPO_ROOT)}/  (+ scratch/shards_esmc/)")
     say(f"  model    : {MODEL_ID}  ({EMBED_DIM}-dim, {POOLING}-pooled)")
-    say(f"  species  : {', '.join(args.species)}")
+    say(f"  {'strains ' if args.strain else 'species '} : "
+        f"{', '.join(args.strain or args.species)}")
     say(f"  device   : {device}   torch {torch.__version__}")
     say(f"  shards   : {args.shard_size} proteins each")
     if args.limit:
@@ -270,8 +308,20 @@ def main() -> None:
     rule()
     say("EMBED")
     rule()
-    rows = [run_species(client, sp, args.shard_size, args.limit, args.refresh)
-            for sp in args.species]
+    if args.strain:
+        strain_dir = OUT_DIR / "scratch" / "strains"
+        rows = []
+        for lbl in args.strain:
+            faa = NCBI_DIR / f"{lbl}.faa"
+            if not faa.exists():
+                sys.exit(f"FATAL {faa} missing -- run scripts/proteomes/download.py --tier D "
+                         f"--only {lbl}")
+            rows.append(run_species(client, lbl, args.shard_size, args.limit, args.refresh,
+                                    frame=load_strain_frame(faa), out_dir=strain_dir,
+                                    canonical=False))
+    else:
+        rows = [run_species(client, sp, args.shard_size, args.limit, args.refresh)
+                for sp in args.species]
     say()
 
     man = pd.DataFrame(rows)
