@@ -171,6 +171,47 @@ with ≥ 10 compounds assayed, 148 (32.7%) never reached pChEMBL 6** (at ≥ 5 c
 41.6%). A protein somebody tried and failed to drug is a measured discouragement; a protein nobody
 has opened is an open question. Before this they were the same zero.
 
+## REJECTED — a "ChEMBL precedence model" on embeddings
+
+Proposed 2026-09-28 (*"train on chembl, X = proteins, y = num_ligands, and then learn a model"*)
+and **not built**, by the project owner's decision once the numbers were in. Recorded with them so
+it is not re-proposed — the `interpro2go` and Unknome precedents: a rejected alternative is written
+down, not silently dropped.
+
+1. **`y = num_ligands` is screening effort, near-definitionally.** Within bacterial ChEMBL,
+   `rho(n_ligands, n_activities) = +0.985` and the median is **1.00 activity per compound**. A
+   model of y is a model of how many analogues someone published. The repo's own numbers already
+   said this from the other side: `ampC` is 12,671 compounds over 5,829 scaffolds, `folA` 443 over
+   64 — a lead-optimisation series moves y by hundreds and the number of chemotypes by ~1.
+2. **There are no zeros to learn from.** Every ChEMBL target has `y >= 1` by construction, so the
+   model never sees a protein that resisted ligand discovery and cannot output a calibrated zero.
+   Applied to a proteome that is ~96% never-screened, it would be extrapolating onto a support it
+   has never seen. This is the OGEE positives-only trap (`CLAUDE.md`: 40 taxa with zero negatives
+   because RB-TnSeq cannot see essential genes) in a different database.
+3. **It approximates a lookup we already ship exactly.** `src/precedents.py` answers "does a
+   similar protein have ligands" in ~1 s and *names* the donor target, organism and identity, at
+   100% agreement with `chembl.py`. This is Unknome §5 reason (2), and it applies harder here
+   because the lookup is already a canonical deliverable rather than a possibility.
+4. **The honest baseline is not chance, and it is a lookup too.** Measured on our three proteomes
+   against `n_ligands_bacteria > 0` (base rate 3.1–4.1%): protein length alone scores AUROC
+   0.66–0.71, **studiedness `n_papers_family` scores 0.83–0.86 / AP 0.15–0.17**. A model would have
+   to beat a citation count that names its own donors. (`best_pident_bacteria` scores 0.999 and is
+   **circular** — it IS the label's definition at the 40% floor. It is not a baseline.)
+5. **Mean reversion points the wrong way for this consortium.** GraDi wants novel targets. A model
+   trained on ChEMBL rewards the already-prosecuted families — gyrase, DHFR, PBPs, FabI, LpxC — and
+   hands a genuinely unexplored envelope protein a middling score that reads as "moderately
+   promising" rather than "nobody knows".
+6. **Sample size, under the grouping this repo requires.** Pooled by OrthoFinder orthogroup, the
+   positives are **200 distinct liganded families against 6,189 unliganded**, and 656 bacterial
+   ChEMBL sequences collapse similarly (E. coli and M. tuberculosis alone are ~35% of them).
+
+**What was built instead**, because the same investigation produced it: the effort denominator
+(`ligands/effort.py`) and the four evidence tiers above. Both are exact, auditable and name their
+sources. If the question is ever revisited, the version worth measuring is **"given a family was
+screened, did it ever yield a potent ligand"** — that one has real negatives (of 453 bacterial
+targets with ≥10 compounds assayed, 148 never reached pChEMBL 6) and is conditioned on effort by
+construction, rather than being a popularity model wearing a ligandability label.
+
 ## Precedent: species-level exact, and what a zero means
 
 **`n_ligands_exact` is species-level, not byte-level.** It was "identical sequence, or an accession
