@@ -1239,6 +1239,33 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   shape check could see. `hit_rate` is null, never 0, where nothing was assayed.
   CLI: `--refresh` · `--dry-run` · `-q`. ~2 min, needs the dump restored.
 
+  **`ligands/transfer_calibration.py` — the bands 95/60/40 CANNOT be calibrated, and that is the
+  result.** `docs/ligands.md` conceded 60 "is the one arbitrary number"; this measures what those
+  numbers are supposed to encode, self-contained inside ChEMBL (for a PAIR of bacterial targets we
+  know BOTH ligand sets). 1,582 pairs over 687 sequences / 131 species. **Three negatives:**
+
+  1. **Compound-set overlap does not transfer at any identity.** Median Jaccard **~0.00 in every
+     band, 95–100% included** (0.02–0.04 among pairs sharing anything, no trend). Two near-identical
+     ChEMBL targets are one enzyme screened twice against different libraries — they share the
+     protein, not the chemistry. **Jaccard measures campaign coincidence**, so it cannot calibrate
+     a transfer rule; that negative is why the conditional below is the statistic.
+  2. **`P(potent | neighbour potent)` is FLAT** — 0.87/0.93/0.98/0.84/0.95/0.94/0.67/1.00/0.96 from
+     the 25–30 to the 95–100 band, a lift of just **1.36–1.58×** over the **0.619** base rate, with
+     no decay. The cause is selection: **62% of bacterial ChEMBL targets already carry a potent
+     compound**, because a protein enters ChEMBL when somebody believed it was druggable. So **the
+     floor controls COVERAGE, not transfer reliability — document it as a conservatism choice, never
+     as an accuracy threshold.** Calibrating it honestly would need proteins nobody chose to screen,
+     which ChEMBL by construction does not contain.
+  3. **Neither species nor RBH adds anything beyond identity** — same-species vs cross-species at
+     95–100% is **0.955 vs 0.960**, and RBH is *worse* in three bands. **So no orthology criterion
+     is added**: the simple rule was not leaving anything on the table, which is worth knowing
+     before anyone builds the complicated one.
+
+  Read `n_pairs` before quoting a band — 80–90 rests on 2 pairs and 90–95 on 3; the population is
+  bimodal because bacterial targets are either the same enzyme in another strain or a different
+  family. Evidence: `evidence/transfer_calibration.tsv`, pairs in `scratch/transfer_pairs.tsv`.
+  CLI: `--min-compounds 5` · `--threads` · `--dry-run` · `-q`. DIAMOND from `gradi-ortho`. ~2 min.
+
   **`ligands/precedents.py` + `src/precedents.py` — LIGAND PRECEDENT FOR ANY SEQUENCE.** A query
   tool, not a proteome stage: give it a sequence and it returns three counts in about a second.
 
