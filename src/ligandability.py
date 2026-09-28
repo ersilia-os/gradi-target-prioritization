@@ -315,6 +315,25 @@ def selectivity_risk(df: pd.DataFrame) -> pd.Series:
     return pd.Series(np.log2((human + 1.0) / (bact + 1.0)), index=df.index)
 
 
+def _coerce_precedents(d: pd.DataFrame) -> pd.DataFrame:
+    """Force the numeric precedent columns to nullable numeric types.
+
+    Defensive, and it earned its place: a round trip through TSV turns a column built with `pd.NA`
+    into object dtype holding strings, so `best_pchembl_bacteria >= 6` raised TypeError and sorting
+    ordered '9.02' above '10.1'. `src/precedents.py` now types them on the way out; this makes any
+    file already on disk load correctly too.
+    """
+    for c in ("n_ligands_exact", "n_ligands_bacteria", "n_ligands_human",
+              "n_targets_bacteria", "n_targets_human", "n_ligands_bacteria_complex"):
+        if c in d.columns:
+            d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
+    for c in ("best_pident_bacteria", "best_pchembl_bacteria",
+              "best_pident_human", "best_pchembl_human"):
+        if c in d.columns:
+            d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
+    return d
+
+
 def load_precedents(species: str) -> pd.DataFrame:
     """Ligand precedent per protein: exact / bacterial / human counts.
 
@@ -331,14 +350,14 @@ def load_precedents(species: str) -> pd.DataFrame:
     `clpP`: 136 bacterial against 210 human at 56.3% identity.
 
     **`n_ligands_bacteria_complex` is separate and not inside (b)** -- DNA gyrase is a
-    `PROTEIN COMPLEX` in ChEMBL, and E. coli `gyrB` carries 371 single-protein ligands against
+    `PROTEIN COMPLEX` in ChEMBL, and E. coli `gyrB` carries 666 single-protein ligands against
     1,412 complex ones. v1 dropped that track and made GyrA/GyrB look unliganded.
 
     These are POTENCY-MEASURABLE ligands only, so the axis does not say "has an antibiotic" --
     MIC and %-inhibition are absent by construction.
     """
     _check(species)
-    return _read(_path(LIGAND_DIR, f"precedents_{species}.tsv"))
+    return _coerce_precedents(_read(_path(LIGAND_DIR, f"precedents_{species}.tsv")))
 
 
 def load_precedents_full(species: str) -> pd.DataFrame:
@@ -348,10 +367,11 @@ def load_precedents_full(species: str) -> pd.DataFrame:
     which route the exact match came through, how many targets each count unions over, best
     identity per side, and -- the one worth knowing about -- `n_ligands_bacteria_complex`.
 
-    **The complex track is NOT in `n_ligands_bacteria`.** E. coli `gyrB` carries 371 single-protein
-    ligands against 1,412 complex ones, and Kp `A0A0H3H0Y6` carries 1,410 complex and zero single.
+    **The complex track is NOT in `n_ligands_bacteria`.** E. coli `gyrB` carries 666 single-protein
+    ligands against 1,412 complex ones, and Kp `A0A0H3H0Y6` (gyrA) carries 1,410 complex
+    against 131 single.
     Read the deliverable alone and DNA gyrase looks unliganded, which is the v1 error. Come here
     before concluding a target has no chemistry.
     """
     _check(species)
-    return _read(_path(EVIDENCE_DIR, f"precedents_full_{species}.tsv"))
+    return _coerce_precedents(_read(_path(EVIDENCE_DIR, f"precedents_full_{species}.tsv")))

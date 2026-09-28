@@ -148,24 +148,57 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
     `accessions` id -> UniProt accession, optional. Only route (a) uses it; arbitrary input
                  usually has none, which is why the exact-sequence route exists.
     """
+    # DIAMOND truncates `qseqid` at the first whitespace, so an id with a space would silently
+    # return 0 rather than raising -- measured: `{"my prot A": folA}` gave 0, `{"lc": folA}` gave
+    # the real count. Refuse rather than mislead.
+    bad = [k for k in sequences if any(ch.isspace() for ch in str(k))]
+    if bad:
+        raise ValueError(
+            f"sequence ids must not contain whitespace (DIAMOND truncates them): {bad[:5]}")
     t, lg, tseq = _tables()
     accessions = accessions or {}
     if min_pchembl is not None:
         lg = lg[lg["pchembl"] >= min_pchembl]
 
-    # tid -> compounds, split by track. `complex` is reported separately, never merged: DNA gyrase
-    # is a PROTEIN COMPLEX in ChEMBL, and v1 made GyrA/GyrB look unliganded by dropping that track.
-    comp2tid = dict(zip(t["component_id"], t["tid"]))
+    # ONE COMPONENT MAPS TO MANY TIDS -- 9,347 rows over 8,469 distinct component_ids, 490 of them
+    # with more than one tid and up to 15. `dict(zip(...))` keeps only the LAST and silently drops
+    # the rest: measured, that understated 21 proteins by 3,324 ligands and made E. coli gyrA read
+    # ZERO single-protein ligands, because component 166 carries tid 53 (SINGLE PROTEIN, 117
+    # ligands) and tid 104721 (PROTEIN COMPLEX) and the complex row came last. That is the v1
+    # "GyrA/GyrB look unliganded" error re-entering through a different door -- the very thing the
+    # track split exists to prevent. `scripts/ligands/chembl.py:481` does it correctly with a
+    # one-to-many merge; this now matches.
+    comp2tids: dict[str, list] = {}
+    for cid, tid in zip(t["component_id"], t["tid"]):
+        comp2tids.setdefault(cid, []).append(tid)
     by_tid = lg.groupby("tid")
     single = {k: set(g.loc[g["track"] == "single", "parent_molregno"]) for k, g in by_tid}
     cplx = {k: set(g.loc[g["track"] == "complex", "parent_molregno"]) for k, g in by_tid}
-    best_p = lg.groupby("tid")["pchembl"].max().to_dict()
+    # best pChEMBL PER TRACK. Reading it across both tracks put a non-null
+    # `best_pchembl_bacteria` next to `n_ligands_bacteria == 0` on 14 Kp rows -- a row that says
+    # "no ligands, best potency 9.68" is incoherent on its face.
+    best_single = lg[lg["track"] == "single"].groupby("tid")["pchembl"].max().to_dict()
     kingdom = dict(zip(t["component_id"], t["superkingdom"].astype(str)))
     organism = dict(zip(t["component_id"], t["organism"].astype(str)))
-    acc2comp = {a: c for a, c in zip(t["accession"].astype(str), t["component_id"]) if a != "nan"}
-    seq2comp = {s: c for c, s in tseq.items()}
+    # Identical sequences are shared by several components (57 of them, 2-4 each). Keeping one
+    # would decide the winner by FASTA file order and silently understate 10 exact rows -- Kp
+    # `bla` 24 against a true 241. Take them all; they are the same protein.
+    seq2comps: dict[str, list] = {}
+    for c, q in tseq.items():
+        seq2comps.setdefault(q, []).append(c)
+    acc2comps: dict[str, list] = {}
+    for a, c in zip(t["accession"].astype(str), t["component_id"]):
+        if a != "nan":
+            acc2comps.setdefault(a, []).append(c)
 
     hits = _diamond(sequences, threads) if sequences else pd.DataFrame(columns=HIT_COLS)
+    # ASSERT, AND FAIL LOUDLY. A whole proteome returning no hit at all means the search broke, not
+    # that nothing binds -- and without this a --species run would write a table of zeros and exit
+    # 0. Measured baseline: 6-8% of an anchor proteome hits something, so 0 of >=100 is impossible.
+    if len(sequences) >= 100 and hits.empty:
+        raise RuntimeError(
+            f"DIAMOND returned no hit for any of {len(sequences):,} sequences. Expected ~6-8% to "
+            "hit something; this is a broken search, not an empty result.")
     # BOTH coverage floors, imported not restated -- a 130-aa fragment must not inherit a 488-aa
     # enzyme's ligands. See the module docstring for the case that proves it.
     hits = hits[(hits["qcov"] >= L.MIN_QCOV) & (hits["scov"] >= L.MIN_SCOV)
@@ -173,26 +206,27 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
     by_query = dict(list(hits.groupby("query"))) if len(hits) else {}
 
     def ligands_of(comps) -> tuple[set, set]:
-        """UNION of compounds over a set of components -> DISTINCT molecules, counted once."""
-        s, c = set(), set()
+        """UNION of compounds over components -> DISTINCT molecules, counted once.
+
+        Walks EVERY tid a component maps to, not just one. See the comment on `comp2tids`.
+        """
+        sg, cx = set(), set()
         for cid in comps:
-            tid = comp2tid.get(cid)
-            if tid is None:
-                continue
-            s |= single.get(tid, set())
-            c |= cplx.get(tid, set())
-        return s, c
+            for tid in comp2tids.get(cid, ()):
+                sg |= single.get(tid, set())
+                cx |= cplx.get(tid, set())
+        return sg, cx
 
     rows = []
     for qid, seq in sequences.items():
         # ---- (a) exact: accession first, then identical sequence
-        route, comp = "none", None
+        route, comps = "none", []
         ac = accessions.get(qid)
-        if ac and ac in acc2comp:
-            route, comp = "accession", acc2comp[ac]
-        elif seq in seq2comp:
-            route, comp = "sequence", seq2comp[seq]
-        ex_single, ex_cplx = ligands_of([comp]) if comp else (set(), set())
+        if ac and ac in acc2comps:
+            route, comps = "accession", acc2comps[ac]
+        elif seq in seq2comps:
+            route, comps = "sequence", seq2comps[seq]
+        ex_single, ex_cplx = ligands_of(comps)
 
         h = by_query.get(qid, pd.DataFrame(columns=HIT_COLS))
         bact = h[h["component_id"].map(kingdom).eq(BACTERIA)]
@@ -201,17 +235,21 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
         h_single, _ = ligands_of(hum["component_id"])
 
         def bp(sub):
-            v = [best_p.get(comp2tid.get(c)) for c in sub["component_id"]]
-            v = [x for x in v if pd.notna(x)]
+            """Best pChEMBL over the SINGLE track only, matching what the count reports."""
+            v = [best_single.get(tid) for c in sub["component_id"]
+                 for tid in comp2tids.get(c, ())]
+            v = [x for x in v if x is not None and pd.notna(x)]
             return max(v) if v else pd.NA
 
         rows.append({
             "id": qid,
-            "n_ligands_exact": len(ex_single | ex_cplx),
+            # SINGLE track, like (b) and (c). Mixing tracks here put 713 next to a
+            # bacterial 0 on E. coli gyrA -- three columns that cannot be compared.
+            "n_ligands_exact": len(ex_single),
             "n_ligands_bacteria": len(b_single),
             "n_ligands_human": len(h_single),
             "exact_route": route,
-            "exact_target": comp if comp else pd.NA,
+            "exact_target": ";".join(str(c) for c in comps) if comps else pd.NA,
             "n_targets_bacteria": len(bact),
             "best_pident_bacteria": round(bact["pident"].max(), 1) if len(bact) else pd.NA,
             "best_pchembl_bacteria": bp(bact),
@@ -220,7 +258,20 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
             "best_pchembl_human": bp(hum),
             "n_ligands_bacteria_complex": len(b_cplx),
         })
-    return pd.DataFrame(rows, columns=OUT_COLS)
+    out = pd.DataFrame(rows, columns=OUT_COLS)
+    # TYPE THE COLUMNS EXPLICITLY. Building the frame from dicts containing `pd.NA` makes every
+    # column that has a missing value OBJECT dtype, so `best_pchembl_bacteria` came out holding
+    # the STRINGS '4.36' and '' -- `>= 6` then raises TypeError and a sort orders '9.02' above
+    # '10.1'. Nullable Int64/Float64 keep "no measurement" distinguishable from zero while still
+    # comparing and sorting numerically.
+    for c in ("n_ligands_exact", "n_ligands_bacteria", "n_ligands_human",
+              "n_targets_bacteria", "n_targets_human", "n_ligands_bacteria_complex"):
+        out[c] = pd.to_numeric(out[c], errors="coerce").astype("Int64")
+    for c in ("best_pident_bacteria", "best_pchembl_bacteria",
+              "best_pident_human", "best_pchembl_human"):
+        out[c] = pd.to_numeric(out[c], errors="coerce").astype("Float64")
+    out["exact_target"] = out["exact_target"].astype("string")
+    return out
 
 
 def for_accession(accession: str) -> pd.DataFrame:

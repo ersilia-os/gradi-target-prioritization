@@ -23,7 +23,7 @@ TWO THINGS THE NUMBERS DO NOT SAY:
     CONSTRUCTION, so this tool does not say "has an antibiotic", and a ribosomal protein looking
     empty is a fact about assay type, not biology.
   * `n_ligands_bacteria_complex` is reported SEPARATELY and is not in (b). DNA gyrase is a
-    `PROTEIN COMPLEX` in ChEMBL -- measured here, E. coli gyrB carries 371 single-protein ligands
+    `PROTEIN COMPLEX` in ChEMBL -- measured here, E. coli gyrB carries 666 single-protein ligands
     and **1,412 complex** ones. v1 dropped the complex track and made GyrA/GyrB look unliganded.
 
 Run with the `gradi` env (DIAMOND from `gradi-ortho`; `GRADI_DIAMOND_BIN` overrides):
@@ -57,7 +57,7 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus")
 #   best_pident_bacteria         100% on KPC-2 and 87.9% on nfo are different claims, and the
 #                                count alone does not distinguish "this protein" from "something
 #                                that resembles it"
-#   n_ligands_bacteria_complex   E. coli gyrB carries 371 single-protein ligands and 1,412 complex
+#   n_ligands_bacteria_complex   E. coli gyrB carries 666 single-protein ligands and 1,412 complex
 #                                ones; Kp A0A0H3H0Y6 carries 1,410 complex and ZERO single. Absent
 #                                from the root table, gyrase reads as unliganded -- which is
 #                                exactly the v1 error this column was added to prevent.
@@ -112,14 +112,28 @@ def control_row(sp: str, out: pd.DataFrame) -> dict:
                  {k: k for k in out.uniprot_ac}, min_pchembl=6.0)
     o = o.rename(columns={"id": "uniprot_ac"})
     m = o.merge(c[["uniprot_ac", "remote_n_compounds"]], on="uniprot_ac")
-    pb = (m.n_ligands_bacteria + m.n_ligands_bacteria_complex) > 0
+    # SINGLE TRACK ONLY on both sides. `chembl.py:452` defines the remote pool as
+    # `single & bact`, so `remote_n_compounds` excludes complexes -- adding ours to the comparison
+    # and calling it "matched semantics" inflated the delta to +1,784 and hid the real residual.
+    pb = m.n_ligands_bacteria > 0
     cb = m.remote_n_compounds.fillna(0) > 0
+    # MAGNITUDE, NOT JUST PRESENCE. A boolean-only control reported 99.93% agreement while the
+    # counts actually disagreed on 18 of 309 ligand-bearing Kp proteins by 1,019 ligands -- it was
+    # structurally incapable of seeing the component_id->tid collapse that caused them. Comparing
+    # totals would have caught it on the first run.
+    mine = m.n_ligands_bacteria.fillna(0)
+    theirs = m.remote_n_compounds.fillna(0)
+    both = pb & cb
+    delta = (mine[both] - theirs[both])
     return {"species": sp, "n": len(m),
-            "both_positive": int((pb & cb).sum()),
+            "both_positive": int(both.sum()),
             "precedents_only": int((pb & ~cb).sum()),
             "chembl_only": int((~pb & cb).sum()),
             "agreement": round(float((pb == cb).mean()), 4),
-            "matched_semantics": "pchembl>=6, complex track included"}
+            "n_count_mismatch": int((delta != 0).sum()),
+            "total_ligand_delta": int(delta.sum()),
+            "max_abs_delta": int(delta.abs().max()) if len(delta) else 0,
+            "matched_semantics": "pchembl>=6, SINGLE track both sides (chembl.py:452)"}
 
 
 def main() -> None:

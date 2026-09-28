@@ -386,8 +386,8 @@ precisely the regime this tool is for.
 human** at 56.3% identity, the human mitochondrial CLPP ortholog. The CLI prints a warning when (c)
 exceeds (b). Never sum them.
 
-**The complex track is separate and is not inside (b).** E. coli `gyrB`: **371 single-protein
-ligands, 1,412 complex**. Kp `A0A0H3H0Y6`: **1,410 complex, zero single.** DNA gyrase is a
+**The complex track is separate and is not inside (b).** E. coli `gyrB`: **666 single-protein
+ligands, 1,412 complex**. Kp `A0A0H3H0Y6` (gyrA): **1,410 complex against 131 single.** DNA gyrase is a
 `PROTEIN COMPLEX` in ChEMBL and v1's single-protein-only rule made GyrA/GyrB look unliganded.
 
 **It does not say "has an antibiotic".** `pchembl` is 100% populated in the extract, so every count
@@ -439,3 +439,51 @@ anchor is a dark TrEMBL proteome whose accessions are largely absent. That is th
 makes homology transfer the whole game in Part 1.
 
 Load through `src/ligandability.py` — `load_precedents(species)`.
+
+## The bug an adversarial audit found, and why the first control missed it
+
+The first version of this tool shipped with a defect worth recording, because the shape of it
+recurs.
+
+**`component_id → tid` is ONE-TO-MANY and was collapsed with a dict.** `chembl_targets.tsv` has
+9,347 rows over **8,469 distinct `component_id`** — **490 components map to more than one `tid`**,
+up to 15. `dict(zip(component_id, tid))` keeps the last and drops the rest silently. Measured cost:
+**21 proteins understated by 3,324 ligands.**
+
+The worst case is the one the design was explicitly built to prevent. Component 166 (E. coli gyrA)
+carries `tid 53` (SINGLE PROTEIN, 117 ligands) **and** `tid 104721` (PROTEIN COMPLEX). The complex
+row came last, so the single-protein ligands vanished and **gyrA read `n_ligands_bacteria = 0`** —
+v1's "GyrA/GyrB look unliganded" error, re-entering through a different door. `chembl.py:481` does
+the same join correctly with a one-to-many merge.
+
+| protein | | shipped | correct |
+|---|---|---|---|
+| E. coli gyrA | | **0** | **131** |
+| E. coli gyrB | | 371 | **666** |
+| E. coli folA | bacterial | 183 | **595** |
+| E. coli folA | best pChEMBL | 9.02 | **10.92** |
+
+**The control could not see it, by construction.** It compared `>0` against `>0`, so it reported
+99.93% agreement while the underlying counts disagreed on 18 of 309 ligand-bearing Kp proteins by
+1,019 ligands. A presence check cannot detect a magnitude error. The control now compares totals
+(`n_count_mismatch`, `total_ligand_delta`, `max_abs_delta`).
+
+**And the control's "matched semantics" were not matched.** It added this tool's complex track to
+one side, while `chembl.py:452` defines the remote pool as `single & bact` — single-track only.
+That inflated the apparent delta to +1,784 and hid the true residual. With both sides on the single
+track and the collapse fixed, the two implementations agree **exactly**: 0 count mismatches, 0
+total delta, 0 either-way, on all three species.
+
+Three smaller defects from the same audit, all fixed: identical sequences shared by several
+components were likewise collapsed (10 exact rows understated — Kp `bla` read 24 against a true
+241); `best_pchembl_bacteria` was computed across both tracks while the count was single-only,
+putting "0 ligands, best pChEMBL 9.68" on 14 rows; and an id containing a space was silently
+truncated by DIAMOND to a zero count, now refused.
+
+## One honest caveat about (c)
+
+The 40% identity floor is inherited from a rule calibrated for **bacterial** transfer, and it is
+marginal across kingdoms. Measured on Kp: bacterial hits sit at a median **84.1%** identity, human
+hits at **45.3%**, with **53 of 114 in the 40–45% band** and none above 80%. So (c) is
+systematically weaker evidence than (b). `clpP` at 56.3% is a real ortholog; a 40.1% human hit is
+not the same claim. Filter on `best_pident_human` in `precedents_full_<sp>.tsv` before relying on it.

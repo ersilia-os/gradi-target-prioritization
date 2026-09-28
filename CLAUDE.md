@@ -1228,8 +1228,8 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   per-target counts inflates it, worse the wider the band.
 
   **The complex track is reported separately and is NOT inside the bacterial count.** Measured:
-  E. coli `gyrB` carries **371 single-protein ligands against 1,412 complex** ones, and Kp
-  `A0A0H3H0Y6` carries **1,410 complex and zero single**. DNA gyrase is a `PROTEIN COMPLEX` in
+  E. coli `gyrB` carries **666 single-protein ligands against 1,412 complex** ones, and Kp
+  `A0A0H3H0Y6` (gyrA) carries **1,410 complex against 131 single**. DNA gyrase is a `PROTEIN COMPLEX` in
   ChEMBL, and v1 dropped that track and made GyrA/GyrB look unliganded.
 
   **Validated against the existing axis at matched semantics: 99.9% agreement on all three
