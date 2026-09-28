@@ -1279,11 +1279,24 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   exits non-zero on a mismatch. (2) **`SOURCE.md` pointed at the FTP `latest/` path**, which moves
   with every release; the pinned `releases/chembl_37/` URL replaces it.
 
-  **The cached extracts were cross-checked against live ChEMBL**, an independent route into the
-  same release — 4 targets under this stage's own predicate: `CHEMBL1293248` 24,681 activities and
-  `CHEMBL2390811` 8 activities / 8 compounds both agree **exactly**, and the only two deltas
-  (`CHEMBL5465386` +18, `CHEMBL2026` +26) are the `potential_duplicate` rows the extract drops on
-  purpose. So the extracts are faithful, not merely assumed so.
+  **The cached extracts REPRODUCE BYTE-FOR-BYTE from the restored dump.** The archive was
+  extracted (30 s, not the ~4 min long recorded) and `extract_chembl(refresh=True)` re-run into a
+  temp directory: all three files come back sha256-identical — `chembl_targets.tsv` 9,347 × 9,
+  `chembl_ligands.tsv` 2,591,526 × 6, `chembl_targets.faa` 8,469 records. The dump self-identifies
+  as `ChEMBL_37` dated 2026-05-01 and its counts match the release notes exactly. Independently,
+  before the restore, 4 targets were checked against live ChEMBL: `CHEMBL1293248` 24,681 activities
+  and `CHEMBL2390811` 8/8 agree **exactly**, the two deltas (`CHEMBL5465386` +18, `CHEMBL2026` +26)
+  being the `potential_duplicate` rows the extract drops on purpose.
+
+  **`version` IS NOT ONE ROW — it holds 11, and `ChEMBL_37` is not first.** A `fetchone()` returns
+  `Bioassay Ontology 2.0`, and `LIKE 'ChEMBL_%'` does not disambiguate either because
+  `ChEMBL_Structure_Pipeline 1.2.0` matches it; only `ChEMBL_<digits>` exactly is the release. The
+  first `assert_version()` got this wrong and **rejected the correct database** — it had passed a
+  synthetic one-row fixture, i.e. it tested the assumption rather than the schema, which is the
+  house rule about asserting on content in another guise. Two upstream versions worth knowing, both
+  from that table: **Swiss-Prot 2025_03** supplies `component_sequences` (the sequences
+  `precedents.py` searches) and **RDKit 2022.09.4** did the salt stripping behind
+  `molecule_hierarchy`, which is what the `parent_molregno` collapse rests on.
 
   **Load through `src/ligandability.py`** — `load`, `load_all`, `load_targets`, `load_ligands`,
   `load_hits`, `load_scaffolds`, `load_cutoff_sensitivity`, `control`, `manifest`, plus

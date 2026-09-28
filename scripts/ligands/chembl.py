@@ -174,18 +174,31 @@ def assert_version(db: Path) -> None:
 
     `CHEMBL_VERSION` is a hard-coded literal and `find_db` globs `chembl_*.db`, so extracting a
     different release beside this one would have been consumed silently and labelled 37 in every
-    manifest. ChEMBL's SQLite ships a one-row `version` table (`name` = `ChEMBL_37`); that is the
-    authority. The filename is the fallback, because it is what the glob actually matched.
+    manifest. ChEMBL's SQLite ships a `version` table; that is the authority. The filename is the
+    fallback, because it is what the glob actually matched.
+
+    **`version` is NOT one row.** It holds 11 -- every upstream resource the release was built
+    from (Bioassay Ontology, EFO, MeSH, UBERON, RDKit, InChI, COCONUT, GO, Swiss-Prot 2025_03,
+    ChEMBL_Structure_Pipeline) beside the release itself, and `ChEMBL_37` is not first. A
+    `fetchone()` returns `Bioassay Ontology 2.0`. Nor does `LIKE 'ChEMBL_%'` disambiguate, because
+    `ChEMBL_Structure_Pipeline 1.2.0` matches it too; only `ChEMBL_<digits>` exactly is the release.
     """
     want = f"ChEMBL_{L.CHEMBL_VERSION}"
     seen, route = None, "filename"
     try:
         con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
-            seen = str(con.execute("SELECT name FROM version").fetchone()[0])
-            route = "version table"
+            names = [str(r[0]) for r in con.execute("SELECT name FROM version")]
         finally:
             con.close()
+        releases = [n for n in names if re.fullmatch(r"ChEMBL_\d+", n)]
+        if len(releases) == 1:
+            seen, route = releases[0], "version table"
+        else:
+            sys.exit(
+                f"FAILED: {db.name} has {len(releases)} release rows in its `version` table "
+                f"({releases or 'none'}); expected exactly one. Rows seen: {names}"
+            )
     except sqlite3.Error:
         m = re.search(r"chembl_(\d+)", db.name)
         seen = f"ChEMBL_{m.group(1)}" if m else db.name
