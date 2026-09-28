@@ -144,8 +144,32 @@ and a subject-coverage floor v1 did not have:
 | Kp proteins with a potent bacterial ligand | 175 | 113 |
 | Ec proteins with a potent bacterial ligand | 155 | 96 |
 
-`n_compounds_tested` exists so that **screened-and-clean can be told from never-screened** — a
+`n_compounds_tested` was meant to make **screened-and-clean tellable from never-screened** — a
 protein with 200 compounds tested and none potent is a different object from one nobody ever tried.
+
+**CORRECTED 2026-09-28: it does not do that, and an earlier version of this page claimed it did.**
+`chembl.py:594` computes it from the ligand table, which is already filtered to
+`pchembl_value IS NOT NULL`. So it separates *weakly potent* from *never measured* — a compound
+that was assayed and produced no measurable potency was never in the table to be counted. The
+distinction the sentence promises needs a denominator the axis did not have.
+
+`ligands/effort.py` supplies it. Measured on ChEMBL 37, bacterial targets:
+
+| | |
+|---|---|
+| bacterial SINGLE PROTEIN targets | 1,073 |
+| …with B/F activity at confidence ≥ 8, any relation | 987 |
+| …restricted to `standard_relation '='` | **869** |
+| …with any potency-measurable compound — *all the axis could see* | **661** |
+| …with a compound at pChEMBL ≥ 6 | 430 |
+
+**208 bacterial targets have nothing potency-measurable at all**, so they were invisible to this
+axis entirely, and **226,038 compound-target pairs were assayed with no measurable potency**.
+
+The useful part is that this recovers the axis's only real negatives: of **453 bacterial targets
+with ≥ 10 compounds assayed, 148 (32.7%) never reached pChEMBL 6** (at ≥ 5 compounds, 251 of 603 —
+41.6%). A protein somebody tried and failed to drug is a measured discouragement; a protein nobody
+has opened is an open question. Before this they were the same zero.
 
 ## The selectivity finding
 
@@ -213,7 +237,7 @@ left the verdict unchanged at 33 / 11.5%.
 |---|---|
 | `direct_hit` | a ChEMBL target at ≥95% identity exists (whether or not it has ligands) |
 | `best_target`, `best_pident`, `best_organism` | the closest bacterial single-protein target |
-| `n_compounds_tested` | parent compounds with any pChEMBL over the `remote` pool |
+| `n_compounds_tested` | parent compounds with any pChEMBL over the `remote` pool — **not** a screening denominator, see above |
 | `direct_*`, `species_*`, `close_*`, `remote_*` | `n_compounds`, `n_scaffolds`, `best_pchembl` per bucket at pChEMBL ≥ 6 |
 | `human_n_compounds/_n_scaffolds/_best_pchembl/_best_pident` | selectivity liability — never merged into a bucket |
 | `allorg_n_compounds`, `allorg_n_scaffolds` | the literal all-organism count, so the Bacteria restriction is visible |

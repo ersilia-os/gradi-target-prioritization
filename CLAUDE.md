@@ -1206,6 +1206,39 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   against stage 05's `neighbors_of(ac, "human")` (DIAMOND vs the human proteome) — different
   databases, same quantity, **r 0.979–0.988, median |diff| 0.0 pp**.
 
+  **`ligands/effort.py` — the DENOMINATOR, and the axis's only real negatives.** `chembl.py` and
+  `precedents.py` both require `pchembl_value IS NOT NULL`, so every compound somebody assayed that
+  did NOT work is invisible to them — and "nobody screened this" and "people screened it and
+  nothing worked" collapse into the same zero. One read-only SQL pass over the dump fixes that,
+  writing `scratch/chembl_effort.tsv` (869 bacterial targets × 16).
+
+  **`n_compounds_tested` does NOT already do this, and `docs/ligands.md` wrongly said it did** —
+  `chembl.py:594` computes it from the already-pChEMBL-filtered ligand table, so it separates
+  *weakly potent* from *never measured*. Corrected in the same commit.
+
+  Measured, bacterial targets: 1,073 SINGLE PROTEIN → 987 with B/F activity at confidence ≥ 8 →
+  **869** at `standard_relation '='` → **661** with any potency-measurable compound (all the axis
+  could see) → 430 at pChEMBL ≥ 6. **208 targets have nothing potency-measurable and were invisible
+  entirely**; 226,038 compound-target pairs were assayed with no measurable potency.
+
+  **The payoff is negatives.** Of **453 bacterial targets with ≥10 compounds assayed, 148 (32.7%)
+  never reached pChEMBL 6** (≥5 compounds: 251 of 603, 41.6%). A protein somebody tried and failed
+  to drug is a measured discouragement, not an unknown — the only such evidence in this axis.
+
+  **TWO denominators ship, and neither is merged.** `n_compounds_assayed` is population-identical
+  to `chembl.py`'s predicate and is what `hit_rate` divides by; `n_compounds_assayed_any_relation`
+  drops the `standard_relation = '='` clause, which alone costs **118 targets**, 6,682 `>` rows
+  over 4,834 compounds and 32,093 null-relation rows. **An `IC50 > 100 µM` is the clearest
+  statement in the database that a compound does not bind**, so an effort count must include it —
+  but a *ratio* needs its denominator drawn from the numerator's own population, hence both.
+  `n_compounds_reported_inactive` counts the explicit `>` non-binders.
+
+  It imports `assert_version` and `_activity_where` from `chembl.py` by explicit spec load rather
+  than restating them, and **exits non-zero if either clause it relaxes is no longer there** — a
+  denominator computed over a different target population from the numerator is wrong in a way no
+  shape check could see. `hit_rate` is null, never 0, where nothing was assayed.
+  CLI: `--refresh` · `--dry-run` · `-q`. ~2 min, needs the dump restored.
+
   **`ligands/precedents.py` + `src/precedents.py` — LIGAND PRECEDENT FOR ANY SEQUENCE.** A query
   tool, not a proteome stage: give it a sequence and it returns three counts in about a second.
 
