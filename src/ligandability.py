@@ -313,3 +313,45 @@ def selectivity_risk(df: pd.DataFrame) -> pd.Series:
     human = df["human_n_scaffolds"].fillna(0).astype(float)
     bact = df["remote_n_scaffolds"].fillna(0).astype(float)
     return pd.Series(np.log2((human + 1.0) / (bact + 1.0)), index=df.index)
+
+
+def load_precedents(species: str) -> pd.DataFrame:
+    """Ligand precedent per protein: exact / bacterial / human counts.
+
+    Written by `scripts/ligands/precedents.py --species`. Three counts and their provenance:
+
+        n_ligands_exact      an EXACT match -- UniProt accession or identical sequence
+        n_ligands_bacteria   UNIQUE molecules over every bacterial target passing the floors
+        n_ligands_human      the same over human targets
+
+    **`n_ligands_bacteria` counts MOLECULES, not target-compound pairs** -- distinct
+    `parent_molregno` over the union, so a compound tested against three homologs counts once.
+
+    **`n_ligands_human` is a LIABILITY, never add it to the bacterial count.** Measured on E. coli
+    `clpP`: 136 bacterial against 210 human at 56.3% identity.
+
+    **`n_ligands_bacteria_complex` is separate and not inside (b)** -- DNA gyrase is a
+    `PROTEIN COMPLEX` in ChEMBL, and E. coli `gyrB` carries 371 single-protein ligands against
+    1,412 complex ones. v1 dropped that track and made GyrA/GyrB look unliganded.
+
+    These are POTENCY-MEASURABLE ligands only, so the axis does not say "has an antibiotic" --
+    MIC and %-inhibition are absent by construction.
+    """
+    _check(species)
+    return _read(_path(LIGAND_DIR, f"precedents_{species}.tsv"))
+
+
+def load_precedents_full(species: str) -> pd.DataFrame:
+    """The same, with the provenance columns the deliverable omits.
+
+    `precedents_<sp>.tsv` is deliberately four columns plus the key. This is the 13-column version:
+    which route the exact match came through, how many targets each count unions over, best
+    identity per side, and -- the one worth knowing about -- `n_ligands_bacteria_complex`.
+
+    **The complex track is NOT in `n_ligands_bacteria`.** E. coli `gyrB` carries 371 single-protein
+    ligands against 1,412 complex ones, and Kp `A0A0H3H0Y6` carries 1,410 complex and zero single.
+    Read the deliverable alone and DNA gyrase looks unliganded, which is the v1 error. Come here
+    before concluding a target has no chemistry.
+    """
+    _check(species)
+    return _read(_path(EVIDENCE_DIR, f"precedents_full_{species}.tsv"))

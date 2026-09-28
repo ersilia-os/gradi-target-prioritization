@@ -345,3 +345,97 @@ to eosvc.**
 - **`allorg` versus `remote` is unexploited.** The gap between them is a measured statement about how
   much apparent ligandability comes from non-bacterial homologs, which is exactly the quantity v1's
   rat trap got wrong. Worth a figure.
+
+---
+
+# Part 3 — ligand precedent for an arbitrary sequence
+
+`scripts/ligands/precedents.py` (CLI) and `src/precedents.py` (library) answer a different question
+from Part 1. Part 1 asks *what does our proteome have*, needs the 30.5 GB ChEMBL dump, and produces
+a per-species table. This asks *what about **this** sequence* — any sequence, in about a second,
+from 82 MB of cached extracts.
+
+```
+(a) n_ligands_exact      ligands on an EXACT match: UniProt accession, or identical sequence
+(b) n_ligands_bacteria   UNIQUE ligands across BACTERIAL targets, by identity
+(c) n_ligands_human      ligands on HUMAN orthologs
+```
+
+## What it runs on
+
+| file | size | holds |
+|---|---|---|
+| `scratch/chembl_targets.faa` | 5.2 MB | 8,469 sequences, headers = `component_id` — the DIAMOND subject DB |
+| `scratch/chembl_targets.tsv` | 1.0 MB | 9,347 targets with `organism` and `superkingdom` |
+| `scratch/chembl_ligands.tsv` | 76 MB | 2,591,526 rows, `tid → parent_molregno` |
+
+`sequence → DIAMOND → component_id → tid → parent_molregno`. Measured composition: **1,305,242
+distinct compounds**, of which **110,019** sit on Bacteria targets and **1,101,363** on human.
+`superkingdom` gives the (b)/(c) split directly — 703 bacterial targets against 5,546 human.
+
+## Three things the counts mean, and one they do not
+
+**(b) counts MOLECULES, not target-compound pairs.** `parent_molregno` is ChEMBL's
+`molecule_hierarchy` parent, so salts are already collapsed; taking the DISTINCT set over the union
+of every passing target means a compound tested against three homologs counts **once**. Summing
+per-target counts would inflate it, and the wider the identity band the worse it gets — which is
+precisely the regime this tool is for.
+
+**(c) is a liability, not a precedent.** A ligand-bearing human ortholog says the fold is druggable
+*and* that hitting it may be dangerous. E. coli `clpP` is the case: **136 bacterial against 210
+human** at 56.3% identity, the human mitochondrial CLPP ortholog. The CLI prints a warning when (c)
+exceeds (b). Never sum them.
+
+**The complex track is separate and is not inside (b).** E. coli `gyrB`: **371 single-protein
+ligands, 1,412 complex**. Kp `A0A0H3H0Y6`: **1,410 complex, zero single.** DNA gyrase is a
+`PROTEIN COMPLEX` in ChEMBL and v1's single-protein-only rule made GyrA/GyrB look unliganded.
+
+**It does not say "has an antibiotic".** `pchembl` is 100% populated in the extract, so every count
+is of potency-measurable ligands — `=` relations on IC50/EC50/Ki/Kd/Potency in nM. MIC and
+%-inhibition are absent by construction, so a ribosomal protein looking empty here is a fact about
+assay type, not about biology.
+
+## Identity alone cannot transfer a ligand count
+
+The case that proves it, recorded so it is not re-investigated. Kp `A0A0H3GWM6` is **99.2%
+identical** to E. coli `P0ADG7`, which carries 32 compounds at pChEMBL 8.82 — and correctly gets
+**nothing**. The raw hits show the match *was* found (component 1947 = CHEMBL3630, 99.2% identity)
+with `qcov 100.0` but **`scov 26.6`**: the Kp entry is a **130-aa fragment** against a **488-aa**
+IMP dehydrogenase. `MIN_QCOV = MIN_SCOV = 50.0` rejected it, exactly as the comment above those
+constants anticipates.
+
+Both floors are **imported** from `src/ligandability.py`, never restated, so the tool cannot drift
+from the axis it sits beside.
+
+## The control
+
+`evidence/precedent_control.tsv`, written on every `--species` run: agreement with
+`chembl_<sp>.tsv` **at matched semantics** (pChEMBL ≥ 6, complex track included).
+
+| species | both positive | precedents-only | chembl-only | agreement |
+|---|---|---|---|---|
+| kpneumoniae | 113 | 4 | **0** | **99.9%** |
+| ecoli | 96 | 4 | **0** | **99.9%** |
+| saureus | 78 | 4 | **0** | **99.9%** |
+
+At *default* settings the two differ, and both reasons are design rather than defect: the tool
+excludes the complex track, and counts every measurable ligand rather than only pChEMBL ≥ 6 — 66 of
+67 default-only Kp proteins sit below 6. Restore both and they reconcile, which is what the control
+records.
+
+## Batch output
+
+`--species` runs a whole anchor proteome through the same code path and writes
+`precedents_<species>.tsv`, complete and in canonical row order. Measured:
+
+| species | any exact | any bacterial | any human |
+|---|---|---|---|
+| kpneumoniae | 6 | 179 | 114 |
+| ecoli | 112 | 159 | 106 |
+| saureus | 27 | 117 | 66 |
+
+Kp's exact count is low by construction — ChEMBL holds only 21 *K. pneumoniae* targets, and the
+anchor is a dark TrEMBL proteome whose accessions are largely absent. That is the same fact that
+makes homology transfer the whole game in Part 1.
+
+Load through `src/ligandability.py` — `load_precedents(species)`.

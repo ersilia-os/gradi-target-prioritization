@@ -1206,6 +1206,52 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   against stage 05's `neighbors_of(ac, "human")` (DIAMOND vs the human proteome) — different
   databases, same quantity, **r 0.979–0.988, median |diff| 0.0 pp**.
 
+  **`ligands/precedents.py` + `src/precedents.py` — LIGAND PRECEDENT FOR ANY SEQUENCE.** A query
+  tool, not a proteome stage: give it a sequence and it returns three counts in about a second.
+
+  | | |
+  |---|---|
+  | `n_ligands_exact` | ligands on an EXACT match — UniProt accession, or identical sequence |
+  | `n_ligands_bacteria` | **UNIQUE** ligands across bacterial targets passing the identity + both coverage floors |
+  | `n_ligands_human` | the same over human targets — **a LIABILITY, never added to the bacterial count** |
+
+  **It needs no database.** Three cached extracts totalling 82 MB —
+  `scratch/chembl_targets.faa` (8,469 sequences, headers = `component_id`),
+  `chembl_targets.tsv` (9,347 targets with `organism` + `superkingdom`) and
+  `chembl_ligands.tsv` (2,591,526 rows) — against `chembl.py`'s 30.5 GB dump. The join is
+  `sequence → DIAMOND → component_id → tid → parent_molregno`. Composition, measured: **1,305,242
+  distinct compounds**, 110,019 on Bacteria targets and 1,101,363 on human.
+
+  **"UNIQUE" is the whole point and it is not a per-target sum.** `parent_molregno` is ChEMBL's
+  `molecule_hierarchy` parent, so counting DISTINCT values over the union of every homologous
+  target counts MOLECULES — one compound tested against three homologs counts once. Summing
+  per-target counts inflates it, worse the wider the band.
+
+  **The complex track is reported separately and is NOT inside the bacterial count.** Measured:
+  E. coli `gyrB` carries **371 single-protein ligands against 1,412 complex** ones, and Kp
+  `A0A0H3H0Y6` carries **1,410 complex and zero single**. DNA gyrase is a `PROTEIN COMPLEX` in
+  ChEMBL, and v1 dropped that track and made GyrA/GyrB look unliganded.
+
+  **Validated against the existing axis at matched semantics: 99.9% agreement on all three
+  species, 0 chembl-only** (`evidence/precedent_control.tsv`, written every `--species` run). The
+  two disagree at *default* settings for two deliberate reasons — the tool excludes the complex
+  track, and counts every potency-measurable ligand rather than only pChEMBL ≥ 6 (66 of 67
+  default-only Kp proteins sit below 6). Put both back and they reconcile.
+
+  **A case measured and settled, so nobody re-investigates it.** Kp `A0A0H3GWM6` is **99.2%
+  identical** to E. coli `P0ADG7` (32 compounds, pChEMBL 8.82) and correctly gets nothing: the hit
+  exists (component 1947 = CHEMBL3630) at `qcov 100.0 / scov 26.6` — a **130-aa fragment** against
+  a **488-aa** IMP dehydrogenase. `MIN_QCOV`/`MIN_SCOV = 50` rejected it. **Identity alone cannot
+  transfer a ligand count**, and both floors are imported from `src/ligandability.py` rather than
+  restated.
+
+  Spot checks: `folA` 21 exact / 183 bacterial / 0 human · `clpP` 30 / 136 / **210 human** at 56.3%
+  identity, the selectivity liability this axis already documents.
+  CLI: `--sequence` · `--fasta` · `--accession` · `--species` (batch → `precedents_<sp>.tsv`,
+  complete and canonical) · `--min-identity 40` · `--min-pchembl` · `-q`. DIAMOND from
+  `gradi-ortho` via `GRADI_DIAMOND_BIN`. **Load through `src/ligandability.py`** —
+  `load_precedents`.
+
   **`ligands/bindingdb.py` is a MEASUREMENT, not a deliverable.** v1 shipped BindingDB as a
   co-equal track (93 potent Kp proteins) **without ever measuring the overlap**. Measured here —
   cheaply, because BindingDB carries the target chain sequence *and* the ligand InChIKey inline:

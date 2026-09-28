@@ -129,6 +129,10 @@ def audit(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
             ("essentiality/deg",            D / "essentiality"  / f"deg_{sp}.tsv"),
             ("essentiality/ogee",           D / "essentiality"  / f"ogee_{sp}.tsv"),
             ("essentiality/screens",        D / "essentiality"  / f"screens_{sp}.tsv"),
+            # The ligands axis was canonical but UNAUDITED -- a regression there would not have
+            # been caught by "N/N canonical". Added with the precedents table it now sits beside.
+            ("ligands/chembl",              D / "ligands"       / f"chembl_{sp}.tsv"),
+            ("ligands/precedents",          D / "ligands"       / f"precedents_{sp}.tsv"),
         ]
         npzs = [
             ("embeddings/esmc",       D / "embeddings" / f"embeddings_{sp}.npz"),
