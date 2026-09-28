@@ -1245,7 +1245,7 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   transfer a ligand count**, and both floors are imported from `src/ligandability.py` rather than
   restated.
 
-  Spot checks: `folA` 21 exact / 183 bacterial / 0 human · `clpP` 30 / 136 / **210 human** at 56.3%
+  Spot checks: `folA` 517 exact / 595 bacterial / 0 human · `clpP` 30 / 136 / **210 human** at 56.3%
   identity, the selectivity liability this axis already documents.
   CLI: `--sequence` · `--fasta` · `--accession` · `--species` (batch → `precedents_<sp>.tsv`,
   complete and canonical) · `--min-identity 40` · `--min-pchembl` · `-q`. DIAMOND from
@@ -1267,6 +1267,23 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   Needs **rdkit** (PyPI `macosx_11_0_arm64` wheel — must not flip `gradi` to osx-64, which would
   take ESM-C down with it). The 30.5 GB dump is deleted after each run:
   `data/raw/other/chembl/SOURCE.md` has the recovery procedure (see the ChEMBL exception below). **Never upload it to eosvc.**
+
+  **The archive's integrity is VERIFIED, and the version is now ASSERTED rather than declared.**
+  `chembl_37_sqlite.tar.gz` matches EBI's published sha256
+  (`33c2037405…`, `releases/chembl_37/checksums.txt`) and its `Content-Length` byte-for-byte — so
+  the download is the genuine complete release, not a truncated transfer. That had never been
+  checked: the first run recorded byte counts only. Two gaps it exposed, both closed. (1)
+  **`CHEMBL_VERSION = "37"` is a bare literal while `find_db` globs `chembl_*.db`**, so a different
+  release extracted beside this one would have been consumed silently and labelled 37 in every
+  manifest — `assert_version()` now reads the dump's own `version` table (filename as fallback) and
+  exits non-zero on a mismatch. (2) **`SOURCE.md` pointed at the FTP `latest/` path**, which moves
+  with every release; the pinned `releases/chembl_37/` URL replaces it.
+
+  **The cached extracts were cross-checked against live ChEMBL**, an independent route into the
+  same release — 4 targets under this stage's own predicate: `CHEMBL1293248` 24,681 activities and
+  `CHEMBL2390811` 8 activities / 8 compounds both agree **exactly**, and the only two deltas
+  (`CHEMBL5465386` +18, `CHEMBL2026` +26) are the `potential_duplicate` rows the extract drops on
+  purpose. So the extracts are faithful, not merely assumed so.
 
   **Load through `src/ligandability.py`** — `load`, `load_all`, `load_targets`, `load_ligands`,
   `load_hits`, `load_scaffolds`, `load_cutoff_sensitivity`, `control`, `manifest`, plus
@@ -1739,15 +1756,42 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   **`merge.py`** — **how much is already known about this protein?** Wanted in both directions: an
   uncharacterised target is a risk, but it is also the novelty the collaboration is looking for
   (`src.studiedness.novelty()` reads it the other way). Deliverable
-  `studiedness_<species>.tsv`: **4 columns** — `uniprot_ac · studiedness_own ·
-  studiedness_family · evidence`, complete and canonical for the three bacteria.
+  `studiedness_<species>.tsv`: **4 columns** — `uniprot_ac · n_papers_own · n_papers_family ·
+  evidence`, complete and canonical for the three bacteria.
+
+  **THE NUMBER IS A PAPER COUNT — curated SwissProt references, nothing scaled or blended.**
+  `n_papers_family` is the number of curated PubMed references on the best-studied prokaryotic
+  SwissProt homolog. A 5 is five papers; a 0 is zero papers. **A 0-1 composite shipped first and
+  was REMOVED on 2026-09-22 — do not reintroduce it.** It read
+  `0.6*min(1, log1p(n)/log1p(204)) + 0.4*(annotation_score-1)/4`, and three measurements killed
+  it: (1) the same value meant **13 papers at annotation 3, 83 at annotation 1, 1 at annotation
+  5**, and a protein with zero papers scored 0.4; (2) the halves **double-counted** — UniProt's
+  annotation score correlates with the paper count at **r 0.64-0.70**; (3) the weights did the
+  opposite of what the code claimed — literature was weighted 0.6 "because it is the quantity the
+  axis is named for" but the annotation component's spread was nearly **double** (sd 0.33-0.36 vs
+  0.17-0.20). Dropping it moved the ranking by spearman 0.86-0.91.
+  `src.studiedness.scaled()` derives a 0-1 column on the fly for combining with the other axes;
+  it is deliberately **not stored**, so there is one source of truth on disk.
+
+  **There is NO ceiling on the count, and an earlier claim in this file that SwissProt "saturates
+  at 58" was wrong.** Verified against UniProt: the TSV is not truncated (human TP53 returns 225
+  PubMed ids), counts reach **225 overall / 119 among prokaryotic entries**, and the 58 is just
+  *E. coli* GroEL (`P0A6F5`) happening to be the most-curated donor picked in all three species.
+  The range is small because bacterial proteins are: **37-48 distinct values, median donor 4-6**.
+  Ties sit in the poorly-studied bulk, not at the top (largest non-zero tie 12.4-18.9% of scored
+  proteins, guarded at 25%), so a shortlist reading the top gets a near-unique ranking.
+
+  **gene2pubmed is a MEASURED ALTERNATIVE, not the count.** It is larger for 87-94% of donors
+  (median 2.8x) and would lift Sa coverage 12.4% -> 18.7%, but `max(curated, gene-linked)`
+  switches definition per row — Kp `rpoB` took NCBI's 350 while ~11% of donors took SwissProt's.
+  One consistent definition beat the bigger number. Both components ship in `evidence/`.
 
   **The anchors' own literature is a dead column, and that is the whole shape of the axis.**
   Measured on UniProt 2026_03: **5,710 of 5,728 Kp proteins carry exactly one PubMed id** (the
   genome paper — 7 distinct values over the proteome) and 2,532 of 2,889 Sa proteins carry none,
   against E. coli's median 5 / 48 distinct. This confirms v1 (`legacy/HISTORY.md:60`) and sharpens
-  it. `studiedness_own` still ships **because it IS the measurement of darkness** — keeping it
-  beside `studiedness_family` is what makes "dark in *Klebsiella*, famous in *E. coli*" readable
+  it. `n_papers_own` still ships **because it IS the measurement of darkness** — keeping it
+  beside `n_papers_family` is what makes "dark in *Klebsiella*, famous in *E. coli*" readable
   off one row. **Do not rank Kp or Sa on `_own`; rank on `_family`.**
 
   **The number is transferred by DIAMOND from the most-cited SwissProt homolog** (575,748 reviewed
@@ -1768,16 +1812,6 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   pass at k=5,000 over only the 1,403 queries (12.6%) still capped**; after it, 0 remain capped.
   Held-out control at the 40% floor: **0.4666 → 0.5338 → 0.5436**. `n_candidates` ships per
   protein and the run prints the capped fraction.
-
-  **One fixed global scale, and P95 was measured and rejected.** Both columns are
-  `0.6*min(1, log1p(n_pubs)/log1p(P_REF)) + 0.4*(annotation_score-1)/4` with **P_REF = the 99th
-  percentile of SwissProt publication counts (204 papers)** — NOT a per-proteome percentile, which
-  is the `geptop_score` trap. Anchoring at P95 (38) left E. coli with a median `studiedness_own` of
-  **exactly 1.000**, unrankable ties over half a proteome; a **`saturated > 20%` guard** now exits
-  the stage. `n_pubs` is the **union of UniProt `lit_pubmed_id` and NCBI gene2pubmed** — measured:
-  gene2pubmed does NOT rescue the dark anchors (Kp still 12 distinct values) but resolves a
-  well-studied organism ~4× more finely (Ec 193 distinct / max 513 vs 48 / 58), which is what the
-  donor ranking consumes, and it gives 184 Sa proteins their first paper (12.4% → 18.7%).
 
   **Five evidence tiers, and TWO of them score 0 meaning different things.** `swissprot_direct`
   (≥95%) ⊃ `swissprot_close` (≥60%) ⊃ `swissprot_homolog` (≥40%), then **`below_floor`** (a hit
@@ -1803,9 +1837,10 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   and the axis stops doing anything. Measured: **spearman 0.5411 / pearson 0.5351 over 2,945
   proteins**, floor 0.45, exits non-zero below.
 
-  **`family − own` is the axis working, and the contrast is the clearest number here: +0.292 on
-  Kp** (dark anchor, known family) **against +0.000 on E. coli** (its own literature already is
-  its family's). Coverage with a donor: Kp 65.8% · Ec 99.3% · Sa 55.8%.
+  **`family − own` is the axis working, and the contrast is the clearest number here: +3 papers
+  (median) on Kp** (dark anchor, known family) **against +0 on E. coli** (its own literature
+  already is its family's). On Kp the median protein has **1 paper of its own and 4 on its
+  family**; Kp `groEL` reads **1 and 58**. Coverage with a donor: Kp 65.8% · Ec 99.3% · Sa 55.8%.
 
   **DONOR SCOPE: not eukaryotic, and "restrict to Bacteria" is the obvious rule that is WRONG.**
   `--donor-scope prokaryotic` (default) admits any donor whose UniProt `lineage` lacks
@@ -1818,14 +1853,13 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   — *Escherichia* phage lambda and P1 — and a Kp prophage protein whose best relative is a lambda
   protein is not novel. Admitting phages recovers 62 of Kp's 77 and 12 of Sa's 16.
   **All three scopes are computed every run** into `evidence/donor_scope_comparison.tsv`, with
-  `studiedness_family_{prokaryotic,bacteria,any}` all in the transfer table — switching the
+  `n_papers_family_{prokaryotic,bacteria,any}` all in the transfer table — switching the
   deliverable is a column swap, not a re-run.
-  **The honest headline is that scope barely matters numerically**: the three scores correlate at
-  **rho 0.983–0.990** and only 254 of 5,728 Kp proteins change at all, because the log scale
-  saturates above P_REF = 204 (Kp `groEL` scores 1.000 from human HSPD1 *and* 1.000 from E. coli
-  `groEL`). It is kept because it makes the number mean the right thing, not because it moves it.
-  The control cannot arbitrate — **prokaryotic 0.5411 sp / 0.5351 pe · bacteria 0.5375 / 0.5319 ·
-  any 0.5436 / 0.4998**: spearman spans 0.006 and the two metrics *disagree* on the winner, which
+  **The honest headline is that scope barely matters numerically**: the three counts correlate at
+  **rho 0.978–0.991** and only 215 of 5,728 Kp proteins change at all. It is kept because it makes
+  the number mean the right thing, not because it moves it.
+  The control cannot arbitrate — **prokaryotic 0.328 sp / 0.350 pe · bacteria 0.322 / 0.344 ·
+  any 0.339 / 0.348**: spearman spans 0.006 and the two metrics *disagree* on the winner, which
   is the signal that it is noise. `prokaryotic` takes it on pearson.
   **Tiers are scope-consistent**: `below_floor` means an IN-SCOPE hit below the floor, so a
   protein whose only curated relative is eukaryotic reads `no_hit`, not a distant prokaryotic one.
@@ -1844,18 +1878,19 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   reasons unrelated to studiedness. Reasons in full: `docs/studiedness.md` §5.
 
   **A finding for the collaboration: the consortium's own panel is NOT novel** — `src/interest.py`
-  sits at the **86th percentile (median) on Kp, 82nd on Ec, 74th on Sa**. Read
+  sits at the **80th percentile (median) on Kp, 74th on Ec, 69th on Sa**. Read
   `interest.coverage()` first; the panel matches by gene symbol.
 
   **Load through `src/studiedness.py`** — `load`, `load_all`, `novelty`, `load_own`,
   `load_transfer`, `load_unknome`, `load_gene2pubmed`, `load_route_comparison`,
-  `load_floor_sensitivity`, `load_donor_scope_comparison`, `control`, `scale`, `manifest`.
+  `load_floor_sensitivity`, `load_donor_scope_comparison`, `control`, `definition`, `scaled`,
+  `manifest`.
 
   Run in order: `fetch.py` → `gene2pubmed.py` → `unknome.py` → `transfer.py` → `merge.py`. The
   `gradi` env throughout; DIAMOND borrowed from `gradi-ortho` via `GRADI_DIAMOND_BIN`. ~20 min
   cold. CLI: `--species` · `--refresh` · `--dry-run` · `-q`, plus `transfer.py`'s `--limit`
   (smoke, writes only `scratch/`), `--donor-scope {prokaryotic,bacteria,any}`, `--threads`,
-  `--max-targets`, `--deep-targets`, `--sensitivity`, `--scale-quantile`, `--no-control`.
+  `--max-targets`, `--deep-targets`, `--sensitivity`, `--no-control`.
   Figures: `scripts/plots/studiedness.py` (stylia, one at a time) → `studiedness.png`,
   `control.png`, `interest_panel.png`.
   **Deletable after a run** and never to be uploaded to eosvc: `uniprot_sprot.fasta.gz` (89.5 MB),

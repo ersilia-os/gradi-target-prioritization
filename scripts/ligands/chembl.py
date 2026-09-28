@@ -89,6 +89,7 @@ from __future__ import annotations
 import argparse
 import multiprocessing as mp
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -163,7 +164,38 @@ def find_db(required: bool) -> Path | None:
             "    tar -xzf data/raw/other/chembl/chembl_37_sqlite.tar.gz -C data/raw/other/chembl\n"
             "  see data/raw/other/chembl/SOURCE.md."
         )
-    return hits[0]
+    db = hits[0]
+    assert_version(db)
+    return db
+
+
+def assert_version(db: Path) -> None:
+    """The dump must be the version this stage CLAIMS, and nothing here proved that before.
+
+    `CHEMBL_VERSION` is a hard-coded literal and `find_db` globs `chembl_*.db`, so extracting a
+    different release beside this one would have been consumed silently and labelled 37 in every
+    manifest. ChEMBL's SQLite ships a one-row `version` table (`name` = `ChEMBL_37`); that is the
+    authority. The filename is the fallback, because it is what the glob actually matched.
+    """
+    want = f"ChEMBL_{L.CHEMBL_VERSION}"
+    seen, route = None, "filename"
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            seen = str(con.execute("SELECT name FROM version").fetchone()[0])
+            route = "version table"
+        finally:
+            con.close()
+    except sqlite3.Error:
+        m = re.search(r"chembl_(\d+)", db.name)
+        seen = f"ChEMBL_{m.group(1)}" if m else db.name
+    if seen.lower() != want.lower():
+        sys.exit(
+            f"FAILED: {db.name} is {seen} ({route}), but this stage is pinned to {want}.\n"
+            f"  either restore the {want} dump or change CHEMBL_VERSION in src/ligandability.py "
+            "and re-extract -- the cached extracts are version-specific."
+        )
+    say(f"  db version      : {seen}  (from the {route})")
 
 
 # ---------------- extract
