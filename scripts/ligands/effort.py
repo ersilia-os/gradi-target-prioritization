@@ -69,6 +69,9 @@ SCRATCH_DIR = OUT_DIR / "scratch"
 EFFORT_PATH = SCRATCH_DIR / "chembl_effort.tsv"
 FUNNEL_PATH = EVIDENCE_DIR / "chembl_effort_funnel.tsv"
 RELATION_PATH = EVIDENCE_DIR / "chembl_effort_relations.tsv"
+ASSAYED_PATH = SCRATCH_DIR / "chembl_assayed.tsv"
+EXTRA_TSV = SCRATCH_DIR / "chembl_effort_targets.tsv"
+EXTRA_FAA = SCRATCH_DIR / "chembl_effort_targets.faa"
 
 VERBOSE = True
 
@@ -156,8 +159,8 @@ def target_predicate(mod: object) -> tuple[str, str]:
     return matched, matched.replace(rel, "")
 
 
-def extract(db: Path, mod: object) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """One pass: per-target effort counts, the funnel, and the relation breakdown behind it."""
+def extract(db: Path, mod: object) -> tuple[pd.DataFrame, ...]:
+    """One pass: per-target effort counts, the funnel, the relation breakdown, and the assayed pairs."""
     taxa = bacterial_taxa()
     ids = ",".join(str(t) for t in sorted(taxa))
     where, where_any = target_predicate(mod)
@@ -202,6 +205,54 @@ def extract(db: Path, mod: object) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
              GROUP BY 1
         """
         eff = eff.merge(pd.read_sql_query(any_sql, con), on="tid", how="left")
+
+        # The per-tid COUNTS above cannot be unioned: a compound assayed against three homologous
+        # targets must count ONCE, and summing counts would inflate the denominator exactly where
+        # the homology pool is widest. `precedents.py` counts distinct molecules over the union for
+        # its numerator, so the denominator needs the same treatment -- which needs the ids, not
+        # the totals. Parent molregno, matching chembl_ligands.tsv's key.
+        assayed = pd.read_sql_query(f"""
+            SELECT DISTINCT td.tid                                   AS tid,
+                   COALESCE(mh.parent_molregno, act.molregno)        AS parent_molregno
+              FROM target_dictionary td
+              JOIN assays a       ON a.tid       = td.tid
+              JOIN activities act ON act.assay_id = a.assay_id
+              LEFT JOIN molecule_hierarchy mh ON mh.molregno = act.molregno
+             WHERE td.tax_id IN ({ids}) AND {where_any}
+        """, con)
+
+        # SEQUENCES for the targets `chembl.py` never put in the FASTA. Without these the whole
+        # `screened_clean` tier is UNREACHABLE and would ship as a permanently empty category:
+        # `chembl.py` builds chembl_targets.faa from the tids that survived the pChEMBL filter, so
+        # a target whose compounds were all assayed and none measurable has no sequence, DIAMOND
+        # can never hit it, and no protein can ever be told "somebody screened your homolog and
+        # nothing came out". Measured: 208 bacterial targets, 1,593 assayed compounds, 0 measurable.
+        # Same column shape as chembl_targets.tsv so the two concatenate.
+        extra_t = pd.read_sql_query(f"""
+            SELECT DISTINCT tc.component_id        AS component_id,
+                   td.tid                          AS tid,
+                   td.chembl_id                    AS target_chembl_id,
+                   td.target_type                  AS target_type,
+                   td.tax_id                       AS tax_id,
+                   td.organism                     AS organism,
+                   td.pref_name                    AS pref_name,
+                   cs.accession                    AS accession,
+                   COALESCE(oc.l1, 'Unclassified') AS superkingdom,
+                   cs.sequence                     AS sequence
+              FROM target_dictionary td
+              JOIN target_components   tc ON tc.tid = td.tid
+              JOIN component_sequences cs ON cs.component_id = tc.component_id
+              LEFT JOIN organism_class oc ON oc.tax_id = td.tax_id
+             WHERE td.tax_id IN ({ids}) AND cs.sequence IS NOT NULL
+               AND td.tid IN (
+                   SELECT DISTINCT td2.tid
+                     FROM target_dictionary td2
+                     JOIN assays a2       ON a2.tid       = td2.tid
+                     JOIN activities act2 ON act2.assay_id = a2.assay_id
+                    WHERE td2.tax_id IN ({ids})
+                      AND {where_any.replace('td.', 'td2.').replace('a.', 'a2.')
+                                    .replace('act.', 'act2.')})
+        """, con)
 
         rel = pd.read_sql_query(f"""
             SELECT COALESCE(act.standard_relation,'(null)') AS standard_relation,
@@ -250,7 +301,7 @@ def extract(db: Path, mod: object) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
     # measurement nobody made. Same rule as the studiedness axis's `no_hit` vs `below_floor`.
     denom = eff["n_compounds_assayed"]
     eff["hit_rate"] = (eff["n_compounds_potent"] / denom).where(denom > 0).astype("Float64")
-    return eff.sort_values("tid").reset_index(drop=True), funnel, rel
+    return eff.sort_values("tid").reset_index(drop=True), funnel, rel, assayed, extra_t
 
 
 def report(eff: pd.DataFrame, funnel: pd.DataFrame, rel: pd.DataFrame) -> None:
@@ -312,6 +363,8 @@ def main() -> int:
     say(f"  -> {EFFORT_PATH.relative_to(REPO_ROOT)}")
     say(f"  -> {FUNNEL_PATH.relative_to(REPO_ROOT)}")
     say(f"  -> {RELATION_PATH.relative_to(REPO_ROOT)}")
+    say(f"  -> {ASSAYED_PATH.relative_to(REPO_ROOT)}")
+    say(f"  -> {EXTRA_TSV.relative_to(REPO_ROOT)} + .faa   (targets the pChEMBL filter hid from DIAMOND)")
 
     if EFFORT_PATH.exists() and not args.refresh:
         say("")
@@ -332,7 +385,7 @@ def main() -> int:
     say(f"  db       : {db.relative_to(REPO_ROOT)}  (version asserted)")
     say("  extracting ...")
 
-    eff, funnel, rel = extract(db, mod)
+    eff, funnel, rel, assayed, extra = extract(db, mod)
     if eff.empty:
         sys.exit("FAILED: the extract is empty -- refusing to write. Check the dump and the taxa map.")
 
@@ -344,8 +397,22 @@ def main() -> int:
     funnel.to_csv(FUNNEL_PATH, sep="\t", index=False)
     rel["built_utc"] = stamp
     rel.to_csv(RELATION_PATH, sep="\t", index=False)
+    assayed.to_csv(ASSAYED_PATH, sep="\t", index=False)
+
+    # Only the targets the existing FASTA does NOT already carry -- this file is a SUPPLEMENT that
+    # `src/precedents.py` concatenates, never a replacement. Overlapping rows would double-count.
+    known = set(pd.read_csv(SCRATCH_DIR / "chembl_targets.tsv", sep="\t")["tid"])
+    new = extra[~extra["tid"].isin(known)].copy()
+    new.drop(columns=["sequence"]).to_csv(EXTRA_TSV, sep="\t", index=False)
+    seqs = new.drop_duplicates("component_id")
+    EXTRA_FAA.write_text("".join(f">{c}\n{q}\n" for c, q in
+                                 zip(seqs["component_id"], seqs["sequence"])))
+    say(f"             {len(new):,} target rows / {len(seqs):,} sequences the pChEMBL filter had "
+        f"hidden -> {EXTRA_FAA.name}")
 
     say(f"  wrote    : {len(eff):,} bacterial targets x {eff.shape[1]} columns")
+    say(f"             {len(assayed):,} (target, assayed compound) pairs -- so the "
+        f"denominator can be UNIONED, not summed")
     report(eff, funnel, rel)
     rule("=")
     return 0

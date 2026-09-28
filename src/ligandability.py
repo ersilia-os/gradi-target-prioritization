@@ -324,14 +324,41 @@ def _coerce_precedents(d: pd.DataFrame) -> pd.DataFrame:
     file already on disk load correctly too.
     """
     for c in ("n_ligands_exact", "n_ligands_bacteria", "n_ligands_human",
-              "n_targets_bacteria", "n_targets_human", "n_ligands_bacteria_complex"):
+              "n_targets_bacteria", "n_targets_human", "n_ligands_bacteria_complex",
+              "n_compounds_assayed_bacteria", "n_compounds_potent_bacteria"):
         if c in d.columns:
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
     for c in ("best_pident_bacteria", "best_pchembl_bacteria",
-              "best_pident_human", "best_pchembl_human"):
+              "best_pident_human", "best_pchembl_human", "hit_rate_bacteria"):
         if c in d.columns:
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
+    for c in ("exact_route", "exact_target", "precedent_evidence"):
+        if c in d.columns:
+            d[c] = d[c].astype("string")
     return d
+
+
+def load_effort(refresh: bool = False) -> pd.DataFrame:
+    """Per-ChEMBL-target screening effort, from `scripts/ligands/effort.py`.
+
+    One row per bacterial target: `n_compounds_assayed` (NO pChEMBL filter -- the denominator the
+    axis never had), `n_compounds_assayed_any_relation`, `n_compounds_measurable`,
+    `n_compounds_potent`, `n_compounds_reported_inactive`, `n_docs`, `n_assays`, `first_doc_year`,
+    `last_doc_year`, `max_pchembl`, `hit_rate`.
+
+    **`n_compounds_tested` in `chembl_<species>.tsv` is NOT this**, despite what an earlier version
+    of `docs/ligands.md` said: it is computed from the already-pChEMBL-filtered ligand table, so it
+    separates weakly-potent from never-measured rather than screened from unscreened.
+
+    `hit_rate` is null, never 0, where nothing was assayed -- a zero would claim a measurement
+    nobody made. Needs the 30.5 GB dump to regenerate; the extract itself is 869 rows.
+    """
+    path = SCRATCH_DIR / "chembl_effort.tsv"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} missing -- written by scripts/ligands/effort.py, which needs the ChEMBL dump "
+            "restored (see data/raw/other/chembl/SOURCE.md).")
+    return _read(path)
 
 
 def load_precedents(species: str) -> pd.DataFrame:

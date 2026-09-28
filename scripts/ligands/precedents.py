@@ -63,8 +63,12 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus")
 #                                exactly the v1 error this column was added to prevent.
 #
 # So the root table is the clean answer and evidence/ keeps the caveats reachable.
+# The four counts the project owner asked for, plus the EVIDENCE label. The label is not an
+# extra: CLAUDE.md's standing rule is that every axis ships one, because a 0 here is read by
+# ~96% of every proteome and until now it meant three different things -- no homolog at all,
+# a homolog nobody ever screened, and a homolog somebody screened that yielded nothing.
 DELIVERABLE_COLUMNS = ("uniprot_ac", "n_ligands_exact", "n_ligands_bacteria",
-                       "n_ligands_human", "best_pchembl_bacteria")
+                       "n_ligands_human", "best_pchembl_bacteria", "precedent_evidence")
 
 VERBOSE = True
 
@@ -109,7 +113,8 @@ def control_row(sp: str, out: pd.DataFrame) -> dict:
     c = pd.read_csv(OUT_DIR / f"chembl_{sp}.tsv", sep="\t")
     o = PR.count(dict(zip(out.uniprot_ac, P.load(sp).set_index("uniprot_ac")
                           .loc[out.uniprot_ac, "sequence"].astype(str))),
-                 {k: k for k in out.uniprot_ac}, min_pchembl=6.0)
+                 {k: k for k in out.uniprot_ac},
+                 organisms=PR.L.SPECIES_ORGANISM.get(sp), min_pchembl=6.0)
     o = o.rename(columns={"id": "uniprot_ac"})
     m = o.merge(c[["uniprot_ac", "remote_n_compounds"]], on="uniprot_ac")
     # SINGLE TRACK ONLY on both sides. `chembl.py:452` defines the remote pool as
@@ -143,6 +148,10 @@ def main() -> None:
     src.add_argument("--sequence", help="one protein sequence")
     src.add_argument("--fasta", type=Path, help="a protein FASTA")
     src.add_argument("--accession", help="a UniProt accession from one of our four proteomes")
+    ap.add_argument("--organism", default=None, metavar="NAME",
+                    help="organism of the input (e.g. 'Klebsiella pneumoniae'). Enables the "
+                         "species route of the exact count: same species at >=95%% identity is "
+                         "THIS protein, not a homolog. --species sets it automatically.")
     src.add_argument("--species", nargs="+", choices=list(SPECIES),
                      help="score a whole anchor proteome -> precedents_<species>.tsv")
     ap.add_argument("--min-identity", type=float, default=PR.DEFAULT_MIN_IDENTITY,
@@ -173,7 +182,9 @@ def main() -> None:
             seqs = dict(zip(d["uniprot_ac"], d["sequence"].astype(str)))
             accs = {k: k for k in seqs}
             say(f"  {sp}: {len(seqs):,} proteins ...")
-            out = PR.count(seqs, accs, a.min_identity, a.min_pchembl, a.threads)
+            out = PR.count(seqs, accs, organisms=PR.L.SPECIES_ORGANISM.get(sp),
+                           min_identity=a.min_identity, min_pchembl=a.min_pchembl,
+                           threads=a.threads)
             out = out.rename(columns={"id": "uniprot_ac"})
             out = M.reindex(out, sp)
             ev = OUT_DIR / "evidence"
@@ -210,7 +221,9 @@ def main() -> None:
         seqs = read_fasta(a.fasta) if a.fasta else {"query": a.sequence.strip()}
         if not seqs:
             sys.exit(f"FATAL no sequences read from {a.fasta}")
-        out = PR.count(seqs, None, a.min_identity, a.min_pchembl, a.threads)
+        out = PR.count(seqs, None, organisms=a.organism,
+                       min_identity=a.min_identity, min_pchembl=a.min_pchembl,
+                       threads=a.threads)
 
     if a.out:
         out.to_csv(a.out, sep="\t", index=False)

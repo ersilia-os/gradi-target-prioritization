@@ -63,6 +63,20 @@ HUMAN = "Homo sapiens"
 BACTERIA = "Bacteria"
 DEFAULT_MIN_IDENTITY = L.REMOTE_PIDENT      # 40.0 -- the house floor for transfer
 
+# "Exact" means THIS PROTEIN, and a protein does not stop being itself between strains. The first
+# version required an identical sequence (or an accession match), so one substitution in another
+# K. pneumoniae isolate demoted the same enzyme to a "homolog" and its ligands left the exact
+# count. `chembl.py` has had a `species` bucket for this reason since v2; `precedents.py` never
+# got one. So the exact count is the UNION of three routes -- accession, identical sequence, and
+# same species at >= EXACT_PIDENT -- all three of which name the same protein.
+#
+# 95 is `L.DIRECT_PIDENT`, documented there as "essentially this protein, possibly another strain",
+# which is exactly the claim being made. It is NOT set by the transfer calibration:
+# `scripts/ligands/transfer_calibration.py` measured P(potent | neighbour potent) as FLAT at
+# 0.84-0.98 from 25% to 100% identity, so no identity threshold is an accuracy threshold here.
+# This one is a statement about protein identity, not about how far evidence travels.
+EXACT_PIDENT = L.DIRECT_PIDENT              # 95.0
+
 HIT_COLS = ["query", "component_id", "pident", "ppos", "length",
             "qlen", "slen", "qcov", "scov", "evalue", "bitscore"]
 
@@ -72,6 +86,8 @@ OUT_COLS = [
     "n_targets_bacteria", "best_pident_bacteria", "best_pchembl_bacteria",
     "n_targets_human", "best_pident_human", "best_pchembl_human",
     "n_ligands_bacteria_complex",
+    "n_compounds_assayed_bacteria", "n_compounds_potent_bacteria", "hit_rate_bacteria",
+    "precedent_evidence",
 ]
 
 _CACHE: dict = {}
@@ -110,8 +126,69 @@ def _tables() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str]]:
                 buf.append(line.strip())
         if cur:
             seqs[cur] = "".join(buf)
+
+        # SUPPLEMENT: bacterial targets the pChEMBL filter hid from the FASTA entirely.
+        # `chembl.py` builds chembl_targets.faa from the tids that survived that filter, so a
+        # target whose compounds were all assayed and none measurable has no sequence -- DIAMOND
+        # can never hit it, and no protein could ever be told "somebody screened your homolog and
+        # nothing came out". That made the `screened_clean` tier structurally unreachable, i.e. a
+        # category that would have shipped permanently empty while looking meaningful. 326 targets.
+        # They carry NO rows in chembl_ligands.tsv by construction, so adding them cannot change
+        # any ligand count -- only `n_targets_bacteria`, `best_pident_bacteria`, and the tier.
+        for extra, faa in ((SCRATCH / "chembl_effort_targets.tsv",
+                            SCRATCH / "chembl_effort_targets.faa"),):
+            if extra.exists() and faa.exists():
+                e = pd.read_csv(extra, sep="\t")
+                e["component_id"] = e["component_id"].astype(str)
+                t = pd.concat([t, e[[c for c in e.columns if c in t.columns]]], ignore_index=True)
+                cur, buf = None, []
+                for line in faa.read_text().splitlines():
+                    if line.startswith(">"):
+                        if cur:
+                            seqs.setdefault(cur, "".join(buf))
+                        cur, buf = line[1:].split()[0], []
+                    else:
+                        buf.append(line.strip())
+                if cur:
+                    seqs.setdefault(cur, "".join(buf))
+
         _CACHE["t"], _CACHE["l"], _CACHE["s"] = t, lg, seqs
     return _CACHE["t"], _CACHE["l"], _CACHE["s"]
+
+
+def binomial(organism: str) -> str:
+    """The two-word binomial -- `chembl.py`'s own same-species rule, reused not restated.
+
+    ChEMBL files strains under their own names: `Escherichia coli`, `Escherichia coli K-12` and
+    `Escherichia coli (strain K12)` are one species. Genus alone would sweep in
+    `Klebsiella aerogenes`; the full string would split a species into strains, which is the whole
+    thing the species route exists to stop doing.
+    """
+    if not isinstance(organism, str) or not organism.strip():
+        return ""
+    return " ".join(organism.split()[:2]).lower()
+
+
+def _effort() -> tuple[dict, bool]:
+    """tid -> set of ASSAYED parent compounds, from `scripts/ligands/effort.py`.
+
+    Sets, not counts, because the denominator must be UNIONED over the homology pool exactly as the
+    numerator is: a compound assayed against three homologous targets is one compound. Summing
+    per-target counts would inflate the denominator precisely where the pool is widest, which is
+    where the hit rate matters most.
+
+    Optional by design -- it needs the 30.5 GB dump restored, while everything else here runs off
+    82 MB of cached extracts. Absent, the effort columns are NA and the tier degrades to what the
+    old two-way split could say. NA is honest; a zero would claim nobody ever screened the protein.
+    """
+    if "e" not in _CACHE:
+        path = SCRATCH / "chembl_assayed.tsv"
+        if not path.exists():
+            _CACHE["e"] = ({}, False)
+        else:
+            a = pd.read_csv(path, sep="\t")
+            _CACHE["e"] = (a.groupby("tid")["parent_molregno"].apply(set).to_dict(), True)
+    return _CACHE["e"]
 
 
 def _diamond(seqs: dict[str, str], threads: int) -> pd.DataFrame:
@@ -119,11 +196,20 @@ def _diamond(seqs: dict[str, str], threads: int) -> pd.DataFrame:
 
     `--id 25` is a permissive PREFILTER, not the decision: the identity floor and both coverage
     floors are applied by the caller, so one search serves any `min_identity`.
+
+    **The subject database is built from `_tables()`'s sequences, not from `TARGETS_FAA` directly.**
+    It used to read the file, which silently excluded the 326 effort-only targets that `_tables()`
+    concatenates -- so they were reachable by exact match and invisible to DIAMOND, and the
+    `screened_clean` tier stayed empty while looking implemented. One source of subject sequences,
+    or the two drift apart with nothing raising.
     """
+    _, _, subject = _tables()
     with tempfile.TemporaryDirectory() as td:
         q, db, out = Path(td) / "q.faa", Path(td) / "db", Path(td) / "hits.tsv"
+        subj = Path(td) / "subject.faa"
         q.write_text("".join(f">{k}\n{v}\n" for k, v in seqs.items()))
-        subprocess.run([diamond_bin(), "makedb", "--in", str(TARGETS_FAA), "-d", str(db),
+        subj.write_text("".join(f">{k}\n{v}\n" for k, v in subject.items()))
+        subprocess.run([diamond_bin(), "makedb", "--in", str(subj), "-d", str(db),
                         "--quiet"], check=True)
         subprocess.run([diamond_bin(), "blastp", "-q", str(q), "-d", str(db), "-o", str(out),
                         "--very-sensitive", "--id", "25", "--evalue", "1e-5",
@@ -140,13 +226,15 @@ def _diamond(seqs: dict[str, str], threads: int) -> pd.DataFrame:
 
 
 def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
+          organisms: dict[str, str] | str | None = None,
           min_identity: float = DEFAULT_MIN_IDENTITY, min_pchembl: float | None = None,
-          threads: int = 4) -> pd.DataFrame:
+          exact_pident: float = EXACT_PIDENT, threads: int = 4) -> pd.DataFrame:
     """Ligand precedent for each input sequence. One row per input, in input order.
 
     `sequences`  id -> protein sequence
-    `accessions` id -> UniProt accession, optional. Only route (a) uses it; arbitrary input
-                 usually has none, which is why the exact-sequence route exists.
+    `accessions` id -> UniProt accession, optional. Only the accession route uses it; arbitrary
+                 input usually has none, which is why the other two routes exist.
+    `organisms`  id -> organism name, or ONE name for every input. Enables the species route.
     """
     # DIAMOND truncates `qseqid` at the first whitespace, so an id with a space would silently
     # return 0 rather than raising -- measured: `{"my prot A": folA}` gave 0, `{"lc": folA}` gave
@@ -157,6 +245,11 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
             f"sequence ids must not contain whitespace (DIAMOND truncates them): {bad[:5]}")
     t, lg, tseq = _tables()
     accessions = accessions or {}
+    # One organism for every input, or one per input. A bare string is the common case: a whole
+    # proteome is one species.
+    org_of = ({k: organisms for k in sequences} if isinstance(organisms, str)
+              else dict(organisms or {}))
+    lg_all = lg                              # unfiltered -- the potency tier needs the real values
     if min_pchembl is not None:
         lg = lg[lg["pchembl"] >= min_pchembl]
 
@@ -205,6 +298,11 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
                 & (hits["pident"] >= min_identity)]
     by_query = dict(list(hits.groupby("query"))) if len(hits) else {}
 
+    assayed_by_tid, have_effort = _effort()
+    potent_by_tid = (lg_all[(lg_all["track"] == "single")
+                            & (lg_all["pchembl"] >= L.PCHEMBL_HEADLINE)]
+                     .groupby("tid")["parent_molregno"].apply(set).to_dict())
+
     def ligands_of(comps) -> tuple[set, set]:
         """UNION of compounds over components -> DISTINCT molecules, counted once.
 
@@ -219,20 +317,59 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
 
     rows = []
     for qid, seq in sequences.items():
-        # ---- (a) exact: accession first, then identical sequence
-        route, comps = "none", []
-        ac = accessions.get(qid)
-        if ac and ac in acc2comps:
-            route, comps = "accession", acc2comps[ac]
-        elif seq in seq2comps:
-            route, comps = "sequence", seq2comps[seq]
-        ex_single, ex_cplx = ligands_of(comps)
-
         h = by_query.get(qid, pd.DataFrame(columns=HIT_COLS))
         bact = h[h["component_id"].map(kingdom).eq(BACTERIA)]
         hum = h[h["component_id"].map(organism).eq(HUMAN)]
+
+        # ---- exact: the UNION of three routes, each of which names THIS protein.
+        # Not an if/elif chain: an accession match and a same-species 99% match can be different
+        # ChEMBL components carrying different compounds, and both are this protein's evidence.
+        routes, comps = [], set()
+        ac = accessions.get(qid)
+        if ac and ac in acc2comps:
+            routes.append("accession")
+            comps.update(acc2comps[ac])
+        if seq in seq2comps:
+            routes.append("sequence")
+            comps.update(seq2comps[seq])
+        want = binomial(org_of.get(qid, ""))
+        if want and len(bact):
+            same = bact[(bact["pident"] >= exact_pident)
+                        & bact["component_id"].map(lambda c: binomial(organism.get(c, "")) == want)]
+            if len(same):
+                routes.append(f"species_{exact_pident:g}")
+                comps.update(same["component_id"])
+        route = ";".join(routes) if routes else "none"
+        comps = sorted(comps)
+        ex_single, ex_cplx = ligands_of(comps)
+
         b_single, b_cplx = ligands_of(bact["component_id"])
         h_single, _ = ligands_of(hum["component_id"])
+
+        # ---- effort: distinct compounds ASSAYED across the same bacterial pool, and the tier.
+        b_assayed, b_potent = set(), set()
+        for cid in bact["component_id"]:
+            for tid in comp2tids.get(cid, ()):
+                b_assayed |= assayed_by_tid.get(tid, set())
+                b_potent |= potent_by_tid.get(tid, set())
+        n_assayed = len(b_assayed) if have_effort else pd.NA
+        n_potent = len(b_potent)
+        hit_rate = (len(b_potent & b_assayed) / len(b_assayed)) if (have_effort and b_assayed) else pd.NA
+
+        # A zero is an ANSWER, not a gap -- the studiedness axis's `no_hit` vs `below_floor` rule
+        # applied here. `screened_clean` (somebody tried, nothing measurable came out) and
+        # `never_screened` (nobody opened it) are opposite evidence and were the same zero across
+        # ~96% of every proteome until now.
+        if len(b_single):
+            tier = "liganded"
+        elif not len(bact):
+            tier = "no_homolog"
+        elif not have_effort:
+            tier = "unknown_effort"
+        elif b_assayed:
+            tier = "screened_clean"
+        else:
+            tier = "never_screened"
 
         def bp(sub):
             """Best pChEMBL over the SINGLE track only, matching what the count reports."""
@@ -257,6 +394,10 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
             "best_pident_human": round(hum["pident"].max(), 1) if len(hum) else pd.NA,
             "best_pchembl_human": bp(hum),
             "n_ligands_bacteria_complex": len(b_cplx),
+            "n_compounds_assayed_bacteria": n_assayed,
+            "n_compounds_potent_bacteria": n_potent,
+            "hit_rate_bacteria": hit_rate,
+            "precedent_evidence": tier,
         })
     out = pd.DataFrame(rows, columns=OUT_COLS)
     # TYPE THE COLUMNS EXPLICITLY. Building the frame from dicts containing `pd.NA` makes every
@@ -265,12 +406,14 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
     # '10.1'. Nullable Int64/Float64 keep "no measurement" distinguishable from zero while still
     # comparing and sorting numerically.
     for c in ("n_ligands_exact", "n_ligands_bacteria", "n_ligands_human",
-              "n_targets_bacteria", "n_targets_human", "n_ligands_bacteria_complex"):
+              "n_targets_bacteria", "n_targets_human", "n_ligands_bacteria_complex",
+              "n_compounds_assayed_bacteria", "n_compounds_potent_bacteria"):
         out[c] = pd.to_numeric(out[c], errors="coerce").astype("Int64")
     for c in ("best_pident_bacteria", "best_pchembl_bacteria",
-              "best_pident_human", "best_pchembl_human"):
+              "best_pident_human", "best_pchembl_human", "hit_rate_bacteria"):
         out[c] = pd.to_numeric(out[c], errors="coerce").astype("Float64")
-    out["exact_target"] = out["exact_target"].astype("string")
+    for c in ("exact_target", "exact_route", "precedent_evidence"):
+        out[c] = out[c].astype("string")
     return out
 
 
@@ -281,5 +424,6 @@ def for_accession(accession: str) -> pd.DataFrame:
         d = P.load(sp)
         r = d[d["uniprot_ac"] == accession]
         if len(r):
-            return count({accession: r["sequence"].iloc[0]}, {accession: accession})
+            return count({accession: r["sequence"].iloc[0]}, {accession: accession},
+                         organisms=L.SPECIES_ORGANISM.get(sp))
     raise KeyError(f"{accession} is in none of the four reference proteomes; pass --sequence")

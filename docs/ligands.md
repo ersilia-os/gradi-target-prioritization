@@ -171,6 +171,55 @@ with ≥ 10 compounds assayed, 148 (32.7%) never reached pChEMBL 6** (at ≥ 5 c
 41.6%). A protein somebody tried and failed to drug is a measured discouragement; a protein nobody
 has opened is an open question. Before this they were the same zero.
 
+## Precedent: species-level exact, and what a zero means
+
+**`n_ligands_exact` is species-level, not byte-level.** It was "identical sequence, or an accession
+match", so a single substitution in another isolate demoted the same enzyme to a homolog and its
+ligands left the exact count. It is now the UNION of three routes — accession, identical sequence,
+and **same species at ≥ 95% identity** (two-word binomial, the same rule `chembl.py` uses for its
+`species` bucket) — and `exact_route` records which fired.
+
+Measured: E. coli **103 → 106** proteins with exact evidence, S. aureus **27 → 51**, Kp 5 → 6.
+The case that makes it concrete:
+
+| gene | before | after | identity |
+|---|---|---|---|
+| `def` (peptide deformylase) | **0** | **196** | 99.2% |
+| `thyA` | 52 | 234 | 100% |
+| `nfsA` | **0** | 14 | 98.3% |
+| `lacZ` | 3 | 81 | 100% |
+
+A peptide deformylase inhibitor programme was invisible to the exact count because ChEMBL's entry
+is a different *E. coli* strain. **95% here is a claim about protein identity, not about how far
+evidence travels** — `transfer_calibration.py` measured the potency conditional as flat from 25% to
+100%, so no identity number is an accuracy threshold on this axis.
+
+### Four evidence tiers, because a 0 meant three different things
+
+`precedent_evidence` ships in the deliverable:
+
+| tier | Kp | Ec | Sa | meaning |
+|---|---|---|---|---|
+| `liganded` | 180 | 160 | 119 | measurable ligands on a homolog |
+| **`screened_clean`** | **95** | **92** | **44** | somebody assayed compounds, none measurable |
+| `never_screened` | 11 | 9 | 6 | a homolog exists; nobody opened it |
+| `no_homolog` | 5,442 | 4,142 | 2,720 | nothing within the floors |
+
+**Kp `pyrH`: 158 compounds assayed against a 98.3%-identical target, not one potent.** E. coli
+`polA` 36, `mrcB` 34, `phoA` 16, `tolC` 5. Those are measured discouragements, and until now they
+were the same zero as a protein nobody has ever opened — which is the opposite piece of evidence.
+
+`hit_rate_bacteria` is **null, never 0**, where nothing was assayed. Both it and
+`n_compounds_assayed_bacteria` are UNIONED over the homology pool exactly as the ligand counts are:
+a compound assayed against three homologs is one compound, and summing per-target counts would
+inflate the denominator precisely where the pool is widest.
+
+**The tier could not have fired without `effort.py`'s 326 recovered sequences.** `chembl.py` builds
+`chembl_targets.faa` after the pChEMBL filter, so a target whose compounds were all assayed and
+none measurable has no sequence at all — DIAMOND cannot reach it, and `screened_clean` would have
+shipped permanently empty while looking implemented. Those targets carry no ligand rows by
+construction, which is why `liganded` reproduces 180 / 160 / 119 exactly after the change.
+
 ## The selectivity finding
 
 ![selectivity](../output/plots/ligands/chembl_selectivity.png)

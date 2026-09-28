@@ -1271,7 +1271,7 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
 
   | | |
   |---|---|
-  | `n_ligands_exact` | ligands on an EXACT match — UniProt accession, or identical sequence |
+  | `n_ligands_exact` | ligands on **THIS protein**: accession, identical sequence, **or same species at ≥95%** |
   | `n_ligands_bacteria` | **UNIQUE** ligands across bacterial targets passing the identity + both coverage floors |
   | `n_ligands_human` | the same over human targets — **a LIABILITY, never added to the bacterial count** |
 
@@ -1292,8 +1292,46 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
   `A0A0H3H0Y6` (gyrA) carries **1,410 complex against 131 single**. DNA gyrase is a `PROTEIN COMPLEX` in
   ChEMBL, and v1 dropped that track and made GyrA/GyrB look unliganded.
 
-  **Validated against the existing axis at matched semantics: 99.9% agreement on all three
-  species, 0 chembl-only** (`evidence/precedent_control.tsv`, written every `--species` run). The
+  **`exact` IS SPECIES-LEVEL, not byte-level — a protein does not stop being itself between
+  strains.** It used to require an identical sequence or an accession match, so one substitution in
+  another isolate demoted the same enzyme to a "homolog" and its ligands left the exact count. Now
+  it is the UNION of three routes — accession, identical sequence, and **same species (two-word
+  binomial, `chembl.py`'s own rule) at ≥ `L.DIRECT_PIDENT` = 95%** — each of which names this
+  protein; `exact_route` records which fired. Measured: E. coli **103 → 106** proteins with exact
+  evidence, S. aureus **27 → 51**. The case that makes it concrete is **`def` (peptide
+  deformylase), 0 → 196 ligands** at 99.2% identity to another E. coli entry — a real antibacterial
+  target reading as unliganded; also `thyA` 52 → 234, `nfsA` 0 → 14. 95 is a statement about
+  protein IDENTITY, **not** an accuracy threshold: `transfer_calibration.py` found the conditional
+  flat from 25% to 100%. `--organism` supplies it for a bare sequence; `--species` sets it.
+
+  **Four EVIDENCE TIERS, because a 0 was three different things.** `precedent_evidence` ships in
+  the deliverable (the standing rule: every axis carries one) — `liganded` · `screened_clean` ·
+  `never_screened` · `no_homolog`:
+
+  | | Kp | Ec | Sa |
+  |---|---|---|---|
+  | `liganded` | 180 | 160 | 119 |
+  | **`screened_clean`** — somebody tried, nothing measurable | **95** | **92** | **44** |
+  | `never_screened` — a homolog exists, nobody opened it | 11 | 9 | 6 |
+  | `no_homolog` | 5,442 | 4,142 | 2,720 |
+
+  Kp `pyrH` is the one to remember: **158 compounds assayed against a 98.3%-identical target and
+  not one potent** — previously indistinguishable from "nobody has looked". Also `n_compounds_
+  assayed_bacteria`, `n_compounds_potent_bacteria`, `hit_rate_bacteria` (null, never 0, when
+  nothing was assayed), all UNIONED over the homology pool like the numerator — summing per-target
+  counts would inflate the denominator exactly where the pool is widest.
+
+  **The tier needed `effort.py`'s 326 recovered sequences or it could never have fired.**
+  `chembl.py` builds `chembl_targets.faa` AFTER the pChEMBL filter, so a target whose compounds
+  were all assayed and none measurable has no sequence, DIAMOND cannot reach it, and
+  `screened_clean` would have shipped as a permanently empty category that looked implemented.
+  `_tables()` concatenates the supplement and `_diamond()` now builds its subject database from
+  `_tables()` rather than re-reading the file — **reading the file was exactly this bug's second
+  half**, leaving the extra targets visible to exact matching and invisible to the search.
+  They carry no ligand rows by construction, which is why `liganded` stays 180/160/119 exactly.
+
+  **Validated against the existing axis at matched semantics: 100% agreement on all three
+  species, 0 chembl-only, 0 precedents-only** (`evidence/precedent_control.tsv`, written every `--species` run). The
   two disagree at *default* settings for two deliberate reasons — the tool excludes the complex
   track, and counts every potency-measurable ligand rather than only pChEMBL ≥ 6 (66 of 67
   default-only Kp proteins sit below 6). Put both back and they reconcile.
@@ -1307,8 +1345,8 @@ One folder per task (see *Directory contract*). Run with the `gradi` env.
 
   Spot checks: `folA` 517 exact / 595 bacterial / 0 human · `clpP` 30 / 136 / **210 human** at 56.3%
   identity, the selectivity liability this axis already documents.
-  CLI: `--sequence` · `--fasta` · `--accession` · `--species` (batch → `precedents_<sp>.tsv`,
-  complete and canonical) · `--min-identity 40` · `--min-pchembl` · `-q`. DIAMOND from
+  CLI: `--sequence` · `--fasta` · `--accession` · `--organism NAME` · `--species` (batch →
+  `precedents_<sp>.tsv`, complete and canonical) · `--min-identity 40` · `--min-pchembl` · `-q`. DIAMOND from
   `gradi-ortho` via `GRADI_DIAMOND_BIN`. **Load through `src/ligandability.py`** —
   `load_precedents`.
 
