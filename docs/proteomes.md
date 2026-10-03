@@ -133,7 +133,8 @@ like a genuine conflict.
 
 ## Outputs
 
-**Four tables at the top level, one per species, and nothing else but `accessory/`.**
+**Four tables at the top level, one per species, and nothing else.** Everything that supports them
+is split between `evidence/` and `scratch/`.
 
 ```
 data/processed/proteomes/
@@ -141,18 +142,30 @@ data/processed/proteomes/
   proteome_ecoli.tsv          4,403 x 9
   proteome_saureus.tsv        2,889 x 9
   proteome_human.tsv         20,416 x 9
-  accessory/
+  evidence/
     locus_tags_<species>.tsv   locus_tag + locus_tag_all
     annotation_<species>.tsv   the wide xref layer, free in the same request
     name_audit.tsv             every name fill: donor, candidates, contested, rule
+    locus_bridge_strains.tsv   tier-D strain tags, for joining published screens
     registry.tsv  manifest.tsv
+  scratch/
     .uniref90_<species>.json   the clustering cache
-
+```
+```
 data/source/uniprot/proteomes/<label>.{fasta,tsv}   as fetched, + <label>.SOURCE.md
 ```
 
-It is `accessory/`, not `intermediate/` — these are supporting detail for a finished table, not
-staging artifacts on the way to something else.
+**The split is by the directory contract's own test — would you cite or check it, or would you
+delete it to reclaim space?** The audits, the registry, the manifest, the locus tags and the wide
+xref layer are all things a reader may need to *check*: `name_audit.tsv` is what makes a wrong
+preferred name traceable, `registry.tsv` carries the required `why` for every row, and
+`annotation_<species>.tsv` is cited whenever a downstream stage asks whether an xref exists. So
+they are `evidence/`. The UniRef90 clustering cache is the one thing here that is purely a saved
+API round-trip — regenerable, worth nothing to a reader, deleted without loss — so it is
+`scratch/`. (These were one `accessory/` directory before the September 2026 reorganisation; the
+reasoning that put them together, that they are supporting detail for a finished table rather than
+staging artifacts on the way to something else, is still right — it just does not distinguish the
+two tiers, which is what the cite-or-delete test adds.)
 
 ### The 9 columns
 
@@ -170,9 +183,9 @@ refseq  geneid     the bridges to NCBI and literature lookup
 Identity and nothing else. Everything dropped from the first run's 17 columns was measured, not
 guessed: `taxid` and `species` had exactly one distinct value per file (they existed only for a
 stacked parquet); `sequence_md5` was verified identical to `md5(sequence)`, which stays; `length` is
-`len(sequence)`; `gene_name_donor` + `gene_name_candidates` moved to `accessory/name_audit.tsv`.
+`len(sequence)`; `gene_name_donor` + `gene_name_candidates` moved to `evidence/name_audit.tsv`.
 
-**The locus tags moved to `accessory/locus_tags_<species>.tsv`** rather than being discarded, since
+**The locus tags moved to `evidence/locus_tags_<species>.tsv`** rather than being discarded, since
 they are the join key for published bacterial data. Coverage there: Kp 5,728/5,728 · Ec 4,402/4,403 ·
 Sa 2,844/2,889 · human 0/20,416. Join them back with `src.proteomes.with_locus_tags(species)`.
 
@@ -181,7 +194,7 @@ the four tables) and `id_bridge.tsv` (8 MB, a melt of columns already present). 
 carried **zero** new information. `src/proteomes.py` provides `load`, `load_all`, `load_locus_tags`,
 `with_locus_tags`, `load_annotation` and `id_bridge` instead.
 
-### `accessory/annotation_<species>.tsv`
+### `evidence/annotation_<species>.tsv`
 
 `kegg` · `string` · `embl` · `eggnog` · `biocyc` · `interpro` · `pfam` · `panther` · `go_id` · `ec` ·
 `protein_families` · `pdb` · `alphafolddb`.
@@ -239,7 +252,7 @@ through the column names in its own `giant-tab_final.tsv`, so it never needed pe
 ## Figures
 
 `scripts/plots/proteomes.py` writes `output/plots/proteomes/gene_names.png`. Three panels, all
-read from this stage's own outputs (`gene_name_source` and `accessory/name_audit.tsv`) — nothing is
+read from this stage's own outputs (`gene_name_source` and `evidence/name_audit.tsv`) — nothing is
 recomputed.
 
 **A — coverage by fill tier.** Stacked, so the first segment is what UniProt supplied unaided and the
@@ -260,7 +273,7 @@ it as inference.
 **B — how the 3,049 fills were decided.** 2,686 had a single candidate. The remaining **363 were
 contested**, and the total order settled them: non-placeholder over a `y###` name (135), more
 attested (116), shortest-then-alphabetical (72), reviewed donor (40). Every one is a row in
-`accessory/name_audit.tsv` with the alternatives and the rule that fired, so no fill is a black box.
+`evidence/name_audit.tsv` with the alternatives and the rule that fired, so no fill is a black box.
 
 **C — what you can actually join on**, and the panel that matters operationally:
 
@@ -351,8 +364,10 @@ turns on — the Enterobacteriaceae do not have it.
 ### Output simplified, same numbers (later on 2026-09-01)
 
 The first run wrote 13 files and a 17-column table. Measured, three of those files carried **27 MB and
-one column of new information** between them, so the shape was cut to **4 tables + `accessory/`** and
-the table to **11 columns** (see *Outputs*). Re-run after the change: every figure identical —
+one column of new information** between them, so the shape was cut to **4 tables + a supporting
+directory** (now split `evidence/` / `scratch/`) and the table to **9 columns**, not the 11 this
+line claimed until 2026-10-03 — `head -1 proteome_ecoli.tsv` returns 9 and *Outputs* has always
+said 9. Re-run after the change: every figure identical —
 Kp 3,630 / Ec 4,402 / Sa 1,289 / human 20,281 named, 363 contested and all resolved.
 
 A third bug surfaced while doing it: **human `locus_tag` was literally `";"`** and `locus_tag_all`

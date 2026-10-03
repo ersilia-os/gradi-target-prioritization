@@ -18,15 +18,20 @@ Measured 2026-09-21 against our own GeneIDs, before any of this was written:
     Kp        5,342 (93.3%)    12                11    7 distinct           -- both dead
     Sa        427   (14.8%)    15                17    357 proteins with >=1 -- UniProt is better
 
-So NCBI is dark on K. pneumoniae and S. aureus too, through a different door. It is kept for one
-reason: **it sharpens the DONOR ranking**, which is what `studiedness_family` actually consumes.
-The transfer's whole job is to pick and score the best-characterised homolog, and a 4x
-better-resolved count on well-studied organisms is a direct improvement to the deliverable.
+So NCBI is dark on K. pneumoniae and S. aureus too, through a different door. What it does have
+is finer RESOLUTION on well-studied organisms -- 189 distinct values against UniProt's 47 -- and
+that is the measurement worth keeping.
 
-`n_pubs` downstream is therefore the **UNION** of UniProt's `lit_pubmed_id` and gene2pubmed --
-the *Identifier mapping* standing rule ("try every route, MEASURE each, then pick"; Goodall's
-union earned its keep at 98.6% against 96.4% and 93.2%). Per-source counts ship beside the union
-so it can be undone without re-running anything.
+**IT IS NOT THE SHIPPED COUNT -- that changed on 2026-09-22.** `n_papers_family` counts UniProt
+curated references only, because "papers a curator read and used" is ONE consistent definition
+applied to every row, whereas `max(curated, gene-linked)` switched definition per protein: Kp
+`rpoB` took NCBI's 350 while ~11% of donors took SwissProt's number. One consistent definition
+beat the bigger number.
+
+This script therefore documents a **measured alternative** (the `interpro2go` precedent) rather
+than feeding the deliverable. Its outputs stay in `evidence/`, both per-source counts ship in
+`evidence/transfer_<species>.tsv`, and the 287 MB download is optional --
+`fetch.py --only anchors swissprot unknome` skips it.
 
 WHY THE JOIN IS FREE
 --------------------

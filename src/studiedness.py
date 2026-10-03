@@ -1,42 +1,70 @@
 """Load the studiedness axis -- how much is already known about each protein.
 
 The axis is wanted in both directions: an uncharacterised target is a risk, but it is also the
-novelty the GraDi collaboration is looking for. `novelty()` is the complement of the family score.
+novelty the GraDi collaboration is looking for. `novelty()` reads the same data the other way.
 
     data/processed/studiedness/studiedness_<species>.tsv        THE DELIVERABLE
-        uniprot_ac · studiedness_own · studiedness_family · evidence
+        uniprot_ac · n_papers_own · n_papers_family · evidence
 
-THE TWO COLUMNS ANSWER DIFFERENT QUESTIONS AND MUST NOT BE COLLAPSED
----------------------------------------------------------------------
-`studiedness_own` is what is known about **this accession**. `studiedness_family` is what is known
-about the **best-characterised homolog** reachable in SwissProt. Keeping both is what makes "dark
-in K. pneumoniae, famous in E. coli" readable off one row -- and that gap is the normal case here,
-not an edge case.
+THE NUMBER IS A PAPER COUNT. THAT IS THE WHOLE DEFINITION.
+-----------------------------------------------------------
+`n_papers_family` is the number of **curated references on the best-studied prokaryotic SwissProt
+homolog** -- papers a UniProt curator actually read and used to annotate that protein. Nothing is
+scaled, weighted or blended. A 5 is five papers. A 0 is zero papers, not "unknown".
 
-**`studiedness_own` is near-flat on Kp and Sa by design. That is the measurement, not a defect.**
-Measured on UniProt 2026_03: K. pneumoniae HS11286 is 0.1% reviewed with 5,710 of 5,728 proteins
-carrying exactly one PubMed id (the genome paper), and S. aureus NCTC 8325 has none for 2,532 of
-2,889. Do not rank Kp or Sa on `studiedness_own`; rank on `studiedness_family`.
+`n_papers_own` is the same count on THIS accession. It is near-constant on Kp (the genome paper)
+and Sa **by design** -- it is the measurement of darkness, and the gap between the two columns is
+the axis's entire product. Do not rank Kp or Sa on `n_papers_own`; rank on `n_papers_family`.
 
-BOTH COLUMNS ARE ON ONE FIXED GLOBAL SCALE
--------------------------------------------
-Each is `0.6 * min(1, log1p(n_pubs) / log1p(P_REF)) + 0.4 * (annotation_score - 1) / 4`, where
-`P_REF` is a **single constant** over all 575,748 reviewed UniProt entries, recorded in
-`evidence/scale.tsv`. It is deliberately NOT a per-proteome percentile: that is the documented
-`geptop_score` trap, where a proteome-relative score means 0.6 in Kp is not 0.6 in Sa. Here the
-three species, and the two columns, are directly comparable. Raw counts ship in `evidence/` so the
-weights can be changed without re-running anything.
+WHY NOT A 0-1 SCORE: THE BLEND THAT SHIPPED FIRST WAS UNINTERPRETABLE
+-----------------------------------------------------------------------
+An earlier version shipped `0.6*min(1, log1p(n)/log1p(204)) + 0.4*(annotation_score-1)/4`. It was
+removed on 2026-09-22 after three measurements, and **must not be reintroduced**:
 
-**`P_REF` is the 99th percentile (204 papers), not the 95th, and that was measured.** The SwissProt
-publication distribution is extremely skewed -- P50 1, P75 3, P90 12, P95 38, P99 204, max 20,402 --
-so anchoring at P95 clipped the top of the scale and left E. coli with a median `studiedness_own`
-of exactly 1.000: unrankable ties over half a proteome, the same failure CLAUDE.md records for v1's
-under-regularised logistic in stage 04. At P99 only ~1% of SwissProt saturates. A
-`saturated > 20%` guard exits `transfer.py` if that ever stops being true.
+1. **The same value meant different things.** At 0.5: 13 papers if the donor's annotation score
+   was 3, **83** if it was 1, **1** if it was 5. A protein with zero papers scored 0.4 when its
+   donor was annotation-5.
+2. **The halves double-counted.** UniProt's annotation score is largely a function of how much is
+   known, so it correlated with the paper count at **r = 0.64-0.70**.
+3. **The weights did the opposite of what they claimed.** Literature was weighted 0.6 "because it
+   is the quantity the axis is named for", but the annotation component's spread was nearly
+   double (sd 0.33-0.36 against 0.17-0.20), so annotation swung the score MORE.
 
-`n_pubs` is the union of UniProt's `lit_pubmed_id` and NCBI's gene2pubmed -- measured, because
-gene2pubmed resolves a well-studied organism ~4x more finely (E. coli 193 distinct values against
-UniProt's 48) and gives 184 S. aureus proteins their first paper.
+Dropping it moved the ranking by spearman 0.86-0.91, so this was a real change, not a relabelling.
+`scaled()` below returns a 0-1 version on the fly for anyone combining this axis with the others;
+it is deliberately **not stored**, so there is exactly one source of truth on disk.
+
+THE COUNT IS SWISSPROT-CURATED ONLY, AND THERE IS NO CEILING
+--------------------------------------------------------------
+NCBI gene2pubmed was measured and is NOT used for the shipped number (see
+`load_gene2pubmed()`), though it ships beside it as evidence.
+
+**There is no cap.** An earlier note in this project claimed SwissProt reference counts "saturate
+at 58"; that was wrong and is corrected here. Verified against UniProt: the TSV export is not
+truncated (human TP53 returns 225 PubMed ids), counts reach **225 overall and 119 among
+prokaryotic entries**, and the 58 is simply *E. coli* GroEL (`P0A6F5`) happening to be the
+most-curated donor selected in all three species.
+
+The dynamic range is small because bacterial proteins are: median donor 4-6 papers, 37-48 distinct
+values. **The ties sit in the poorly-studied bulk, not at the top** -- measured, the three highest
+values are held by 1-2 proteins each while the largest single tie is 460 Kp proteins at 4 papers
+(8.0% of the proteome). A shortlist reads the top, where the ranking is near-unique.
+
+DONORS ARE PROKARYOTIC: BACTERIA, ARCHAEA AND PHAGES -- NEVER EUKARYOTES
+-------------------------------------------------------------------------
+A donor qualifies if its UniProt taxonomic lineage lacks `Eukaryota (domain)`. Without the
+restriction, five of K. pneumoniae's ten highest-scoring proteins took human donors (HSPD1, HADHA,
+CTPS1, LONP1, AFG3L2), so the score claimed "well studied because its human mitochondrial homolog
+is" -- true, and the wrong question for an antibacterial target.
+
+**Phages are deliberately IN, and "restrict to Bacteria" is the obvious rule that is wrong.** Of
+the 93 proteins a strict bacterial rule stranded with no donor, **70 lost theirs to a virus**
+(Escherichia phage lambda, P1). A prophage protein whose best-characterised relative is a lambda
+protein is not novel, and scoring it 0 fails in the one direction this axis must not fail.
+
+**Scope barely moves the numbers** -- the three scores correlate at rho 0.983-0.990 and only 254
+of 5,728 Kp proteins change, because the log scale saturates above P_REF. It is kept because it
+makes the number mean the right thing, not because it changes it. See `docs/studiedness.md` §2b.
 
 READ `evidence` BEFORE TREATING A LOW SCORE AS NOVELTY
 -------------------------------------------------------
@@ -94,6 +122,22 @@ transfer carries real signal on held-out data, not a score to optimise.
 `n_pubs` is the union of UniProt's `lit_pubmed_id` and NCBI's gene2pubmed -- measured, because
 gene2pubmed resolves a well-studied organism ~4x more finely (E. coli 193 distinct values against
 UniProt's 48) and gives 184 S. aureus proteins their first paper.
+
+DONORS ARE PROKARYOTIC: BACTERIA, ARCHAEA AND PHAGES -- NEVER EUKARYOTES
+-------------------------------------------------------------------------
+A donor qualifies if its UniProt taxonomic lineage lacks `Eukaryota (domain)`. Without the
+restriction, five of K. pneumoniae's ten highest-scoring proteins took human donors (HSPD1, HADHA,
+CTPS1, LONP1, AFG3L2), so the score claimed "well studied because its human mitochondrial homolog
+is" -- true, and the wrong question for an antibacterial target.
+
+**Phages are deliberately IN, and "restrict to Bacteria" is the obvious rule that is wrong.** Of
+the 93 proteins a strict bacterial rule stranded with no donor, **70 lost theirs to a virus**
+(Escherichia phage lambda, P1). A prophage protein whose best-characterised relative is a lambda
+protein is not novel, and scoring it 0 fails in the one direction this axis must not fail.
+
+**Scope barely moves the numbers** -- the three scores correlate at rho 0.983-0.990 and only 254
+of 5,728 Kp proteins change, because the log scale saturates above P_REF. It is kept because it
+makes the number mean the right thing, not because it changes it. See `docs/studiedness.md` §2b.
 
 READ `evidence` BEFORE TREATING A LOW SCORE AS NOVELTY
 -------------------------------------------------------
@@ -159,16 +203,14 @@ SCRATCH_DIR = STUDIEDNESS_DIR / "scratch"
 # The three bacteria. Human is out of scope for a bacterial target-prioritization axis.
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
 
-# The blend. Literature carries more weight than curation depth because it is the quantity the
-# axis is named for; annotation score is kept because it separates entries that share a pub count.
-# Both components are in [0, 1], so the score is too.
-W_LITERATURE = 0.6
-W_ANNOTATION = 0.4
+# Reference count used by `scaled()` as the 0-1 anchor. The 99th percentile of the SwissProt
+# publication distribution; nothing on disk depends on it.
+SCALE_REFERENCE = 204.0
 
-# The quantile of the SwissProt publication distribution that anchors the log scale. 99, not 95 --
-# measured; see the module docstring. A run whose scores saturate above this fraction is refused.
-SCALE_QUANTILE = 99.0
-MAX_SATURATED = 0.20
+# No single NON-ZERO paper count may hold more than this share of the scored proteins, or the
+# ranking has collapsed into ties. Zero is excluded: a third of Kp genuinely has no in-scope
+# homolog, and that group is already split into `no_hit` and `below_floor`.
+MAX_TIE_FRACTION = 0.25
 
 # Nested identity bands for the SwissProt transfer, and the floor below which nothing transfers.
 # 25% is decoy-calibrated (see the module docstring); 95% is CLAUDE.md's "direct" band; 60% is the
@@ -180,40 +222,30 @@ IDENTITY_FLOOR = 40.0
 COVERAGE_FLOOR = 50.0
 
 
-# ---------------------------------------------------------------- the scale (shared by scripts)
+# ---------------------------------------------------------------- derived, never stored
 
-def literature_score(n_pubs, p_ref: float):
-    """Publication count on [0, 1], log-compressed against a FIXED global reference count.
+def scaled(n_papers, ref: float = SCALE_REFERENCE):
+    """Paper counts compressed to [0, 1], for combining this axis with the 0-1 ones.
 
-    Log because the distribution spans four orders of magnitude (1 to 20,402) and the difference
-    between 1 and 5 papers matters far more than between 200 and 204. Clipped at 1 so the handful
-    of entries above `p_ref` do not compress everyone else -- but `p_ref` is chosen high enough
-    (P99) that clipping is rare; see the module docstring on why P95 was wrong.
+    `log1p(n)/log1p(ref)` clipped at 1. Log because the distribution spans four orders of
+    magnitude and the step from 1 to 5 papers matters far more than 200 to 204.
+
+    **Derived on the fly and deliberately not shipped.** The deliverable carries the integer so
+    there is one source of truth; anyone who needs a 0-1 column calls this and records the `ref`
+    they used. It is NOT the old composite score -- that blended in UniProt's annotation score and
+    was removed for being uninterpretable (see the module docstring).
     """
-    if p_ref <= 0:
-        raise ValueError("p_ref must be positive; read it from evidence/scale.tsv")
-    return np.minimum(1.0, np.log1p(np.asarray(n_pubs, dtype=float)) / np.log1p(p_ref))
+    if ref <= 0:
+        raise ValueError("ref must be positive")
+    return np.minimum(1.0, np.log1p(np.asarray(n_papers, dtype=float)) / np.log1p(ref))
 
 
-def annotation_component(annotation_score):
-    """UniProt's 1-5 annotation score on [0, 1]. 1 is the floor, not zero -- every entry has one."""
-    a = np.clip(np.asarray(annotation_score, dtype=float), 1.0, 5.0)
-    return (a - 1.0) / 4.0
-
-
-def score(n_pubs, annotation_score, p_ref: float):
-    """The studiedness blend. Used for BOTH `_own` and `_family` so the two are comparable."""
-    return (W_LITERATURE * literature_score(n_pubs, p_ref)
-            + W_ANNOTATION * annotation_component(annotation_score))
-
-
-def scale() -> dict:
-    """The fixed global constants the scores were built on."""
-    path = EVIDENCE_DIR / "scale.tsv"
+def definition() -> dict:
+    """What the shipped numbers actually mean: count source, donor scope, identity floors."""
+    path = EVIDENCE_DIR / "definition.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/studiedness/transfer.py first")
-    row = pd.read_csv(path, sep="\t").iloc[0]
-    return row.to_dict()
+    return pd.read_csv(path, sep="\t").iloc[0].to_dict()
 
 
 # ---------------------------------------------------------------- the deliverable
@@ -236,16 +268,25 @@ def _numeric(df: pd.DataFrame, cols: tuple[str, ...]) -> pd.DataFrame:
     return df
 
 
-def load(species: str) -> pd.DataFrame:
-    """The deliverable: one row per protein, canonical order, no nulls in either score.
+def _counts(df: pd.DataFrame, cols: tuple[str, ...]) -> pd.DataFrame:
+    """Paper counts as nullable integers -- a count of 4.0 invites being read as a score."""
+    for c in cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
+    return df
 
-    `studiedness_own` is near-flat on Kp and Sa -- see the module docstring. Rank on
-    `studiedness_family`, and read `evidence` before calling a low score novelty.
+
+def load(species: str) -> pd.DataFrame:
+    """The deliverable: one row per protein, canonical order, no nulls in either count.
+
+    Two integers: `n_papers_own` (curated references on this accession) and `n_papers_family`
+    (on its best-studied prokaryotic SwissProt homolog). `n_papers_own` is near-flat on Kp and Sa
+    by design -- rank on `n_papers_family`, and read `evidence` before calling a 0 novelty.
     """
     _check(species)
     df = _read(STUDIEDNESS_DIR / f"studiedness_{species}.tsv",
                "scripts/studiedness/merge.py")
-    return _numeric(df, ("studiedness_own", "studiedness_family"))
+    return _counts(df, ("n_papers_own", "n_papers_family"))
 
 
 def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
@@ -259,22 +300,23 @@ def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
 
 
 def novelty(species: str) -> pd.DataFrame:
-    """`uniprot_ac` and `novelty` = 1 - studiedness_family, highest first.
+    """The axis read the way the collaboration usually wants it: least-studied first.
 
-    The axis read in the direction the collaboration usually wants it. `evidence == 'no_homolog'`
-    rows sit at exactly 1.0 and are the strongest claim the axis makes -- nothing among 575,748
-    curated entries resembles them.
+    **Returns an ORDERING, not a novelty number.** The old version returned `1 - score`, which
+    only worked while the axis shipped a bounded composite; inventing a bounded "novelty" from an
+    unbounded count would be exactly the kind of opaque derived number this axis just removed.
+    The sort order is the answer.
+
+    Ties at 0 papers are broken toward the stronger claim: `no_hit` (nothing in SwissProt
+    resembles this protein) ranks above `below_floor` (a distant relative exists, too far to
+    transfer from).
     """
     d = load(species)
-    out = d[["uniprot_ac", "evidence"]].copy()
-    out["novelty"] = 1.0 - d["studiedness_family"]
-    # Ties at 1.0 are broken toward the STRONGER claim: `no_hit` (nothing in SwissProt resembles
-    # this protein) outranks `below_floor` (a distant relative exists, just too far to transfer
-    # from). Both score 0 on studiedness_family, so without this the top of the list would be
-    # ordered by accession, which means nothing.
+    out = d[["uniprot_ac", "n_papers_family", "evidence"]].copy()
     rank = {"no_hit": 0, "below_floor": 1}
     out["_tier"] = out["evidence"].map(rank).fillna(2)
-    return (out.sort_values(["novelty", "_tier"], ascending=[False, True], kind="mergesort")
+    return (out.sort_values(["n_papers_family", "_tier"], ascending=[True, True],
+                            kind="mergesort")
                .drop(columns="_tier").reset_index(drop=True))
 
 
@@ -284,19 +326,20 @@ def load_own(species: str) -> pd.DataFrame:
     """Per-protein UniProt signals: annotation score, protein existence, both pub counts."""
     _check(species)
     df = _read(EVIDENCE_DIR / f"own_{species}.tsv", "scripts/studiedness/transfer.py")
-    return _numeric(df, ("annotation_score", "n_pubs_uniprot", "n_pubs_gene2pubmed", "n_pubs"))
+    return _counts(_numeric(df, ("annotation_score",)),
+                   ("n_pubs_uniprot", "n_pubs_gene2pubmed", "n_papers_own"))
 
 
 def load_transfer(species: str) -> pd.DataFrame:
     """The chosen SwissProt donor per protein, with its identity, organism and counts."""
     _check(species)
     df = _read(EVIDENCE_DIR / f"transfer_{species}.tsv", "scripts/studiedness/transfer.py")
-    return _numeric(df, ("donor_pident", "donor_qcov", "donor_n_pubs",
-                         "donor_n_pubs_uniprot", "donor_n_pubs_gene2pubmed",
-                         "donor_annotation_score", "n_candidates",
-                         "nearest_pident", "nearest_n_pubs",
-                         "studiedness_own", "studiedness_family",
-                         "studiedness_family_bacteria", "studiedness_family_any"))
+    df = _numeric(df, ("donor_pident", "donor_qcov", "donor_annotation_score",
+                       "n_candidates", "nearest_pident"))
+    return _counts(df, ("donor_n_pubs_uniprot", "donor_n_pubs_gene2pubmed", "nearest_n_pubs",
+                        "n_papers_own", "n_papers_family",
+                        "n_papers_family_prokaryotic", "n_papers_family_bacteria",
+                        "n_papers_family_any"))
 
 
 def load_unknome(species: str) -> pd.DataFrame:
@@ -312,10 +355,16 @@ def load_unknome(species: str) -> pd.DataFrame:
 
 
 def load_gene2pubmed(species: str) -> pd.DataFrame:
-    """NCBI literature counts beside UniProt's, per anchor protein."""
+    """NCBI literature counts beside UniProt's, per anchor protein.
+
+    **A MEASURED ALTERNATIVE, not the shipped number.** gene2pubmed is larger for 87-94% of
+    donors (median 2.8x) and gives 184 S. aureus proteins their first paper, but the deliverable
+    counts UniProt's curated references only -- papers a curator read, one consistent definition.
+    Kept and documented rather than dropped, the `interpro2go` precedent.
+    """
     _check(species)
     df = _read(EVIDENCE_DIR / f"gene2pubmed_{species}.tsv", "scripts/studiedness/gene2pubmed.py")
-    return _numeric(df, ("n_pubs_uniprot", "n_pubs_gene2pubmed", "n_pubs"))
+    return _counts(df, ("n_pubs_uniprot", "n_pubs_gene2pubmed", "n_pubs"))
 
 
 def load_route_comparison() -> pd.DataFrame:
@@ -326,9 +375,9 @@ def load_route_comparison() -> pd.DataFrame:
 def load_donor_scope_comparison() -> pd.DataFrame:
     """Bacteria-only donors against unrestricted donors, per species.
 
-    Both scopes are computed on every run, so this is a measurement rather than an argument.
-    `studiedness_family_bacteria` and `studiedness_family_any` both ship in `load_transfer()`;
-    `donor_scope` there says which one became the deliverable.
+    All THREE scopes are computed on every run, so this is a measurement rather than an argument.
+    `n_papers_family_prokaryotic`, `_bacteria` and `_any` all ship in `load_transfer()`, and
+    `donor_scope` there names the one that became the deliverable. Switching is a column swap.
     """
     return _read(EVIDENCE_DIR / "donor_scope_comparison.tsv", "scripts/studiedness/transfer.py")
 
@@ -343,7 +392,7 @@ def control() -> pd.DataFrame:
 
     E. coli is the only anchor with real measured literature, so it is the only place the transfer
     mechanism can be tested. Every E. coli donor is removed from SwissProt and the family score
-    recomputed; the correlation against `studiedness_own` is a genuine held-out result.
+    recomputed; the correlation against `n_papers_own` is a genuine held-out result.
     """
     return _read(EVIDENCE_DIR / "control_ecoli_heldout.tsv", "scripts/studiedness/transfer.py")
 

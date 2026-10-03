@@ -1,9 +1,21 @@
-# Stage 01 — ESM-C 600M embeddings
+# Embeddings — ESM-C, ProtT5, ProteomeLM, and the 2D map
 
-`scripts/embeddings/esmc.py` · helpers `src/embeddings.py` · outputs `data/processed/embeddings/`
+`scripts/embeddings/` · helpers `src/embeddings.py`, `src/proteomelm.py`, `src/projections.py` ·
+outputs `data/processed/embeddings/`
 
-One mean-pooled 1152-dimensional vector per protein, for the three bacteria — and, in Part 2, the 2D
-map of that space.
+Three project-wide embedding matrices over the same three bacterial proteomes, plus the 2D map of
+the first one:
+
+| part | what | script | file | dim |
+|---|---|---|---|---|
+| **1** | ESM-C 600M, per-protein | `embeddings/esmc.py` | `embeddings_<sp>.npz` | 1152 |
+| **2** | ProtT5-XL-U50, per-protein | `embeddings/prott5.py` | `prott5_<sp>.npz` | 1024 |
+| **3** | ProteomeLM-L layer 8, **contextualised** | `embeddings/proteomelm.py` | `proteomelm_<sp>[_<mode>].npz` | 1152 |
+| **4** | t-SNE of Part 1 | `embeddings/projection.py` | `projection_<sp>.tsv` | 2 |
+
+All four are complete and in canonical row order (`src/matrices.py`). Parts 1–3 are three different
+answers to the same question, and *External models* in CLAUDE.md is the rule that keeps them
+separable: none of them is substituted into a tool that was fitted on another.
 
 | species | proteins | residues | max length |
 |---|---|---|---|
@@ -12,11 +24,20 @@ map of that space.
 | *S. aureus* NCTC 8325 | 2,889 | 797,397 | **9,535** |
 | **total** | **13,020** | **3,798,100** | |
 
-# Part 1 — the embeddings
+# Part 1 — ESM-C 600M
+
+`scripts/embeddings/esmc.py` · helpers `src/embeddings.py` · outputs
+`data/processed/embeddings/embeddings_<species>.npz`
 
 ## The model, and why not a bigger one
 
 `esmc_600m` (`ESMC_600M_202412`), 1152-dim, mean-pooled over residues with BOS/EOS stripped.
+
+**That stripping is a convention, not a fact about the model, and Part 3 does it the other way.**
+ProteomeLM pools over non-pad tokens, so BOS/EOS are *inside* its mean; the two conventions agree
+at cosine **0.999970 median / 0.998291 worst** over the same proteins. Negligible in size, still a
+different representation — which is why `embeddings/proteomelm.py` computes its own ESM-C rather
+than reading these files. A tool's own convention wins; see Part 3 and *External models*.
 
 **This is the largest ESM-C with downloadable weights.** Verified in the installed `esm` 3.2.1:
 `pretrained.py` registers only `ESMC_300M` and `ESMC_600M`, while `esmc-6b` appears solely in
@@ -27,18 +48,20 @@ sends every sequence to a third party, has rate limits and cost, and cannot be r
 Weights come from the local HuggingFace cache
 (`~/.cache/huggingface/hub/models--EvolutionaryScale--esmc-600m-2024-12`), already present from v1.
 
-## Scope: no human, no ProtT5 (for now)
+## Scope: no human
 
 **Human is out.** It would have added 20,416 proteins and 11.4M residues — 75% of all residues — plus
 every pathological length: titin 34,350 aa, MUC16 14,507, MUC3B 13,477, three proteins over 10k, 36
 over 5k, 465 over 2k. Nothing in the code excludes it; `--species human` adds it back, but expect the
 long tail to dominate the runtime and to need a chunking or truncation policy that this stage does not
-currently have.
+currently have — see the `Q2FYJ6` measurement in the run log for how badly one long sequence behaves
+in a warm process.
 
-**ProtT5 is deferred, and the reason is not obvious.** UniProt *does* publish precomputed ProtT5-XL-U50
-per-protein embeddings in HDF5, at
-`ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/embeddings/`. But only for
-**8 proteomes**:
+**ProtT5 is no longer deferred — it has its own part (Part 2).** The reason it needed one is still
+worth keeping, because it is the reason a local run was unavoidable. UniProt *does* publish
+precomputed ProtT5-XL-U50 per-protein embeddings in HDF5, at
+`ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/embeddings/` — but only for
+**7 organism proteomes, plus an all-Swiss-Prot file**:
 
 | | |
 |---|---|
@@ -46,18 +69,15 @@ per-protein embeddings in HDF5, at
 | human `UP000005640_9606/per-protein.h5` | 47.4 MB ✅ |
 | **Kp HS11286** | **404** ❌ |
 | **Sa NCTC 8325** | **404** ❌ |
-| all Swiss-Prot `uniprot_sprot/per-protein.h5` | 1.3 GB |
+| all Swiss-Prot `uniprot_sprot/per-protein.h5` (not a proteome) | 1.3 GB |
 
-The others are mouse, rat, *C. elegans*, Arabidopsis and SARS-CoV-2. The Swiss-Prot bulk file is no
-help for the anchor: HS11286 has **7 reviewed entries**, so it would fill 7 of 5,728 proteins.
+The remaining five organisms are mouse, rat, *C. elegans*, Arabidopsis and SARS-CoV-2. The
+Swiss-Prot bulk file is no help for the anchor: HS11286 has **7 reviewed entries**, so it would fill
+7 of 5,728 proteins.
 
-So "ProtT5 as available in UniProt" cannot cover the anchor organism. Covering Kp and *S. aureus*
-means running ProtT5-XL-U50 locally (~2.25 GB, and v1's TMbed experience says it is CPU-only on Apple
-Silicon because TMbed gates GPU on `torch.cuda.is_available()`). That is a separate decision.
-
-**If it is ever taken up, there is a free validation opportunity**: download UniProt's h5 for E. coli,
-run our own ProtT5 on the same sequences, and require cosine ≈ 1. Same model, same input — if it does
-not reproduce, our setup is wrong, and we would know before trusting Kp numbers.
+So "ProtT5 as available in UniProt" cannot cover the anchor organism — but *E. coli* MG1655 being on
+that list is also the free validation opportunity, and Part 2 takes it: same model, same sequences,
+so cosine must be ≈ 1 or our setup is wrong.
 
 Also note UniProt excludes sequences over 12k residues from its own embeddings, "due to limitation of
 GPU memory".
@@ -84,8 +104,8 @@ v1's `01a_esmc_embeddings.py` accumulated every vector in a Python list and wrot
 wrong trade, so this stage copies the pattern v1's own `09d_tmbed.py` got right:
 
 - proteins sorted by accession for determinism, cut into shards of 250 (`--shard-size`);
-- each shard written to `accessory/shards/embeddings_<species>_<shard_size>_<NNNN>.npz` via **atomic
-  `tmp.rename()`**, so a partial file is never cached;
+- each shard written to `scratch/shards_esmc/embeddings_<species>_<shard_size>_<NNNN>.npz` via
+  **atomic `tmp.rename()`**, so a partial file is never cached;
 - **the shard size is part of the filename** — changing `--shard-size` must not silently reuse
   mismatched shards, a trap v1 documented;
 - a restart skips completed shards. Verified: removing one shard of three and re-running recomputes
@@ -96,9 +116,10 @@ wrong trade, so this stage copies the pattern v1's own `09d_tmbed.py` got right:
 ```
 data/processed/embeddings/
   embeddings_kpneumoniae.npz   embeddings_ecoli.npz   embeddings_saureus.npz
-  accessory/
-    manifest.tsv          species, device, n, dim, residues, seconds, sha256
-    shards/               the resumable per-shard cache
+  evidence/
+    esmc_manifest.tsv     species, device, n, n_expected, dim, residues, seconds, skipped, sha256
+  scratch/
+    shards_esmc/          the resumable per-shard cache (safe to delete; a re-run rebuilds it)
 ```
 
 Each NPZ:
@@ -203,7 +224,388 @@ the filename" guard working in reverse: it prevents silent reuse of mismatched s
 change invalidates the cache. The fix was to rename the shard files to match; a re-run then reported
 `23 cached / 18 cached, 0 to compute`, confirming the cache was honoured.
 
-# Part 2 — 2D projections
+# Part 2 — ProtT5-XL-U50
+
+`scripts/embeddings/prott5.py` · worker `scripts/embeddings/workers/prott5.py` (env `gradi-loc`) ·
+helpers `src/embeddings.py` · outputs `data/processed/embeddings/prott5_<species>.npz`
+
+The second project-wide matrix: **1024-d float32, one vector per protein**, written beside the
+ESM-C files over the same three proteomes. A sibling of Part 1, not a stage of its own.
+
+| species | n | dim | windowed | file |
+|---|---|---|---|---|
+| *K. pneumoniae* | 5,728 | 1024 | 0 | 13.9 MB |
+| *E. coli* | 4,403 | 1024 | 0 | 10.6 MB |
+| *S. aureus* | 2,889 | 1024 | **1** | 7.0 MB |
+
+## The control is the point, not an extra
+
+*E. coli* MG1655 is one of the seven proteomes UniProt publishes ProtT5 vectors for (see *Scope*
+above) **and it is our exact anchor**. Same model over the same sequences must therefore reproduce
+the same vectors — a real, falsifiable check on a local inference pipeline, which an embedding
+otherwise never gets. **Nothing is written if it fails**, because a plausible-looking vector that
+differs from the published one is worse than none.
+
+Scored on a 300-protein sample **weighted to the longest** (`--control-n`, half the sample is the
+longest proteins in the proteome, half random), because that is where a pooling, truncation or
+windowing bug actually shows; agreement on a 250-residue protein is nearly free.
+
+| | |
+|---|---|
+| sample | 300 E. coli proteins, **18–2,339 aa** (single-pass agreement is established only to the longest protein checked) |
+| median cosine | **1.000000** |
+| worst cosine | **0.999994** |
+| above the 0.99 floor | **100%** |
+
+Per-protein cosines: `evidence/prott5_control.tsv` (300 rows), loadable with
+`src.embeddings.prott5_control()`. The floor `COSINE_FLOOR = 0.99` is calibrated in this script's
+own run, not inherited — same model, same sequences, so agreement should be essentially exact.
+
+## It settled how residues are pooled
+
+UniProt's README does not say. ProtT5's tokenizer appends an **EOS and no BOS**, so "mean over
+residues" is ambiguous until you state whether EOS is in the mean. Both were embedded and scored
+against the reference rather than argued about:
+
+| pooling | median cosine vs UniProt | worst |
+|---|---|---|
+| **`mean_no_eos`** (the default) | **1.000000** | **0.999994** |
+| `mean_with_eos` | — | 0.998837 |
+
+`--compare-pooling` re-runs both and overwrites `evidence/prott5_pooling.tsv`, which is the record;
+a single-pooling run leaves only the chosen row in it, so read the `pooling` column before quoting
+the file. Residues are space-separated and **U/Z/O/B are mapped to `X`** — ProtT5's vocabulary has
+no token for them, and selenocysteine is real here (*E. coli* `fdnG`, `fdhF`), so skipping that
+would silently route rare residues to `<unk>`.
+
+## Nothing is downloaded but a ~10 MB reference h5
+
+The weights are already on disk: **TMbed ships `Rostlab/prot_t5_xl_half_uniref50-enc`** (1024-d,
+fp16, encoder-only, 2.4 GB) inside its own package in the `gradi-loc` env. So inference runs
+**across a process boundary** into that env — `scripts/embeddings/workers/prott5.py`, with
+`GRADI_LOC_BIN` overriding the interpreter — and the only fetch is UniProt's reference h5, whose
+byte count is checked against `Content-Length` rather than trusted from an HTTP 200.
+
+The boundary is mandatory for a second reason: **ProtT5 needs `transformers==4.44.2`**. 5.x routes
+`T5Tokenizer` through the tiktoken converter and dies with a spurious *"`tiktoken` is required to
+read a `tiktoken` file"*, which reads like a missing dependency and is not one. `gradi` runs 4.48.1
+and must keep doing so.
+
+## This is the half, encoder-only build — which is why it must not be fed to someone else's tool
+
+`prot_t5_xl_uniref50` (full) and `prot_t5_xl_half_uniref50-enc` are **different weights**, even
+though both are called "ProtT5-XL-U50". Ours is the half, encoder-only one.
+
+These vectors are valid for **our own** models — ProtT5 competed fairly in the degradability head
+comparison, where it was the *best* features under TabPFN and the *worst* under a forest, which is
+exactly the kind of interaction a shared, honestly-generated feature set is supposed to expose.
+They are **never** substituted into an external predictor fitted on something else; SAFPred
+(`docs/function.md`) is the worked rejection, and *External models* in CLAUDE.md is the rule.
+
+## Sharding, and the one windowed protein
+
+Shards of 250 into `scratch/shards_prott5_<species>/shard_250_<NNNNN>.npz`, resumable, shard size
+in the filename so a changed `--shard-size` cannot reuse mismatched shards — the Part 1 pattern,
+for the same reason (the encoder on MPS has stalled in this repo before).
+
+Sequences above `--max-len 4096` are embedded in **non-overlapping windows** and pooled as the
+length-weighted mean of window means, which *is* the mean over all residues; the windows differ
+from a single pass only in that each sees its own context. Every such protein is **flagged in the
+output** (`chunked`), never silently approximated. Measured: exactly **one** protein in the three
+proteomes is windowed — *S. aureus* `Q2FYJ6`, 9,535 aa, the same protein that dominated Part 1's
+runtime. Kp's longest is 3,163 aa and E. coli's 2,339 aa, so both are 0.
+
+## Output
+
+```
+data/processed/embeddings/
+  prott5_kpneumoniae.npz   prott5_ecoli.npz   prott5_saureus.npz
+  evidence/
+    prott5_control.tsv                  per-protein cosine vs UniProt -- the evidence
+    prott5_pooling.tsv                  the pooling comparison
+    prott5_ecoli_control[_mean_with_eos].npz   the control subsets themselves
+  scratch/
+    shards_prott5_<label>/              resume cache
+    prott5_input_<stem>.tsv             what was handed to the worker
+    strains/prott5_<label>.npz          screen-strain matrices (see below)
+```
+
+```
+accessions   object   (n,)        row-aligned to `embeddings`
+embeddings   float32  (n, 1024)   mean over residues, EOS excluded
+model        scalar   "Rostlab/prot_t5_xl_half_uniref50-enc"
+pooling      scalar   "mean_no_eos"
+dim          scalar   1024
+chunked      bool     (n,)        True where the protein was windowed
+max_len      scalar   4096
+```
+
+| helper (`src/embeddings.py`) | returns |
+|---|---|
+| `load_prott5(species)` | `(accessions, matrix)`, row-aligned |
+| `load_prott5_frame(species)` | DataFrame indexed by `uniprot_ac`, columns `t0..t1023` |
+| `prott5_metadata(species)` | model, pooling, dim, how many were windowed |
+| `prott5_control()` | the per-protein cosines against UniProt |
+
+## `--strain`: training features, not deliverable matrices
+
+`--strain LABEL` embeds a **screen strain** instead of a registry species, writing
+`data/processed/embeddings/scratch/strains/prott5_<label>.npz`. Built so far:
+
+```
+prott5_kpneumoniae__ecl8__GCA_000315385.1.npz     prott5_DEG1048.npz
+prott5_kpneumoniae__kpnih1__GCA_000281535.2.npz   prott5_DEG1056.npz
+prott5_kpneumoniae__kppr1__GCF_000742755.1.npz    prott5_rh201207_bruchmann.npz
+```
+
+These are **not** project matrices and are deliberately not treated as such: a screen strain has no
+UniProt proteome and no stage-00 table, so there is **no canonical row order**, and the key is
+whatever identifier the strain's own FASTA or TSV uses (RefSeq/GenBank protein accession, locus
+tag, or a DEG FASTA header). That is the point — label and feature vector then share one namespace
+and the essentiality screens need no join at all. The proteome is resolved by label across three
+locations (registry tier-D `.faa`, `kp_strains` `.tsv`, DEG `.faa`) rather than making every caller
+know where it lives. The UniProt control is skipped for a strain run, since it exists only for
+E. coli.
+
+## Running it
+
+```bash
+~/miniconda3/envs/gradi/bin/python scripts/embeddings/prott5.py --species ecoli saureus kpneumoniae
+~/miniconda3/envs/gradi/bin/python scripts/embeddings/prott5.py --species ecoli --compare-pooling
+~/miniconda3/envs/gradi/bin/python scripts/embeddings/prott5.py --strain DEG1048
+```
+
+Flags: `--species` · `--strain LABEL ...` · `--pooling {mean_no_eos,mean_with_eos}` ·
+`--compare-pooling` · `--control-n 300` · `--device {mps,cpu}` · `--refresh` · `-q`.
+
+**Run it from `gradi`**, which dispatches to `gradi-loc`. Never activate `gradi-loc` to run the
+stage, and never install ProtT5's `transformers` pin into `gradi`.
+
+# Part 3 — ProteomeLM-L, contextualised
+
+`scripts/embeddings/proteomelm.py` · gate `scripts/embeddings/orthodb_group_check.py` ·
+helpers `src/proteomelm.py` · outputs `data/processed/embeddings/proteomelm_<species>[_<mode>].npz`
+
+The third project-wide matrix, and **the only one where a protein's vector depends on the rest of
+its proteome.** ProteomeLM (Malbranke, Zalaffi & Bitbol, PNAS 2026, `10.1073/pnas.2524201123`;
+papers in `docs/papers/`) is a set-transformer over a whole proteome: one token per protein, each
+token being that protein's mean-pooled ESM-C vector. The recipe:
+
+1. sequences from stage 00 (`src.proteomes.load`), sorted by accession;
+2. **ESM-C 600M, mean over NON-PAD tokens** — BOS/EOS *inside* the mean, ProteomeLM's own
+   convention, not Part 1's;
+3. one ProteomeLM-**L** forward over the entire proteome, `output_attentions=False` so the N×N
+   attention is never materialised (N = 5,728 for Kp);
+4. `hidden_states[8]`, **z-scored with the genome-wide mean/SD**, as the paper specifies for
+   ProteomeLM-Ess's input.
+
+**Layer 8 of 18 is the paper's own best configuration, not a guess**: *"the best performing version
+of ProteomeLM-Ess is the one trained on the embeddings of layer 8 of ProteomeLM-L, yielding an AUC
+of 0.93."* Intermediate layers beat the last one, consistently with their unsupervised PPI result.
+A vector from the wrong layer is a different representation entirely and nothing about its shape
+says so.
+
+## It computes its own ESM-C, and must
+
+This script does **not** import `src/embeddings.py` and does **not** read Part 1's `.npz`. The
+pooling conventions differ — `ESMC_POOLING = "mean_with_bos_eos"` here, BOS/EOS stripped there — at
+**cosine 0.999970 median / 0.998291 worst**. Small, and still a different convention; *External
+models* says the tool's own convention wins.
+
+The consequence is that Part 1 becomes a **control rather than a dependency**: `crosscheck_stage01`
+reports the cosine against it every run and never acts on it, and agreement validates both
+pipelines precisely because neither feeds the other. A missing Part 1 file is not a failure.
+
+## NOT shardable
+
+The ProteomeLM forward runs over the whole proteome at once, so **a shard boundary changes the
+values** — the proteome *is* the context. Only the ESM-C step shards and resumes
+(`scratch/shards_proteomelm/`, accession-keyed with a sequence sha256 so a changed sequence is
+recomputed rather than silently served). The forward itself is 2–3 s per proteome, so there is
+nothing to save.
+
+Same reason `--limit` is **not a free smoke test**: truncating the proteome changes the values of
+the proteins that remain. Smoke output goes to `scratch/smoke_*` and is not comparable to a full
+run, and the script says so before it starts.
+
+## `--group-embeds {self,orthodb}` — the load-bearing knob
+
+ProteomeLM takes a per-protein **functional encoding** (`group_embeds`) which during TRAINING is
+the **mean ESM-C embedding of the protein's OrthoDB orthologous group**; per the paper's SI §6 that
+is the mechanism by which it beats its own `ProteomeLM-Discrete` ablation. It is an **additive
+second branch** — `embedding_main(x) + embedding_encoder(group)` — so it changes every hidden
+state, including layer 8.
+
+| mode | what it passes | provenance |
+|---|---|---|
+| **`self`** (default) | `group_embeds=None`, so each protein is its own functional encoding | the authors' **released inference** default — `prepare_ppi(..., use_odb=False)`, annotated `# TODO: use odb on the fly` — **not** what the model was trained with. Every run before 2026-09-21 used it |
+| **`orthodb`** | the real thing, from the authors' `group_vectors_*.pkl` joined to our own `orthodb_<species>.tsv` | what the model was TRAINED with. The authors' own route is UniProt's `xref_orthodb`, which is **0.0% on Kp**, so our DIAMOND-derived table substitutes for it |
+
+`self` passes `None` rather than a self-copy deliberately, so the baseline stays **byte-identical**
+to every run made before the flag existed.
+
+**Mapped fraction, measured at `--min-group-size 50`: ecoli 88.2% · kpneumoniae 81.7% ·
+saureus 76.9%.** Unmapped proteins **fall back to their own ESM-C vector**, which is the authors'
+training dataloader's behaviour. **Always report that fraction** — where it is low the two modes
+converge on the same input by construction, so a null result would say nothing about the encoding.
+The run warns below 30%, and `group_mapped_frac` is stored in both the npz and the manifest.
+
+## Run the release gate before trusting `orthodb` mode
+
+OrthoDB group ids are *"not stable and re-used between releases"*. Ours are **`odb12v2`**; the
+authors' pickles carry whatever release they trained on. **Had the id spaces differed, every lookup
+would miss, every protein would fall back to self, and the run would silently reproduce `self`
+while looking like a completed experiment** — the worst available outcome, so it is checked for its
+own sake before any compute is spent.
+
+`scripts/embeddings/orthodb_group_check.py` measures it. **PASSED**, at `min_group_size=50`
+against 1,737,393 group vectors (`evidence/orthodb_group_vector_overlap.tsv`):
+
+| species | `orthodb_og_domain` ids present | proteins covered | `orthodb_og_narrow` proteins covered |
+|---|---|---|---|
+| ecoli | **88.8%** | **85.5%** | 18.8% |
+| kpneumoniae | **79.6%** | 75.0% | 54.1% |
+| saureus | 82.5% | 75.8% | 56.2% |
+
+That table also decided something unguessable: **use `orthodb_og_domain`, not `orthodb_og_narrow`**
+— 85.5% vs 18.8% per-protein on E. coli, because narrow groups are clade-specific
+(Enterobacteriaceae, *Klebsiella*) and mostly absent from a size-thresholded table. Both are still
+tried per protein, **domain first**, mirroring the authors' `;`-separated multi-OG semantics where
+the first group present in the table wins — and the union beats either column alone, which is how
+Kp reaches 81.7% against 75.0% from domain alone.
+
+**The four `group_vectors_*.pkl` files are DISJOINT SIZE BANDS, not nested supersets.** The suffix
+is a group-size threshold and the authors' loader **merges** every file at or above
+`min_group_size`, so a *lower* number loads *more* groups. Escalating `_200` → `_50` moved Kp
+per-protein coverage 66.5% → 75.0% and E. coli 79.6% → 85.5%. `_0` is **18.1 GB and unpickles
+whole (~18 GB RAM)** while our three proteomes use at most ~13,000 distinct groups — write a
+filtering loader before reaching for it. Provenance, byte counts and md5s:
+`data/source/proteomelm/SOURCE.md`.
+
+## Four traps, all hit at least once
+
+1. **`scripts/embeddings/proteomelm.py` SHADOWS the installed `proteomelm` package.** Python puts a
+   script's own directory on `sys.path`, so a bare `import proteomelm` from here resolves to *this
+   file* — verified — and any submodule import dies with `'proteomelm' is not a package`, which
+   reads like a broken install rather than a name collision. `installed_proteomelm()` drops the
+   directory from `sys.path` explicitly instead of relying on it to lose the race.
+2. **The output filename must carry the mode.** It originally did not, so an `orthodb` run would
+   have silently overwritten the `self` matrices — which are the comparison's baseline and are read
+   by the stage-04 head comparison. `self` keeps the bare name (nothing downstream moves); every
+   other mode gets a suffix.
+3. **The two controls must carry the group tensor.** `check_permutation` permutes it alongside the
+   proteins and `check_context` slices it alongside them. Otherwise permuting re-pairs every
+   protein with a *different* protein's group vector, which is a real change to the input, and the
+   control fails for the wrong reason.
+4. **Group vectors are `bfloat16`** on disk while the model runs `.float()` — cast, or the forward
+   dies.
+
+## Two controls, and the one that justifies the stage
+
+Both exit non-zero on failure.
+
+**Permutation invariance.** There are no positional embeddings, so permuting the input and
+un-permuting the output must change nothing: measured **max|diff| ~1e-05** against a
+`PERM_TOLERANCE` of 1e-3. (`max_position_embeddings: 512` in the HF config is an inert inherited
+DistilBert field, *not* a proteome-size cap.)
+
+**Context sensitivity — the reason the stage exists.** The same proteins embedded inside the full
+proteome versus inside half of it, median cosine, which must stay **below 0.999**; at ~1.0
+ProteomeLM has collapsed to a per-protein encoder and there is nothing here that Part 1 does not
+already give. Recorded per run in the manifests:
+
+| species | `self` | `orthodb` |
+|---|---|---|
+| *E. coli* | 0.9783 | 0.9702 |
+| *K. pneumoniae* | 0.9947 | 0.9857 |
+| *S. aureus* | 0.9927 | **0.9924** |
+
+Two things to read off it. **The margin is thin on the Gram-positive**: *S. aureus* sits ~0.007
+from the floor in both modes and is the one to watch — a smaller proteome is a weaker context.
+And the mode matters less than it might: the group vector is a per-protein input that dilutes the
+contextual signal, so it is not a priori obvious which way this moves, and measured half-proteome
+to half-proteome the two modes land within 0.009 of each other on every species.
+
+A third number is in circulation and is **a different measurement, not a contradiction**: the
+script's docstring records **0.9676** for E. coli, from 2,000 proteins embedded inside the full
+proteome versus alone. The shipped control uses `len(esmc) // 2` (2,201 for E. coli), hence 0.9783.
+Quote the manifest value with the species and the mode, or the docstring value with "2,000
+proteins" — never one as if it were the other.
+
+## Output
+
+```
+data/processed/embeddings/
+  proteomelm_kpneumoniae.npz          proteomelm_kpneumoniae_orthodb.npz
+  proteomelm_ecoli.npz                proteomelm_ecoli_orthodb.npz
+  proteomelm_saureus.npz              proteomelm_saureus_orthodb.npz
+  evidence/
+    proteomelm_manifest.tsv           `self`    -- n, layer, perm_maxdiff, context_cosine, sha256
+    proteomelm_manifest_orthodb.tsv   `orthodb` -- the same, plus min_group_size, group_mapped_frac
+    orthodb_group_vector_overlap.tsv  the release gate
+  scratch/
+    shards_proteomelm/                the ESM-C resume cache (ProteomeLM itself does not shard)
+    smoke_*                           only with --limit
+    strains/proteomelm_<label>.npz    screen strains, `self` only
+```
+
+```
+accessions         object   (n,)        canonical row order (src/matrices.py)
+embeddings         float32  (n, 1152)   layer 8, z-scored genome-wide
+model              scalar   "Bitbol-Lab/ProteomeLM-L"
+layer / n_layers   scalar   8 / 18
+group_embeds_mode  scalar   "self" | "orthodb"
+min_group_size     scalar   50, or -1 under `self`
+group_mapped_frac  scalar   the fraction that got a real group vector
+esmc_pooling       scalar   "mean_with_bos_eos"
+proteome_id        scalar   e.g. "UP000007841"
+```
+
+**Load through `src/proteomelm.py`** — `load`, `load_frame`, `load_lookup`, `vectors_for`,
+`metadata`, `manifest`, each taking `mode="self"|"orthodb"`. The module mirrors `src/embeddings.py`
+function-for-function, so code that reads one reads the other by swapping the import.
+
+**The loaders ASSERT the file's recorded mode matches the one requested.** The two modes are the
+same shape over the same accessions, so nothing about a matrix's appearance says which it is, and
+fitting on one while scoring on the other would return plausible, well-formed, wrong numbers. The
+filename carries the mode and `_read()` confirms the file agrees with its own name; it raises
+rather than returning a representation the caller did not ask for. `vectors_for` drops missing
+accessions rather than zero-filling, for the Part 1 reason.
+
+`--strain` works here too, writing `scratch/strains/proteomelm_<label>.npz`, and **refuses
+`--group-embeds orthodb`**: a screen strain has no OrthoDB table, so every protein would fall back
+to its own ESM-C vector and the run would be `self` under a name saying otherwise.
+
+## Two traps in the sequences, inherited and asserted
+
+**Do not fetch bacteria with `reviewed:true`.** The paper's own `download_proteome` defaults to it;
+for Kp HS11286 that returns a handful of entries instead of 5,728. Human is the opposite — its
+unfiltered proteome is 147,506 TrEMBL-bloated entries — so the asymmetry is asserted, not assumed.
+
+**An earlier version downloaded the proteomes from UniProt itself** and it was dropped as measured
+pointless: the download was byte-identical to stage 00 (4,403/4,403 E. coli sequences, no extras
+either way) while adding a real failure mode — UniProt's stream endpoint is chunked, has no
+`Content-Length` to verify against, and dropped mid-transfer on the 5,728-protein Kp fetch
+(`http.client.IncompleteRead`). Reading the local table cannot fail that way.
+
+## Running it
+
+```bash
+~/miniconda3/envs/gradi/bin/python scripts/embeddings/orthodb_group_check.py --min-group-size 50
+~/miniconda3/envs/gradi/bin/python scripts/embeddings/proteomelm.py
+~/miniconda3/envs/gradi/bin/python scripts/embeddings/proteomelm.py --group-embeds orthodb
+```
+
+Flags: `--label {kpneumoniae,ecoli,saureus,human}` · `--size {XS,S,M,L}` (default **L**) ·
+`--layer 8` · `--strain LABEL ...` · `--group-embeds {self,orthodb}` ·
+`--min-group-size {0,10,50,200}` · `--shard-size 250` · `--device {auto,cuda,mps,cpu}` ·
+`--limit N` · `--refresh` · `--dry-run` · `-q`.
+
+**Env `gradi`, not `gradi-loc`** — its `fair-esm` claims the same top-level `esm` name as the
+EvolutionaryScale package the ESM-C step needs. `PYTORCH_ENABLE_MPS_FALLBACK=1` is set before torch
+is imported, as in Part 1.
+
+# Part 4 — 2D projections
 
 `scripts/embeddings/projection.py` · figures `scripts/plots/projection.py` ·
 helpers `src/projections.py` · outputs `data/processed/embeddings/projection_<species>.tsv`
@@ -236,7 +638,7 @@ code was deleted (`scripts/02_esm_projection.py`, commit `a9a7939`) — this tab
 
 `dof` is the load-bearing knob, not perplexity — worth knowing before tuning anything else.
 
-`--method umap|pacmap` re-runs the comparison into `accessory/` and never touches the deliverable.
+`--method umap|pacmap` re-runs the comparison into `evidence/` and never touches the deliverable.
 It exists because v1's comparison code was lost; the columns are named `<method>_x`/`<method>_y` so a
 comparison map cannot be mistaken for the real one in a merged frame.
 
@@ -299,9 +701,11 @@ data/processed/embeddings/
     projection_kpneumoniae.tsv      280 kB
     projection_ecoli.tsv            198 kB
     projection_saureus.tsv          130 kB
-    accessory/
-        projection_manifest.tsv     params, KL, trustworthiness, timings
+    evidence/
+        projection_manifest.tsv        params, KL, trustworthiness, timings
         projection_<method>_<sp>.tsv   only with --method umap|pacmap
+        projection_<method>_manifest.tsv
+    scratch/
         smoke_*                        only with --limit
 ```
 
@@ -319,7 +723,7 @@ coordinate for every row it is given, and the stage exits non-zero if one goes m
 |---|---|
 | `load(species)` | `uniprot_ac`, `tsne_x`, `tsne_y` |
 | `load_all(species=SPECIES)` | all three stacked, with a `species` column |
-| `load_method(species, method)` | a `--method umap\|pacmap` comparison map from `accessory/` |
+| `load_method(species, method)` | a `--method umap\|pacmap` comparison map from `evidence/` |
 | `coords_for(species, accessions)` | `(found, xy)` in the given order; missing **dropped**, not zero-filled |
 | `manifest()` | the run manifest |
 
@@ -355,7 +759,7 @@ style, and was corrected when stage 03's figures were written.
 ```
 
 Flags: `--species` · `--method {opentsne,umap,pacmap}` · `--pca 50` · `--perplexities 50 500` ·
-`--dof 0.8` · `--seed 0` · `--limit N` (smoke test → `accessory/smoke_*`) · `--refresh` ·
+`--dof 0.8` · `--seed 0` · `--limit N` (smoke test → `scratch/smoke_*`) · `--refresh` ·
 `--dry-run` · `-q/--quiet`.
 
 Everything needed is already in `gradi` (openTSNE 1.0.4, umap-learn 0.5.12, pacmap 0.9.1,
@@ -415,7 +819,7 @@ this is a preference among good options, not a rescue from a bad one — and the
 enough that they would not, on their own, have settled the choice. Speed runs the other way; the
 canonical map is the slowest of the three and that is a fine trade at ~1 min per species.
 
-Both comparison maps are kept under `accessory/projection_{umap,pacmap}_saureus.tsv` as the evidence.
+Both comparison maps are kept under `evidence/projection_{umap,pacmap}_saureus.tsv` as the evidence.
 
 ### The COG join, and what 100% actually means
 

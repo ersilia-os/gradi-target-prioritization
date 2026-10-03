@@ -48,30 +48,39 @@ def fig_distributions(species: list[str]) -> Path:
     # Proteins with no donor score exactly 0 and would otherwise be a spike that flattens the
     # rest of the distribution. They are counted in the legend and shown as their own tiers in
     # panel 3, so nothing is hidden by plotting the scored proteins here.
+    # A SURVIVAL CURVE, not a histogram. The counts are small integers, so log-spaced bins
+    # alias -- some bins catch two integers and some one, producing alternating heights that
+    # read as structure and are pure binning artifact. "What fraction of the proteome has at
+    # least N papers" is monotone, bin-free and directly readable.
     ax = axs[0]
     for i, sp in enumerate(species):
-        d = S.load(sp)
-        scored = d.loc[d["studiedness_family"] > 0, "studiedness_family"]
-        zero = 100 * float((d["studiedness_family"] == 0).mean())
-        ax.hist(scored, bins=40, histtype="step", lw=1.6, color=NPG[i],
-                label=f"{LABELS[sp]}  ({zero:.0f}% no donor)", density=True)
+        v = S.load(sp)["n_papers_family"].astype(float).to_numpy()
+        grid = np.arange(0, 61)
+        frac = [(v >= n).mean() * 100 for n in grid]
+        ax.step(grid, frac, where="post", lw=1.8, color=NPG[i],
+                label=f"{LABELS[sp]}  ({(v == 0).mean() * 100:.0f}% zero)")
+    ax.set_xlim(0, 60)
+    ax.set_ylim(0, 100)
     ax.legend(fontsize=SS, frameon=False)
-    stylia.label(ax, xlabel="studiedness_family", ylabel="density",
+    stylia.label(ax, xlabel="papers on the best-studied homolog (N)",
+                 ylabel="% of proteome with at least N",
                  title="What is known about the family")
 
+    # +1 so the many zero-paper accessions stay visible on a log axis.
     ax = axs[1]
     for i, sp in enumerate(species):
         d = S.load(sp)
-        ax.scatter(d["studiedness_own"], d["studiedness_family"], s=3, alpha=0.25,
-                   color=NPG[i], edgecolors="none", label=LABELS[sp])
-    lim = [0, 1]
+        ax.scatter(d["n_papers_own"].astype(float) + 1, d["n_papers_family"].astype(float) + 1,
+                   s=3, alpha=0.25, color=NPG[i], edgecolors="none", label=LABELS[sp])
+    lim = [1, 400]
     ax.plot(lim, lim, ls="--", lw=0.8, color="#888")
-    ax.set_xlim(lim)
-    ax.set_ylim(lim)
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xlim(lim); ax.set_ylim(lim)
     leg = ax.legend(fontsize=SS, frameon=False, markerscale=4)
     for h in leg.legend_handles:
         h.set_alpha(1.0)
-    stylia.label(ax, xlabel="studiedness_own", ylabel="studiedness_family",
+    stylia.label(ax, xlabel="papers on this accession (+1)",
+                 ylabel="papers on the family (+1)",
                  title="Dark accession, known family")
 
     ax = axs[2]
@@ -106,19 +115,19 @@ def fig_control(species: list[str]) -> Path:
     except FileNotFoundError:
         ctrl = None
     if ctrl is not None and len(ctrl):
-        for c in ("studiedness_own", "studiedness_family"):
+        for c in ("n_papers_own", "n_papers_family"):
             ctrl[c] = ctrl[c].astype(float)
         scored = ctrl[ctrl["donor_ac"].astype(str) != ""]
-        ax.scatter(scored["studiedness_own"], scored["studiedness_family"], s=4, alpha=0.3,
+        ax.scatter(scored["n_papers_own"] + 1, scored["n_papers_family"] + 1, s=4, alpha=0.3,
                    color=NPG[0], edgecolors="none")
-        rho = scored["studiedness_family"].corr(scored["studiedness_own"], method="spearman")
-        ax.plot([0, 1], [0, 1], ls="--", lw=0.8, color="#888")
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
+        rho = scored["n_papers_family"].corr(scored["n_papers_own"], method="spearman")
+        ax.plot([1, 400], [1, 400], ls="--", lw=0.8, color="#888")
+        ax.set_xscale("log"); ax.set_yscale("log")
+        ax.set_xlim(1, 400); ax.set_ylim(1, 400)
         ax.text(0.04, 0.94, f"rho {rho:.3f}   n {len(scored):,}", transform=ax.transAxes,
                 fontsize=SS, va="top")
-    stylia.label(ax, xlabel="E. coli measured (studiedness_own)",
-                 ylabel="predicted from non-Escherichia donors",
+    stylia.label(ax, xlabel="E. coli measured papers (+1)",
+                 ylabel="papers from non-Escherichia donors (+1)",
                  title="Held-out transfer control")
 
     ax = axs[1]
@@ -151,22 +160,25 @@ def fig_interest(species: list[str]) -> Path:
         d = I.annotate(d)
         panel = d[d["is_interest"]]
         rest = d[~d["is_interest"]]
-        shown = rest.loc[rest["studiedness_family"] > 0, "studiedness_family"]
-        zero = 100 * float((rest["studiedness_family"] == 0).mean())
-        ax.hist(shown, bins=30, color="#d9d9d9", density=True,
-                label=f"proteome ({zero:.0f}% no donor)")
+        grid = np.arange(0, 61)
+        rest_v = rest["n_papers_family"].astype(float).to_numpy()
+        ax.step(grid, [(rest_v >= n).mean() * 100 for n in grid], where="post",
+                lw=1.6, color="#999",
+                label=f"proteome ({(rest_v == 0).mean() * 100:.0f}% zero)")
+        ax.set_xlim(0, 60)
+        ax.set_ylim(0, 100)
         if len(panel):
             # Percentile against the WHOLE proteome, zeros included -- the panel's standing is a
             # claim about the proteome, not about the scored subset.
-            pct = [100 * float((d["studiedness_family"] < v).mean())
-                   for v in panel["studiedness_family"]]
-            ax.scatter(panel["studiedness_family"],
-                       np.full(len(panel), ax.get_ylim()[1] * 0.88),
-                       s=18, color=NPG[3], zorder=5,
+            pct = [100 * float((d["n_papers_family"] < v).mean())
+                   for v in panel["n_papers_family"]]
+            pv = panel["n_papers_family"].astype(float).to_numpy()
+            ax.scatter(pv, [(rest_v >= n).mean() * 100 for n in pv],
+                       s=20, color=NPG[3], zorder=5,
                        label=f"panel ({len(panel)}), median {np.median(pct):.0f}th pct")
         ax.legend(fontsize=SS, frameon=False, loc="upper left")
-        stylia.label(ax, xlabel="studiedness_family", ylabel="density" if i == 0 else "",
-                     title=LABELS[sp])
+        stylia.label(ax, xlabel="papers on the family (N)",
+                     ylabel="% with at least N" if i == 0 else "", title=LABELS[sp])
 
     path = OUT_DIR / "interest_panel.png"
     stylia.save_figure(str(path))

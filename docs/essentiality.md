@@ -1,8 +1,11 @@
 # Stage 07 — essentiality
 
-`scripts/essentiality/labels.py` · `scripts/essentiality/deg_proteomes.py` ·
-`scripts/embeddings/proteomelm.py` · `scripts/essentiality/geptop.py` ·
-loader `src/essentiality.py`
+`scripts/essentiality/labels.py` · `deg_proteomes.py` · `geptop.py` · `ogee.py` ·
+`ogee_proteomes.py` · `ogee_dataset.py` · `merge.py` · `registry.py` ·
+`scripts/embeddings/proteomelm.py` · loader `src/essentiality.py`
+
+The published screens — the ten training sets, what was held back and what was refuted — are in
+**`docs/essentiality_screens.md`**.
 
 One question per protein: **can the organism live without it?** The anchor makes this hard —
 *K. pneumoniae* HS11286 has **no essentiality measurement of its own**, so for the species that
@@ -13,11 +16,135 @@ matters most every number is a prediction.
 | label corpus (DEG) | 173,048 labeled proteins, 38 species, 20,194 essential | built |
 | ProteomeLM embeddings | proteome-contextualised vectors, layer 8 of ProteomeLM-L | built |
 | **Geptop 2.0** | **orthology + phylogeny score for all three bacteria** | **built** |
+| **OGEE-trained model** | **a second learned opinion, 26 measured prokaryotic proteomes** | **built** |
 | ProteomeLM-Ess head | the paper's own essentiality head | deferred (weights unreleased) |
 
 ---
 
+## The DEG label corpus — `labels.py` + `deg_proteomes.py`
+
+Stage 07 predicts essentiality with **ProteomeLM-Ess** (Malbranke, Zalaffi & Bitbol, PNAS 2026,
+doi `10.1073/pnas.2524201123`; papers in `docs/papers/`). These two scripts build its labels —
+positives from DEG, negatives from the screened organisms' own proteomes.
+
+### `labels.py` — every dataset, every column, and the sequence
+
+Fetches DEG's three bulk files and builds the label table with **nothing dropped**: 66 datasets,
+42 species, **26,619 essential genes**, each carrying **its protein sequence** (`DEG10.aa`, 1:1 by
+DEG gene id).
+
+**The sequences are the point.** The join downstream is **BY SEQUENCE**, because DEG's identifier
+columns are patchy:
+
+| identifier | coverage |
+|---|---|
+| gene symbol | 63.1% |
+| GI | 54.5% |
+| COG | 48.4% |
+| UniProt AC | 45.7% |
+| locus tag | 42.9% |
+
+**Exclusions are FLAGGED, never dropped** — the `retained` column says what training may use:
+
+- **4 non-genome-wide methods** — antisense RNA, MATT, insertion-duplication,
+  transposon-hybridisation. "Absent from the list" cannot mean non-essential when the method never
+  interrogated the whole genome.
+- **11 condition-specific screens** — tobramycin, murine pneumonia, bile, cholesterol, kanamycin.
+  This is why *P. aeruginosa* PAO1 swings **117 → 336 → 551** essential genes across its three
+  datasets.
+
+**51 datasets retained over 38 species.**
+
+**Consolidation to one label set per species is deliberately deferred.** *S. aureus* appears 7×,
+*P. aeruginosa* 4×, *Salmonella* 4×, *E. coli* 4× — so the union-vs-intersection rule gets chosen
+against measured counts rather than guessed in advance. (The same choice, made downstream for the
+anchor strains, is the 3.4× `--rule any`/`--rule all` spread recorded under *the headline* below.)
+
+### Four DEG traps
+
+1. **326 of the 26,619 "sequences" are the literal string `Not available now.`** The join to
+   `DEG10.aa` *succeeds*, so a coverage check reads 100% while the payload is junk. Only validating
+   the amino-acid alphabet catches it — and *E. coli* O157:H7 is **14.1% placeholder**. A further
+   **52 carry an internal `*` stop** (frameshifted translations, mostly *N. gonorrhoeae*); a
+   *trailing* stop is stripped, not rejected. **Short proteins are NOT filtered** — `rpmJ` is a
+   real 37-aa essential gene.
+2. **`DEG1058` (*S. suis*) is an in-vivo pig infection screen** whose condition string reads
+   "Columbia blood base agar". Its paper is titled *"…**conditionally** essential genes for
+   S. suis infection in pigs"* and every gene carries a note `Recovered from
+   blood/cerebrospinal fluid/meninges`. Caught by reading DEG's **per-gene notes**, not its
+   condition field — so the filter is data-driven, not a hand-maintained blocklist.
+3. **DEG's index disagrees with its own shipped rows** on 2 of 66 datasets — *S. oneidensis* 403 vs
+   402, *R. palustris* 522 vs **552**. Printed every run.
+4. **Two columns are undocumented**: col 10 packs `locus_tag:X;gi:N`, and col 13 is the per-gene
+   note that exposed trap 2.
+
+### `deg_proteomes.py` — the negative class, which DEG does not ship
+
+**38 of 66 datasets report a non-essential *count* and no genes.** So each retained dataset's
+complete proteome is fetched from the RefSeq/EMBL replicon accessions DEG records — NCBI
+`efetch db=nuccore rettype=fasta_cds_aa`, which also yields locus tags — and then labeled:
+essential = matched a DEG positive, non-essential = the rest. ProteomeLM needs the whole proteome
+anyway, since it contextualises every protein against every other.
+
+**Exact sequence matching is NOT enough, and the per-dataset rate is the control.** DEG's vintage
+annotation has drifted from the current replicon: exact match recovers only **59–95%**
+(median **84.8%**), and the unmatched are **same-length point-substituted**, not a start-codon or
+prefix artefact — measured, and `locus_tag` is **0%** on the older datasets so there is no
+identifier fallback. With **DIAMOND ≥95% identity** (borrowed from `gradi-ortho` via
+`GRADI_DIAMOND_BIN`) the median rises to **99.5%**, recovering **+1,320 positives at median 100%
+identity**. Without it, hundreds of genuinely essential genes are silently labeled non-essential.
+
+**Do not scan for accessions with a `\b`-anchored regex.** DEG's replicon field mixes `,`, `;`,
+`, ` and bare spaces, and a scanning regex silently drops **`NZ_`-prefixed RefSeq accessions**:
+`_` is a word character, so the boundary never fires. That cost *E. coli* O157:H7 — the largest
+single dataset, 1,071 positives — on the first run. **Split on delimiters, then full-match each
+token.**
+
+### What came out
+
+**49 of 51 datasets · 173,048 labeled proteins · 20,194 essential (11.67%) · 38 species** —
+comparable in scale to the paper's 213,608 labels over 83 genomes, and bacteria-only.
+
+Three known gaps, **flagged in `proteome_join.tsv` rather than hidden**:
+
+| dataset | organism | what happened |
+|---|---|---|
+| `DEG1003` | *V. cholerae* N16961 | joins at only **74.0%** — real annotation drift, below the 80% floor |
+| `DEG1037` | *S. pyogenes* MGAS5448 | records **no replicon at all** |
+| `DEG1053` | *B. cenocepacia* K56-2 | records a WGS **master** accession; `efetch` returns zero CDS |
+
+**Spot checks pass** on *E. coli* MG1655: `dnaA`, `gyrB`, `rpoB`, `ftsZ`, `murC`, `mraY`, `rplF`
+all essential; `lacZ` and `araB` not.
+
+**Watch the base rate before training** — it spans **15× across species**, from *M. genitalium*
+**72.7%** essential (a minimal genome) to *M. avium* **4.7%**. A model fit across the corpus is fit
+across that spread; see the OGEE section below, where the same quantity turns out to predict how
+hard a held-out organism is.
+
+### Practicalities
+
+Outputs, all in `data/processed/essentiality/evidence/`:
+
+| file | shape | what it is |
+|---|---|---|
+| `deg_datasets.tsv` | 66 × 22 | every dataset, with `retained` and `exclusion_reason` |
+| `deg_genes.tsv` | 26,619 × 28 | every essential gene, with its sequence |
+| `proteome_join.tsv` | 51 × 14 | **the join control** — exact/DIAMOND/total rate per dataset |
+| `labeled_proteins.tsv` | 173,048 × 11 | the corpus itself |
+
+Raw and provenance: `data/source/deg/SOURCE.md`, proteomes under
+`data/source/ncbi/deg_proteomes/<deg_dataset_id>.faa`.
+
+CLI (both): `--refresh` · `--dry-run` · `-q`; `deg_proteomes.py` adds `--limit N` (smoke test,
+writes only `scratch/smoke_*`). ~1 min and ~15 min respectively; both cache and re-run cheaply.
+
+---
+
 ## Geptop 2.0 — orthology and phylogeny
+
+**Geptop 2.0 is Wen 2019**, the latest release. The upstream is `github.com/RiversDong/geptop` — a
+**25 MB `.rar` of Python-2 code**, which is the whole reason this is a port rather than a
+dependency.
 
 ### What it computes
 
@@ -63,7 +190,7 @@ Unprompted, from transcribed arithmetic — the strongest evidence the port is f
 Distances **saturate near 0.5** cross-phylum, so `1/d` only spans ~2.0–3.3 across unrelated
 references. That matters for the next point.
 
-### Accuracy: 0.59–0.84, and the paper quotes the mean
+### Accuracy: 0.59–0.81 over all proteins, and the paper quotes the mean
 
 Validated on DEG species that are **not Geptop references, excluded at GENUS level** — stricter
 than the paper's own leave-one-out, which evaluates organisms that *are* in the reference set.
@@ -74,7 +201,10 @@ than the paper's own leave-one-out, which evaluates organisms that *are* in the 
 | *H. influenzae* (DEG1005) | 1,721 | 36.9% | 0.587 | 0.611 |
 | paper's claim | — | — | 0.84 (mean) | — |
 
-**Read this as 0.59–0.84, not 0.84.** Ralstonia reproduces the published figure; *H. influenzae*
+**Read this as 0.59–0.81 over all proteins (0.61–0.84 over scored proteins), not 0.84.** Those are
+two different metrics and `geptop_validation.tsv` keeps them in two columns — do **not** quote
+"0.59–0.84" as one range, which silently takes the floor from one and the ceiling from the other.
+Ralstonia reproduces the published figure; *H. influenzae*
 does not, and its label set is the likely reason — 36.9% essential is an extreme outlier (most
 bacteria are 5–15%), and it has MORE essential RBHs (66.2%) yet *worse* AUROC, which is the
 signature of a screen calling too much essential rather than of a failing predictor. **The Kp
@@ -155,6 +285,114 @@ score), `geptop_informative_only`, `geptop_scored_only`, `load_labels`.
 
 CLI: `--species` · `--validate DEG_SPECIES ...` · `--threads` · `--cutoff` · `--cv-jobs` ·
 `--refresh` · `--dry-run` · `-q`.
+
+---
+
+## The OGEE-trained model — `ogee.py` + `ogee_proteomes.py` + `ogee_dataset.py`
+
+A **third opinion** on essentiality, learned from **26 measured prokaryotic proteomes**. OGEE v3
+supplies labels and no sequences; these three scripts characterise the corpus, attach sequences,
+and train. Recovery of the dataset itself from a dead server is in
+`docs/essentiality_screens.md` §5.
+
+Output `ogee_<species>.tsv`, two columns beside the accession:
+
+| column | domain | meaning |
+|---|---|---|
+| `ogee_ess` | 0–1, **never null** | the model's prediction |
+| `ogee_evidence` | 1 / 0 / **empty** | the **MEASURED** OGEE label for that exact protein |
+
+### Half of OGEE is unusable, and the reason is one we had already recorded from the other side
+
+Of **87 taxa with decided E/NE calls, 40 have ZERO negatives** — **17,743 positives-only
+entries** — and **25 of those 40 come from one paper**, PMID **29769716** (Price 2018), the
+Fitness Browser RB-TnSeq collection. **RB-TnSeq cannot see essential genes by construction**: no
+insertions survive, so an essential gene is *absent* from the table rather than carrying an
+extreme value, which makes its essential list positives-only by the nature of the assay. That is
+the same finding `docs/essentiality_screens.md` §5 records about `feba.db`, arriving here from the
+label side instead of the data side.
+
+It inflates OGEE's overall base rate to **0.310**, against **0.117** for the DEG corpus. Applying
+the project's own **both-classes + prokaryote** filters leaves **26 taxa / 78,893 proteins /
+base 0.173**.
+
+### Leave-species-out, not the paper's single holdout
+
+The project owner's instruction, and the better fit: **K. pneumoniae is absent from OGEE
+entirely**, so the question this axis actually asks is *"given N measured bacteria, how well can
+we call the N+1th?"* — which is exactly what a held-out taxon measures. It also gives **26
+estimates instead of 1**, and the spread is the result:
+
+**AUROC 0.529–0.940, mean 0.782, median 0.805** (`evidence/ogee_leave_species_out.tsv`).
+
+### The headline finding: `corr(base_rate, AUROC) = −0.643`
+
+**Screens that call many genes essential are much harder to predict.** Two same-organism pairs
+make it unarguable — same species, same genome, different screen:
+
+| taxon | base rate | AUROC |
+|---|---|---|
+| *P. aeruginosa* PAO1 | 0.081 | **0.837** |
+| *P. aeruginosa* UCBPP-PA14 | 0.302 | **0.634** |
+| *Salmonella* Typhi CT18 | 0.105 | **0.782** |
+| *Salmonella* Typhimurium SL1344 | 0.404 | **0.529** — barely above chance |
+
+A screen calling 40% of genes essential is measuring **fitness defect, not essentiality**.
+
+**This is what prices the Kp column.** Our three measured Kp screens run base **0.075–0.106**,
+squarely in the band where held-out taxa score **0.78–0.93**.
+
+### One model for all three anchors, and the caveat carried as data
+
+**ONE model, fit on all 26 taxa, used for all three anchors** — the project owner's instruction.
+The caveat that creates is carried **per protein**, in `ogee_evidence`: *E. coli* K-12 and
+*S. aureus* NCTC 8325 **are OGEE taxa AND our anchors**. Measured, **100.0%** and **97.5%** of
+their corpus proteins are literally the **same SEQUENCE** as an anchor protein. So wherever
+`ogee_evidence` is non-null, the model was fitted on that protein with that label, and `ogee_ess`
+is closer to **recall than prediction**.
+
+| species | proteins with a measured OGEE label |
+|---|---|
+| ecoli | 4,193 / 4,403 (95.2%) |
+| saureus | 2,815 / 2,889 (97.4%) |
+| **kpneumoniae** | **0 / 5,728** |
+
+It is visible in the output: same model, top-decile cut **0.861 on E. coli against 0.471 on Kp**.
+**So `ogee_ess` is comparable WITHIN a species, never across** — the same rule `geptop_score`
+carries for the same kind of reason.
+
+### Three traps
+
+1. **`locus` is 100% populated but heterogeneous**, and the namespace is a property of the
+   **(taxon, dataset) block** — pure at median 1.000, and 87 of 89 taxa use one throughout.
+   **E. coli K-12 is one of the two exceptions and carries TWO DISJOINT namespaces** (PEC gene
+   symbols, and b-numbers, **zero shared ids**), so a naive `(taxid, locus)` dedup counts every
+   gene twice — **9,496 "genes" for a 4,403-gene organism**. **Dedup only AFTER resolving to a
+   protein.**
+2. **A missing underscore cost three taxa entirely.** OGEE writes `HI0001`/`HP0001`/`MPN001`
+   where the assembly writes `HI_0001`/`HP_0001`/`MPN_001`; they scored **0.000** until a
+   punctuation-insensitive fallback was added (*H. influenzae* → 0.960, *H. pylori* → 0.994).
+3. **GCA and GCF are not interchangeable here.** *Synechococcus* keys on RefSeq
+   `SYNPCC7942_RS*` tags that only the GCF annotation carries: **0.226 on GenBank, 0.969 on
+   RefSeq**. So the assembly is chosen **by measured join rate across candidates, not by rule** —
+   the inverse of the GenBank-over-RefSeq preference the screens need, which is why neither is a
+   default. Per-candidate rates: `evidence/ogee_proteome_join.tsv`.
+
+### `--seeds 1` is deliberate here
+
+Against the axis-wide 5. **The folds are FIXED** — each fold is one taxon — so there is no
+partition randomness to average, only the forest's own, and per-seed SDs on this axis run
+**≤0.004**. It is also **26 fits instead of 130**: measured ~4 min per fit on 76,000 × 1,152, i.e.
+**1.7 h against 8–9**. The SD prints `(1 seed)` and stores `NA`, never a misleading `+/-0.0000`.
+
+### Practicalities
+
+**Load through `src/essentiality.py`** — `load_ogee`.
+
+CLI: `ogee.py --rule {any,all,majority}` · `ogee_proteomes.py --candidates N` ·
+`ogee_dataset.py --write-fasta | --embed-plan | --score-anchor SPECIES`.
+Provenance: `data/source/ogee/SOURCE.md`. Evidence: `evidence/ogee_leave_species_out.tsv`,
+`ogee_proteome_join.tsv`, `ogee_taxa.tsv`.
 
 ---
 
@@ -270,6 +508,12 @@ Supporting columns keep the evidence: `deg_n_datasets`, `deg_n_essential`, `deg_
 `deg_essential_all`, `geptop_evidence`, `geptop_in_reference_set`. `essentiality` /
 `essentiality_source` merge the two as a convenience.
 
+**`merge.py` also writes `deg_<species>.tsv`**, carrying `deg_ess` and its four provenance
+columns. Those used to be inlined into the headline and were **split out so every evidence source
+has the same shape** — its own file, plus one summary column in `essentiality_<species>.tsv`.
+That is the relationship `geptop_<species>.tsv` always had with the headline, now applied
+uniformly to DEG, OGEE and the screens.
+
 ### Where `deg_ess` comes from
 
 DEG covers **our exact anchor strains** for two species and not the third — which is the whole
@@ -329,7 +573,18 @@ means every measured essential outranks every prediction.
 3. **A `geptop_ess` of 0 is a tie, not a rank** — 58.5% of Kp zeros are confident negatives and
    7.8% are "no information"; `geptop_evidence` separates them.
 
-**Load through `src/essentiality.py`** — `load(species)`, `load_all()`.
+### Two tables at the task root, deliberately
+
+This axis ships **both `essentiality_<species>.tsv` and `geptop_<species>.tsv`** at the task root.
+The second is the raw Geptop output — `geptop_score`, `geptop_score_raw`, `geptop_essential`,
+`geptop_n_rbh`, `geptop_n_essential_rbh`, plus the evidence / informative / reference flags. It
+*reads* like evidence, and the directory contract's test would file it there, but **the project
+owner chose it as a deliverable. Do not demote it to `evidence/` in a tidy-up.**
+
+**Load through `src/essentiality.py`** — `load(species)`, `load_all()`, plus the per-source and
+registry loaders: `list_training_sets`, `load_training_set`, `registry`, `load_deg`, `load_ogee`,
+`load_screens`, and the Geptop set (`load_geptop`, `load_geptop_all`, `geptop_reference_audit`,
+`geptop_informative_only`, `geptop_scored_only`, `load_labels`).
 CLI: `--species` · `--rule {any,all}` · `-q`.
 
 

@@ -8,7 +8,7 @@ when reaching an external database"*.
 
     data/processed/studiedness/evidence/own_<species>.tsv        this accession's own signals
     data/processed/studiedness/evidence/transfer_<species>.tsv   the chosen donor + its counts
-    data/processed/studiedness/evidence/scale.tsv                the fixed global scale anchor
+    data/processed/studiedness/evidence/definition.tsv           what the shipped number means
     data/processed/studiedness/evidence/route_comparison.tsv     SwissProt vs the free route
     data/processed/studiedness/evidence/donor_scope_comparison.tsv  bacteria-only vs any donor
     data/processed/studiedness/evidence/decoy_calibration.tsv    what each floor lets through
@@ -60,7 +60,7 @@ protein winning bacterial slots at ~30% identity. Hence lineage, not organism na
 "is not human" -- strains are filed under their own taxids.
 
 **Both scopes are computed on every run** and land in `evidence/donor_scope_comparison.tsv`, with
-`studiedness_family_bacteria` and `studiedness_family_any` side by side in the transfer table and
+`n_papers_family_bacteria` and `n_papers_family_any` side by side in the transfer table and
 `donor_scope` naming the shipped one. The held-out control is also run under both, which is the
 arbiter: it asks which scope better recovers E. coli's own measured literature from donors it was
 not allowed to see.
@@ -117,11 +117,17 @@ prints what fraction of queries are still capped; if that is large, raise k agai
 THE CONTROL: E. COLI WITH EVERY E. COLI DONOR REMOVED
 -------------------------------------------------------
 E. coli is the only anchor whose own literature is real, so it is the only place the transfer
-mechanism can be tested at all. The control recomputes `studiedness_family` for E. coli with
+mechanism can be tested at all. The control recomputes `n_papers_family` for E. coli with
 **every Escherichia donor struck out of SwissProt**, then correlates it against E. coli's own
-measured `studiedness_own`. That is a genuine held-out test of the whole mechanism -- the same
+measured `n_papers_own`. That is a genuine held-out test of the whole mechanism -- the same
 shape as `embeddings/prott5.py` validating against UniProt's published vectors. The run exits
 non-zero if it falls below the floor.
+
+**It reads LOWER than it used to, and that is the circularity being removed.** While the axis
+shipped a 0-1 composite the control read 0.5411, but the blend put a 0.4-weighted annotation term
+on both sides and own-vs-donor annotation score correlates at **spearman 0.950** -- so part of
+that number was annotation agreeing with itself, not literature transferring. Counting papers
+only gives 0.328, which is the honest figure.
 
 Run with the `gradi` env, after `fetch.py` and `gene2pubmed.py`.
 DIAMOND is borrowed from `gradi-ortho` (GRADI_DIAMOND_BIN overrides) -- it has no arm64 build and
@@ -169,9 +175,16 @@ FLOOR_SWEEP = (20.0, 25.0, 30.0, 40.0, 60.0, 95.0)
 # AND phages; see the docstring for why phages must be in.
 SCOPES = ("prokaryotic", "bacteria", "any")
 
-# The control floor. Set from the first full run and then frozen -- a floor tuned to each run
-# is not a control. See the run log in docs/studiedness.md.
-CONTROL_RHO_FLOOR = 0.45
+# The control floor, RE-DERIVED for the count-based definition on 2026-09-22 and then frozen.
+#
+# It was 0.45 while the axis shipped a 0-1 composite, and that number was INFLATED by a
+# circularity: the blend put a 0.4-weighted annotation term on both sides of the control, and
+# own-vs-donor annotation score correlates at spearman 0.950. Dropping the blend removed the
+# circularity and the honest literature-only signal is 0.322-0.339 across donor scopes.
+#
+# 0.25 leaves headroom below that while still being far above chance -- the guard exists to catch
+# a broken join (which would read ~0), not to certify a particular rho.
+CONTROL_RHO_FLOOR = 0.25
 
 VERBOSE = True
 
@@ -241,17 +254,15 @@ def load_swissprot(counts: dict[str, int]) -> pd.DataFrame:
                             "Protein names": "donor_protein_name"})
     sp["donor_annotation_score"] = pd.to_numeric(sp["donor_annotation_score"],
                                                  errors="coerce").fillna(1.0)
-    n_uniprot = sp["lit_pubmed_id"].apply(lambda c: len(split_ids(c)))
-    if counts:
-        n_ncbi = sp["geneid"].apply(lambda c: sum(counts.get(g, 0) for g in split_ids(c)))
-    else:
-        n_ncbi = pd.Series(0, index=sp.index)
-    # The union is bounded below by the max and above by the sum; the two sources overlap heavily
-    # (gene2pubmed re-lists UniProt's curated papers), so summing would double-count. Max is the
-    # honest choice, and both components ship so it can be undone.
-    sp["donor_n_pubs_uniprot"] = n_uniprot
-    sp["donor_n_pubs_gene2pubmed"] = n_ncbi
-    sp["donor_n_pubs"] = np.maximum(n_uniprot, n_ncbi)
+    # THE SHIPPED COUNT IS SWISSPROT-CURATED ONLY: papers a UniProt curator read and used. One
+    # consistent definition, which is the whole point -- the composite score it replaced could
+    # not be read off the number. gene2pubmed is computed beside it as a measured alternative
+    # (larger for 87-94% of donors, median 2.8x) but does NOT enter selection or the deliverable.
+    sp["donor_n_pubs_uniprot"] = sp["lit_pubmed_id"].apply(lambda c: len(split_ids(c)))
+    sp["donor_n_pubs_gene2pubmed"] = (
+        sp["geneid"].apply(lambda c: sum(counts.get(g, 0) for g in split_ids(c)))
+        if counts else pd.Series(0, index=sp.index))
+    sp["donor_n_pubs"] = sp["donor_n_pubs_uniprot"]
     # TRUE Bacteria, by lineage -- not by organism name and not by "is not human". The ligands
     # axis measured what the loose rule costs: an unrestricted non-human bucket gave 424 apparent
     # potent Kp proteins against a true 175, with a rat protein winning bacterial slots at ~30%
@@ -271,9 +282,15 @@ def load_swissprot(counts: dict[str, int]) -> pd.DataFrame:
         f"{int(sp.donor_is_bacteria.sum()):,} Bacteria · "
         f"{int(sp.donor_is_eukaryote.sum()):,} Eukaryota · "
         f"{int((sp.donor_is_prokaryotic & ~sp.donor_is_bacteria).sum()):,} archaea/viruses/other")
-    say(f"  swissprot      {len(sp):,} reviewed entries in {time.time() - t0:.0f}s   "
-        f"median n_pubs {sp.donor_n_pubs.median():.0f}   "
-        f"P95 {np.percentile(sp.donor_n_pubs, 95):.0f}   max {sp.donor_n_pubs.max():,}")
+    say(f"  swissprot      {len(sp):,} reviewed entries in {time.time() - t0:.0f}s")
+    say(f"  curated refs   median {sp.donor_n_pubs_uniprot.median():.0f}   "
+        f"P99 {np.percentile(sp.donor_n_pubs_uniprot, 99):.0f}   "
+        f"max {sp.donor_n_pubs_uniprot.max():,}  "
+        f"({sp.loc[sp.donor_n_pubs_uniprot.idxmax(), 'donor_ac']})   <- NO cap; an earlier note "
+        "claiming a ceiling at 58 was wrong")
+    say(f"  gene2pubmed    median {sp.donor_n_pubs_gene2pubmed.median():.0f}   "
+        f"max {sp.donor_n_pubs_gene2pubmed.max():,}   "
+        "(measured alternative; NOT the shipped count)")
     return sp
 
 
@@ -295,9 +312,9 @@ def own_signals(species: str, counts: dict[str, int]) -> pd.DataFrame:
     df["n_pubs_uniprot"] = df["lit_pubmed_id"].apply(lambda c: len(split_ids(c)))
     df["n_pubs_gene2pubmed"] = df["geneid"].apply(
         lambda c: sum(counts.get(g, 0) for g in split_ids(c))) if counts else 0
-    df["n_pubs"] = df[["n_pubs_uniprot", "n_pubs_gene2pubmed"]].max(axis=1)
+    df["n_papers_own"] = df["n_pubs_uniprot"]      # curated refs only, same rule as the donors
     return df[["uniprot_ac", "gene_name", "reviewed", "annotation_score", "protein_existence",
-               "n_pubs_uniprot", "n_pubs_gene2pubmed", "n_pubs"]]
+               "n_pubs_uniprot", "n_pubs_gene2pubmed", "n_papers_own"]]
 
 
 # ---------------------------------------------------------------- DIAMOND
@@ -494,7 +511,7 @@ def choose_donors(hits: pd.DataFrame, sp_meta: pd.DataFrame, identity_floor: flo
     return out
 
 
-def assemble(species: str, own: pd.DataFrame, donors: pd.DataFrame, p_ref: float,
+def assemble(species: str, own: pd.DataFrame, donors: pd.DataFrame,
              any_hit: set[str] | None = None) -> pd.DataFrame:
     """One row per protein, every protein present, evidence naming the tier.
 
@@ -505,11 +522,8 @@ def assemble(species: str, own: pd.DataFrame, donors: pd.DataFrame, p_ref: float
     undifferentiated tie at the bottom of the ranking.
     """
     df = own.merge(donors, on="uniprot_ac", how="left")
-    df["studiedness_own"] = S.score(df["n_pubs"], df["annotation_score"], p_ref)
-    fam_pubs = df["donor_n_pubs"].fillna(0)
-    fam_ann = df["donor_annotation_score"].fillna(1.0)
-    df["studiedness_family"] = np.where(df["donor_ac"].notna(),
-                                        S.score(fam_pubs, fam_ann, p_ref), 0.0)
+    # Straight through: the donor's curated reference count IS the number. No scaling, no blend.
+    df["n_papers_family"] = df["donor_n_pubs"].fillna(0).astype(int)
     below = (df["uniprot_ac"].isin(any_hit) if any_hit is not None
              else pd.Series(False, index=df.index))
     df["evidence"] = np.select(
@@ -535,7 +549,7 @@ def ecoli_taxids(sp_meta: pd.DataFrame) -> set[str]:
 
 
 def run_control(hits: pd.DataFrame, sp_meta: pd.DataFrame, own_ec: pd.DataFrame,
-                p_ref: float, scope: str = "any") -> tuple[pd.DataFrame, dict]:
+                scope: str = "any") -> tuple[pd.DataFrame, dict]:
     """E. coli family score with every Escherichia donor removed, vs its own measured score."""
     excl = ecoli_taxids(sp_meta)
     say(f"    excluding {len(excl):,} Escherichia taxids "
@@ -544,19 +558,21 @@ def run_control(hits: pd.DataFrame, sp_meta: pd.DataFrame, own_ec: pd.DataFrame,
     donors = choose_donors(ec_hits, sp_meta, S.IDENTITY_FLOOR, exclude_taxids=excl, scope=scope)
     in_scope = (ec_hits if scope == "any" else ec_hits[ec_hits["donor_ac"].isin(
                     set(sp_meta.loc[sp_meta[f"donor_is_{scope}"], "donor_ac"]))])
-    df = assemble("ecoli", own_ec, donors, p_ref, any_hit=set(in_scope["qseqid"]))
+    df = assemble("ecoli", own_ec, donors, any_hit=set(in_scope["qseqid"]))
     # Only proteins the held-out transfer could actually score are informative about the
     # mechanism; a no_homolog row says nothing about how good the transfer is when it fires.
     scored = df[df["donor_ac"].notna()]
-    rho = scored["studiedness_family"].corr(scored["studiedness_own"], method="spearman")
-    pearson = scored["studiedness_family"].corr(scored["studiedness_own"])
+    rho = scored["n_papers_family"].corr(scored["n_papers_own"], method="spearman")
+    # Pearson on raw counts is meaningless here -- both are heavily skewed integers -- so it is
+    # taken on log1p, which is the scale on which "twice as studied" is a constant step.
+    pearson = np.log1p(scored["n_papers_family"]).corr(np.log1p(scored["n_papers_own"]))
     stats = {"n": len(df), "n_scored": len(scored),
              "donor_scope": scope,
              "coverage_pct": round(100 * len(scored) / len(df), 1),
              "spearman": round(float(rho), 4), "pearson": round(float(pearson), 4),
              "floor": CONTROL_RHO_FLOOR, "excluded_taxids": len(excl)}
-    keep = ["uniprot_ac", "gene_name", "studiedness_own", "studiedness_family", "evidence",
-            "donor_ac", "donor_organism", "donor_pident", "donor_n_pubs", "n_pubs"]
+    keep = ["uniprot_ac", "gene_name", "n_papers_own", "n_papers_family", "evidence",
+            "donor_ac", "donor_organism", "donor_pident", "donor_n_pubs"]
     return df[keep], stats
 
 
@@ -584,13 +600,10 @@ def main() -> None:
     ap.add_argument("--threads", type=int, default=os.cpu_count() or 4)
     ap.add_argument("--sensitivity", default="very-sensitive",
                     choices=["fast", "sensitive", "more-sensitive", "very-sensitive", "ultra-sensitive"])
-    ap.add_argument("--scale-quantile", type=float, default=S.SCALE_QUANTILE,
-                    help="quantile of the SwissProt publication distribution anchoring the log "
-                         "scale (default 99; 95 saturates E. coli -- see src/studiedness.py)")
     ap.add_argument("--donor-scope", default="prokaryotic", choices=list(SCOPES),
                     help="which SwissProt entries may donate literature. ALL THREE are computed "
                          "every run and compared into evidence/donor_scope_comparison.tsv; this "
-                         "picks which one becomes the shipped studiedness_family")
+                         "picks which one becomes the shipped n_papers_family")
     ap.add_argument("--deep-targets", type=int, default=5000,
                     help="k for the second pass over queries that hit --max-targets (0 disables)")
     ap.add_argument("--max-targets", type=int, default=500,
@@ -615,6 +628,7 @@ def main() -> None:
     say("  in    data/source/uniprot/literature/{swissprot_meta.tsv.gz,uniprot_sprot.fasta.gz}")
     say(f"        {G2P_COUNTS.relative_to(REPO_ROOT)}")
     say(f"  out   {dest.relative_to(REPO_ROOT)}/{pre}{{own,transfer}}_<species>.tsv")
+    say("  the number is a PAPER COUNT -- curated SwissProt references, no scaling, no blend")
     say(f"  donor = MOST-CITED hit at >= {S.IDENTITY_FLOOR:.0f}% id / "
         f">= {S.COVERAGE_FLOOR:.0f}% cov  (>= {S.IDENTITY_DIRECT:.0f}% = direct)")
     say("  the anchors are dark: 5,710/5,728 Kp proteins have exactly 1 PubMed id")
@@ -636,22 +650,11 @@ def main() -> None:
     rule()
     counts = gene2pubmed_counts()
     sp_meta = load_swissprot(counts)
-    pubs = sp_meta["donor_n_pubs"].to_numpy()
-    p_ref = float(np.percentile(pubs, args.scale_quantile))
-    if p_ref <= 0:
-        sys.exit(f"FATAL the SwissProt P{args.scale_quantile:g} publication count is 0; the scale "
-                 "would be undefined. Pass a higher --scale-quantile.")
-    say(f"  SCALE     P{args.scale_quantile:g} = {p_ref:.0f} papers -> "
-        f"log1p = {np.log1p(p_ref):.3f}")
-    say("            one FIXED constant for all species and both columns (not a per-proteome "
-        "percentile -- that is the geptop trap)")
-    say("            distribution of reviewed-entry publication counts, for context:")
-    say("              " + "   ".join(
-        f"P{q:g} {np.percentile(pubs, q):,.0f}" for q in (50, 75, 90, 95, 99, 99.9))
-        + f"   max {pubs.max():,.0f}")
-    sat = float((S.literature_score(pubs, p_ref) >= 1.0).mean())
-    say(f"            {100 * sat:.1f}% of SwissProt saturates at this anchor "
-        f"(guard: {100 * S.MAX_SATURATED:.0f}%)")
+    top = sp_meta.loc[sp_meta["donor_n_pubs_uniprot"].idxmax()]
+    say(f"  THE NUMBER  n_papers_family = the donor's curated reference count. No scaling, no "
+        "blend.")
+    say(f"              most-curated entry in SwissProt: {top['donor_ac']} with "
+        f"{int(top['donor_n_pubs_uniprot'])} refs -- there is no cap")
 
     rule()
     say("DIAMOND vs SwissProt")
@@ -702,11 +705,11 @@ def main() -> None:
             # different and much weaker novelty claim.
             in_scope = (sp_hits if scope == "any"
                         else sp_hits[sp_hits["donor_ac"].isin(scope_acs[scope])])
-            scoped[scope] = assemble(sp, own, d_s, p_ref, any_hit=set(in_scope["qseqid"]))
+            scoped[scope] = assemble(sp, own, d_s, any_hit=set(in_scope["qseqid"]))
         df = scoped[args.donor_scope].copy()
         df["donor_scope"] = args.donor_scope
         for scope in SCOPES:
-            df[f"studiedness_family_{scope}"] = scoped[scope]["studiedness_family"].to_numpy()
+            df[f"n_papers_family_{scope}"] = scoped[scope]["n_papers_family"].to_numpy()
         other = "any"
         df[f"donor_ac_{other}"] = scoped[other]["donor_ac"].to_numpy()
         df[f"donor_organism_{other}"] = scoped[other]["donor_organism"].to_numpy()
@@ -720,9 +723,9 @@ def main() -> None:
                                     & cur["donor_ac"].isna().to_numpy()).sum()),
                 "different_donor_vs_any": int(
                     (cur["donor_ac"].fillna("") != base["donor_ac"].fillna("")).sum()),
-                "median_family": round(float(cur["studiedness_family"].median()), 4),
-                "spearman_vs_any": round(float(cur["studiedness_family"].corr(
-                    base["studiedness_family"], method="spearman")), 4),
+                "median_family": int(cur["n_papers_family"].median()),
+                "spearman_vs_any": round(float(cur["n_papers_family"].corr(
+                    base["n_papers_family"], method="spearman")), 4),
                 "shipped": scope == args.donor_scope,
             })
 
@@ -733,31 +736,45 @@ def main() -> None:
                    "donor_pident", "donor_qcov", "donor_n_pubs", "donor_n_pubs_uniprot",
                    "donor_n_pubs_gene2pubmed", "donor_annotation_score", "donor_protein_name",
                    "nearest_ac", "nearest_pident", "nearest_organism", "nearest_n_pubs",
-                   "n_candidates", "studiedness_own", "studiedness_family", "evidence",
-                   "donor_scope", "studiedness_family_prokaryotic",
-                   "studiedness_family_bacteria", "studiedness_family_any",
+                   "n_candidates", "n_papers_own", "n_papers_family", "evidence",
+                   "donor_scope", "n_papers_family_prokaryotic",
+                   "n_papers_family_bacteria", "n_papers_family_any",
                    f"donor_ac_{other}", f"donor_organism_{other}"]
         df[tr_cols].to_csv(tr_path, sep="\t", index=False)
 
         tiers = df["evidence"].value_counts().to_dict()
         covered = int(df["donor_ac"].notna().sum())
-        # Unrankable ties are the failure mode this axis shares with stage 04's under-regularised
-        # logistic: a score pinned at 1.0 over half a proteome cannot be sorted.
-        for col in ("studiedness_own", "studiedness_family"):
-            frac = float((df[col] >= 0.999).mean())
-            if frac > S.MAX_SATURATED:
-                sys.exit(
-                    f"FATAL {sp}: {100 * frac:.1f}% of {col} is pinned at 1.0, above the "
-                    f"{100 * S.MAX_SATURATED:.0f}% guard -- that many tied values cannot be "
-                    f"ranked. Raise --scale-quantile (currently {args.scale_quantile:g}).")
+        # Unrankable ties are this axis's version of stage 04's saturated-probability failure.
+        # A count has no ceiling to saturate against, but it can still collapse: if one value
+        # held most of a proteome the ranking would be useless.
+        # ZERO IS EXCLUDED from the tie check. A third of K. pneumoniae genuinely has no
+        # in-scope homolog, and that group is already split into two documented tiers
+        # (`no_hit` vs `below_floor`) -- it is an answer, not an unrankable accident. What the
+        # guard must catch is the SCORED part of the ranking collapsing.
+        scored_fam = df.loc[df["n_papers_family"] > 0, "n_papers_family"]
+        tie_counts = (scored_fam.value_counts() if len(scored_fam)
+                      else pd.Series({0: 0}, dtype=int))
+        frac = float(tie_counts.iloc[0] / max(len(scored_fam), 1))
+        if frac > S.MAX_TIE_FRACTION:
+            sys.exit(
+                f"FATAL {sp}: {tie_counts.iloc[0]:,} of {len(scored_fam):,} SCORED proteins "
+                f"({100 * frac:.1f}%) all have {int(tie_counts.index[0])} papers, above the "
+                f"{100 * S.MAX_TIE_FRACTION:.0f}% guard -- the ranking has collapsed into one "
+                "tie and cannot be sorted.")
         say(f"  {sp}")
         say(f"    {len(df):,} proteins   with a donor {covered:,} "
             f"({100 * covered / len(df):.1f}%)   "
             + "   ".join(f"{k} {v:,}" for k, v in sorted(tiers.items())))
-        say(f"    studiedness_own    median {df.studiedness_own.median():.3f}   "
-            f"distinct {df.studiedness_own.nunique():,}")
-        say(f"    studiedness_family median {df.studiedness_family.median():.3f}   "
-            f"distinct {df.studiedness_family.nunique():,}")
+        fam = df["n_papers_family"]
+        say(f"    n_papers_own    median {df.n_papers_own.median():.0f}   "
+            f"max {df.n_papers_own.max():,}   distinct {df.n_papers_own.nunique():,}")
+        say(f"    n_papers_family median {fam.median():.0f}   max {fam.max():,}   "
+            f"distinct {fam.nunique():,}   zero for {int((fam == 0).sum()):,}")
+        top3 = fam.value_counts().sort_index(ascending=False).head(3)
+        say("      top of the ranking: "
+            + "  ".join(f"{int(k)}p x{int(v)}" for k, v in top3.items())
+            + f"   largest non-zero tie {int(tie_counts.iloc[0]):,} at "
+              f"{int(tie_counts.index[0])}p ({100 * frac:.1f}% of scored)")
         top_org = df.loc[df.donor_organism.notna(), "donor_organism"].value_counts().head(3)
         for org, n in top_org.items():
             say(f"      donor organism  {n:5,}  {org}")
@@ -765,8 +782,11 @@ def main() -> None:
         rows.append({"species": sp, "n": len(df), "with_donor": covered,
                      "with_donor_pct": round(100 * covered / len(df), 1),
                      **{f"tier_{k}": v for k, v in tiers.items()},
-                     "median_own": round(float(df.studiedness_own.median()), 4),
-                     "median_family": round(float(df.studiedness_family.median()), 4)})
+                     "median_own": int(df.n_papers_own.median()),
+                     "median_family": int(fam.median()),
+                     "max_family": int(fam.max()),
+                     "distinct_family": int(fam.nunique()),
+                     "largest_tie_pct": round(100 * frac, 1)})
         route_rows.append({"species": sp, "route": "swissprot_diamond", "n": len(df),
                            "reachable": covered,
                            "reachable_pct": round(100 * covered / len(df), 1)})
@@ -780,13 +800,17 @@ def main() -> None:
         rule("=")
         return
 
-    pd.DataFrame([{"p_ref_n_pubs": p_ref, "scale_quantile": args.scale_quantile,
-                   "saturated_fraction_swissprot": round(sat, 4),
-                   "w_literature": S.W_LITERATURE,
-                   "w_annotation": S.W_ANNOTATION, "identity_floor": S.IDENTITY_FLOOR,
+    pd.DataFrame([{"quantity": "curated PubMed references on the best-studied in-scope "
+                               "SwissProt homolog",
+                   "count_source": "uniprot_lit_pubmed_id",
+                   "not_used": "ncbi_gene2pubmed (measured alternative, see gene2pubmed_gain.tsv)",
+                   "donor_scope": args.donor_scope,
+                   "identity_floor": S.IDENTITY_FLOOR, "identity_close": S.IDENTITY_CLOSE,
                    "identity_direct": S.IDENTITY_DIRECT, "coverage_floor": S.COVERAGE_FLOOR,
-                   "swissprot_entries": len(sp_meta)}]).to_csv(
-        EVIDENCE_DIR / "scale.tsv", sep="\t", index=False)
+                   "swissprot_entries": len(sp_meta),
+                   "max_curated_refs_in_swissprot": int(sp_meta.donor_n_pubs_uniprot.max()),
+                   "scaled_reference_if_needed": S.SCALE_REFERENCE}]).to_csv(
+        EVIDENCE_DIR / "definition.tsv", sep="\t", index=False)
     pd.DataFrame(route_rows).to_csv(EVIDENCE_DIR / "route_comparison.tsv", sep="\t", index=False)
     pd.DataFrame(scope_rows).to_csv(EVIDENCE_DIR / "donor_scope_comparison.tsv",
                                     sep="\t", index=False)
@@ -835,10 +859,10 @@ def main() -> None:
             ec = own_by_sp["ecoli"]
             dc = choose_donors(hits[hits.qseqid.isin(set(ec["uniprot_ac"]))], sp_meta, floor,
                                exclude_taxids=excl, scope=args.donor_scope)
-            cdf = assemble("ecoli", ec, dc, p_ref)  # bands unused here; rho only
+            cdf = assemble("ecoli", ec, dc)  # bands unused here; rho only
             sc = cdf[cdf["donor_ac"].notna()]
             row["control_spearman"] = (round(float(
-                sc["studiedness_family"].corr(sc["studiedness_own"], method="spearman")), 4)
+                sc["n_papers_family"].corr(sc["n_papers_own"], method="spearman")), 4)
                 if len(sc) > 100 else float("nan"))
             row["control_n"] = len(sc)
         sweep.append(row)
@@ -857,7 +881,7 @@ def main() -> None:
         ec_own = own_signals("ecoli", counts)
         both = {}
         for scope in SCOPES:
-            both[scope] = run_control(hits, sp_meta, ec_own, p_ref, scope=scope)
+            both[scope] = run_control(hits, sp_meta, ec_own, scope=scope)
         # THE ARBITER between donor scopes: which one better recovers E. coli's own measured
         # literature from held-out donors? Reported for both, whichever is shipped.
         for scope, (_, st) in both.items():

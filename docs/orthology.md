@@ -44,10 +44,38 @@ a *measured* negative. On this anchor the two diverge violently:
 | v1's OrthoDB gene-symbol pivot | 18.3% — i.e. Kp's 18.4% native gene-name coverage |
 | eggNOG-mapper, run over the sequences (search) | **91.5%** |
 | DIAMOND vs OrthoDB, one assembly (search, v11) | 74.6% |
-| DIAMOND vs **all** of OrthoDB (search, v12) | **91.1%** |
+| DIAMOND vs **all** of OrthoDB (search, v12, `--reps 20`) | **92.7%** |
 
 So the rule is *search, never look up* — CLAUDE.md's standing convention — and both group sources
 here obey it: OrthoFinder de novo, and OrthoDB by sequence (see *Absolute groups* below).
+
+### stage 02's eggNOG groups are a measured source too — the retraction, stated once
+
+**eggNOG-mapper's zeros are measured, not unknown, and anything saying otherwise is the retracted
+version.** An earlier draft of this document ruled eggNOG out for "9–11% unknowns" and that
+reasoning was wrong: stage 02 *ran* emapper over every protein, so a protein with no orthologous
+group is a searched negative exactly like an OrthoFinder unassigned gene. The unknown problem
+belongs to the *xref lookup* route — UniProt's eggNOG xref is 0.00% on Kp while emapper reached
+91.5% over the same proteins. Conflating search with lookup wrongly eliminated the one source that
+was already absolute *and* already computed. (Recorded again in the 2026-09-03 run log, correction
+1; this is the considered position and it stands.)
+
+Per-species, from stage 02's own run log — groups assigned by emapper:
+
+| | Kp HS11286 | Ec K-12 | Sa NCTC 8325 | human |
+|---|---|---|---|---|
+| eggNOG OG (search) | 91.5% | 96.3% | 89.1% | **not run** |
+
+**So the reason to run OrthoFinder de novo is not that eggNOG's zeros are soft.** Two real ones
+survive. (1) **Coverage of all four species.** Stage 02 is the three bacteria only — COG2024 has no
+eukaryotes and human was excluded there by construction — so eggNOG answers nothing about the human
+column, which is the whole off-target question this axis exists to price. (2) **A measured zero for
+every protein, by construction rather than by coverage.** OrthoFinder either assigns an input
+protein an orthogroup or names it in `Orthogroups_UnassignedGenes.tsv`, and the stage exits
+non-zero unless those two account for each proteome exactly; emapper's 89–96% leaves 4–11% that is
+*searched* but not *reconciled against the input set*, which is a weaker guarantee even though it
+is the same kind of evidence. And neither source resolves pairwise orthologs or paralogs at all —
+only OrthoFinder's `Orthologues/` does.
 
 **OrthoFinder run de novo on our own four FASTAs satisfies the requirement by construction.** Every
 input protein is either assigned an orthogroup or named in `Orthogroups_UnassignedGenes.tsv`; both
@@ -103,8 +131,11 @@ data/processed/orthology/
   orthologs.tsv            29,844 rows   sparse: pairs called by EITHER method
   neighbors.tsv           146,723 rows   sparse: top-5 per (protein, target species)
   orthology_<species>.tsv   4 files      DENSE: one row per protein -- where a 0 is readable
-  accessory/  orthofinder/ (the native run), hits/, orthogroups.tsv,
-              method_disagreement.tsv, control.tsv, manifest.tsv
+  orthodb_<species>.tsv     4 files      DENSE: absolute groups (see below)
+  evidence/   orthogroups.tsv, method_disagreement.tsv, control.tsv, manifest.tsv,
+              orthodb_manifest.tsv, orthodb_transfer_audit.tsv, orthodb_decoy_hits.tsv
+  scratch/    orthofinder/ (the native run), hits/, fasta/, and the OrthoDB slices --
+              purgeable, and the reason a re-run is cheap rather than free
 ```
 
 `orthologs.tsv` — `query_ac · query_species · target_ac · target_species ·
@@ -129,13 +160,17 @@ effect below. A single merged count would hide which of the two moved.
 | `load_neighbors()` | the continuous matrix |
 | `load(species)` / `load_all()` | the dense per-protein table(s) |
 | `orthologs_of(ac)` / `neighbors_of(ac)` | one protein's rows |
-| `load_orthogroups()` / `load_disagreement()` / `control()` / `manifest()` | accessory |
+| `load_orthogroups()` / `load_disagreement()` / `control()` / `manifest()` | the `evidence/` tables |
+
+**`SPECIES` in `src/orthology.py` is all FOUR** — `("kpneumoniae", "ecoli", "saureus", "human")`.
+Human is in scope on this axis, unlike `src/function.py`, where COG2024 has no eukaryotes to give
+it an honest letter. Anything iterating `SPECIES` across axes must not assume the two agree.
 
 ## What the two methods disagree about
 
 **35.2% of ortholog pairs are called by both**; 15,944 by OrthoFinder alone, 3,398 by RBH alone.
 v1 computed both on the Kp–Ec pair (3,179 vs 3,003) and **never compared them** — a free validation
-set left unused. Disagreements are written to `accessory/method_disagreement.tsv` (19,342 rows).
+set left unused. Disagreements are written to `evidence/method_disagreement.tsv` (19,342 rows).
 
 Agreement falls with evolutionary distance — Ec–Sa 50%, Kp–Ec 45%, and only 21–24% for the human
 pairs. That independently vindicates v1's methodological note, *"orthology inference is unreliable
@@ -159,7 +194,10 @@ orthogroup inference needs phylogenetic signal, and a small panel starves it. A 
 made this unmistakable: OrthoFinder emitted just **631** ortholog groups for Kp×Ec alone, against
 2,568 Kp proteins in the 4-species run. **So the 55.5% figure is not a target this stage can hit at
 four species, and falling short of it is not a defect.** If OrthoFinder recall matters more than run
-time, add the tier-C panel — that is the lever.
+time, add the tier-C panel — that is the lever, and it is cheaper than it looks: **OrthoFinder 3's
+incremental mode (`--assign` / `--core`) adds species against an existing core without recomputing
+it**, which is exactly why `scratch/orthofinder/Results_Sep03/` is kept rather than purged with the
+rest of `scratch/`.
 
 ## Absolute groups — OrthoDB v12.2
 
@@ -229,7 +267,7 @@ conflate them.
 |---|---|---|---|---|
 | UniProt's `xref_orthodb` | **0.0%** | 96.4% | 99.4% | — |
 | OrthoDB's own mapped `uniprot_id` | **0.0%** | 73.6% | 93.2% | **17.0%** |
-| **DIAMOND vs all of OrthoDB** | **91.1%** | 95.1% | 91.3% | 95.5% |
+| **DIAMOND vs all of OrthoDB** (`--reps 20`) | **92.7%** | 95.5% | 91.8% | 96.0% |
 
 **HS11286 is absent from OrthoDB entirely** — taxid 1125630 is not in `species.tab`, and the only
 *K. pneumoniae* organism is `72407_0`. No *Klebsiella* proteome in UniProt carries an OrthoDB xref at
@@ -248,7 +286,8 @@ E. coli control it is the only signal that separates:
 | <0.5 | 1,397 | 41.4% | | 25–35% | 179 | 38.0% |
 
 Median confidence: Ec **1.00**, Sa **1.00**, human 0.76, **Kp 0.53** — Kp has no OrthoDB
-representation, so all 5,216 of its assignments are sequence-tier.
+representation, so all **5,312** of its assignments are sequence-tier (at `--reps 20`; the shipped
+`orthodb_kpneumoniae.tsv` is 5,312 `assigned_by_sequence` + 416 `no_group` = 5,728).
 
 ### The accuracy number, and why the obvious one is wrong
 
@@ -328,7 +367,7 @@ orthodb_no_group_reason · orthodb_match_pident · orthodb_confidence · orthodb
 orthodb_gene_id`
 
 Two levels are pivoted into columns — the **domain** and the **narrowest** assigned level.
-`accessory/orthodb_groups_long.tsv` keeps all of them: **210,707 rows over 22 levels and 153,669
+`scratch/orthodb_groups_long.tsv` keeps all of them: **210,707 rows over 22 levels and 153,669
 distinct orthogroups**. Load with `load_orthodb`, `load_orthodb_all`, `load_orthodb_long`;
 `orthodb_confidence` and `orthodb_match_pident` come back as floats, so the documented filter works.
 
@@ -391,7 +430,7 @@ The stage runs in **`gradi`** and shells out to **`gradi-ortho`** (osx-64, Roset
 - **RBH symmetry** — `is_rbh(a,b) == is_rbh(b,a)`. Exits non-zero.
 - **No within-species OrthoFinder call** — orthology is a between-species relation, so a
   within-species `True` would be a category error. Measured 0. Exits non-zero.
-- **v1 reproduction** — written to `accessory/control.tsv` every run, reported not enforced, because
+- **v1 reproduction** — written to `evidence/control.tsv` every run, reported not enforced, because
   the OrthoFinder half is legitimately panel-dependent (above).
 
 ## Traps

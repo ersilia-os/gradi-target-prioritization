@@ -90,7 +90,7 @@ missing data**. v1 never met this — it had no Gram-positive organism.
 
 The remap is arithmetic on the output vector, not a different forward pass. So the model runs
 **once**, the raw un-remapped six-vector is persisted to
-`accessory/deeplocpro_probabilities_<species>.tsv`, and the remap is applied only when choosing a
+`evidence/deeplocpro_probabilities_<species>.tsv`, and the remap is applied only when choosing a
 label. Costs nothing, and it keeps the inflation measurable: `p_periplasm + p_outer_membrane` is
 exactly the mass that was moved. The script prints the mean every run.
 
@@ -129,7 +129,7 @@ fraction of this protein sits in the cytoplasm*, which is what Clp reachability 
 
 Note the third row. A barrel is **not** near zero, because its strands are joined by short
 cytoplasmic turns, so it scores *above* a fully-exported soluble protein. Use `n_tm_strand` from
-`accessory/` to tell the two apart — the fraction alone will not.
+`evidence/tmbed_topology_<species>.tsv` to tell the two apart — the fraction alone will not.
 
 **`has_signal_peptide` = `'S' in labels`** says *why* a fraction is near zero — exported rather than
 membrane-buried — and makes one contradiction visible: a signal-peptide-bearing protein that
@@ -140,7 +140,7 @@ segment orientation, in the same 3-line file, for no saving at all. `i`/`o` coun
 so `cytoplasmic_fraction` is identical — but helix and strand segments must then be counted **per
 letter** (`HHHhhh` is two segments, one each way), which `_n_segments()` does.
 
-### Why the other features go to `accessory/` rather than being dropped
+### Why the other features go to `evidence/` rather than being dropped
 
 TMbed is **CPU-only here** — it gates GPU on `torch.cuda.is_available()` (`tmbed/embed.py:34`) — so
 the run is hours and **cannot be partially redone**. Extracting numbers from the label string costs
@@ -152,7 +152,7 @@ nothing, so discarding a free one would be the expensive choice.
   peripheral, membrane-associated, and indistinguishable from a bug without this number.
 - **`n_tm_strand`** is β-barrel evidence, and the one place TMbed can catch DeepLocPro's worst-case
   error (a barrel called cytoplasmic). It is the axis's best-validated signal, and the strand-count
-  spot check reads from here — so this accessory column is load-bearing for the guards even though
+  spot check reads from here — so this evidence column is load-bearing for the guards even though
   it is not in the deliverable. `BETA_BARREL_MIN_STRANDS = 8`.
 - **`cyto_longest_segment`** — the longest contiguous cytoplasmic run. A threading handle needs
   contiguity, not just total mass.
@@ -199,16 +199,26 @@ This matches stages 01 and 02.
 data/processed/localization/
     deeplocpro_<species>.tsv                  THE compartment call — 3 columns, keyed on uniprot_ac
     tmbed_<species>.tsv                       THE topology score  — 3 columns, keyed on uniprot_ac
-    accessory/
+    evidence/
         deeplocpro_probabilities_<species>.tsv   raw UN-REMAPPED 6-vector, margin, truncated
         deeplocpro_counts_<species>.tsv          per-compartment counts, all six, zeros included
         tmbed_topology_<species>.tsv             n_tm_helix, n_tm_strand, cyto_longest_segment, tmbed_length
         tmbed_labels_<species>.tsv               the raw per-residue label string
+        {deeplocpro,tmbed}_manifest.tsv
+    scratch/
         deeplocpro_cache/<species>_L2000/*.json  one JSON per protein (resumable)
         tmbed_shards/<species>_250_<NNNN>.pred   shard cache (resumable)
         .tmbed_<species>.key                     md5(accession set | shard size | out format)
-        {deeplocpro,tmbed}_manifest.tsv
+        smoke_*                                  --limit output
 ```
+
+**The split follows the directory contract's cite-or-delete test.** The four tables and the two
+manifests are all cited or checked: `deeplocpro_probabilities_<species>.tsv` is what keeps the
+Gram-positive remap measurable (the `gram_remap.png` figure recomputes the raw argmax from it),
+`tmbed_topology_<species>.tsv` carries the strand count the β-barrel guard reads, and
+`tmbed_labels_<species>.tsv` is the raw string every future topology feature derives from — so
+they are `evidence/`. The two caches and the smoke output are the opposite: large, regenerable,
+and deleted to reclaim space, so they are `scratch/`.
 
 No raw directory: both models' weights come from the `gradi-loc` install and the HF/torch caches,
 not from a fetch this stage performs.
@@ -261,14 +271,14 @@ Two deliberate choices worth knowing:
   `composition.png` panel A keeps them separate.
 
 `gram_remap.png` is the only figure that recomputes anything — the raw argmax labels, from the
-un-remapped six-vector in `accessory/deeplocpro_probabilities_saureus.tsv`, which the stage persists
+un-remapped six-vector in `evidence/deeplocpro_probabilities_saureus.tsv`, which the stage persists
 for exactly this purpose.
 
 ## Running it
 
 ```bash
 python scripts/localization/predict.py                              # both predictors, 3 species
-python scripts/localization/predict.py --species ecoli --limit 20   # smoke test -> accessory/smoke_*
+python scripts/localization/predict.py --species ecoli --limit 20   # smoke test -> scratch/smoke_*
 python scripts/localization/predict.py --only deeplocpro            # skip TMbed's hours
 python scripts/localization/predict.py --only tmbed --refresh       # rebuild every shard
 python scripts/localization/predict.py --dry-run
@@ -300,12 +310,12 @@ run the stage from there; it imports pandas through `src/`.
   demanding 20/20 from a predictor is a spurious failure waiting to happen.
 - **Truncation is reported, always.** Sequences over `DLP_MAX_LENGTH = 2000` are cut at the
   C-terminus before ESM-2 (attention is quadratic; localization signal is overwhelmingly
-  N-terminal). `truncated` is an accessory column, but the count is printed every run — silently
+  N-terminal). `truncated` is an evidence column, but the count is printed every run — silently
   truncating is what the house style forbids.
 - **Cache keys.** `DLP_MAX_LENGTH` is in the DeepLocPro cache **directory** name and the shard size
   is in each TMbed shard **file** name, so changing either cannot silently reuse mismatched results.
   The TMbed key sidecar additionally covers the accession set. `--limit` writes everything under
-  `accessory/smoke_*`, so a smoke test can never clobber a full run.
+  `scratch/smoke_*`, so a smoke test can never clobber a full run.
 - **Cross-check, reported not enforced.** Mean `cytoplasmic_fraction`, TM helices, strands and
   signal-peptide rate per DeepLocPro compartment. Two independent models, so the separation is the
   evidence they agree: helices concentrate in `cytoplasmic_membrane` (5.2 against 0.0 in
@@ -459,7 +469,7 @@ cross-tabulation of raw argmax → shipped label:
 The 13 cytoplasm→extracellular flips are the ones the original framing could not see, and they are
 the least comfortable of the set: a protein the model called cytoplasmic outright became
 `extracellular` on the strength of Gram-negative-only probability mass. Reach for
-`accessory/deeplocpro_probabilities_saureus.tsv` before trusting a borderline *S. aureus*
+`evidence/deeplocpro_probabilities_saureus.tsv` before trusting a borderline *S. aureus*
 `extracellular` call.
 
 Reassuringly, DeepLocPro largely already knows *S. aureus* is not Gram-negative: its raw argmax
@@ -514,4 +524,4 @@ therefore the uselessness of its mean *and* its median — became obvious.
 
 Everything else reproduced exactly: per-compartment `cytoplasmic_fraction`, signal-peptide share, TM
 helix and strand means all match the first-run table to three decimals, and the composition
-percentages match `accessory/deeplocpro_counts_<species>.tsv`.
+percentages match `evidence/deeplocpro_counts_<species>.tsv`.

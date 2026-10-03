@@ -20,8 +20,8 @@ annotates it, and an empty row is the honest answer. Coverage figures are in eac
 KEGG KO and pathways, EC, BRITE, CAZy, PFAMs, preferred names, and an independent second opinion on
 the COG letter.
 
-A third scheme would get `<scheme>_<species>.tsv` beside them and `<scheme>_*` files in
-`accessory/`.
+A third scheme would get `<scheme>_<species>.tsv` beside them in `evidence/`, its audits and
+vocabularies in `evidence/` too, and its raw tool dumps in `scratch/`.
 
 ---
 
@@ -37,7 +37,7 @@ domains and PANTHER thousands of families — informative, but not *broad*.
 
 | eggNOG xref coverage | Kp HS11286 | Ec K-12 | Sa NCTC 8325 | human |
 |---|---|---|---|---|
-| `accessory/annotation_<species>.tsv` | **0.00% (n = 0)** | 92.98% | 79.23% | 91.48% |
+| `data/processed/proteomes/evidence/annotation_<species>.tsv` | **0.00% (n = 0)** | 92.98% | 79.23% | 91.48% |
 
 Zero on *K. pneumoniae*. HS11286 is a dark TrEMBL proteome, so every accession-based route to COG
 dies on exactly the species that matters most. A sequence-based one does not — the same finding that
@@ -69,7 +69,7 @@ on **COG2024** — 5,050 COGs, 26 categories, 4 groups. `cog_definition.tsv` (co
 | | |
 |---|---|
 | downloads | `Cog_LE.tar.gz` 200 MB + `cddid.tbl.gz` 7.8 MB, cached in `data/source/cdd/` |
-| eggNOG-mapper would have been | ~11.4 GB compressed, ~20 GB unpacked, for the same letter |
+| eggNOG-mapper would have been | ~11.4 GB compressed and **50.6 GB unpacked** (measured in Part 2; the ~20 GB estimated here beforehand was wrong), for the same letter |
 | runtime | **9 min wall clock** for all 13,020 proteins, 9 threads, Rosetta |
 
 We use the **library API only**, never its CLI and never its Altair charts — this repo plots with
@@ -95,14 +95,17 @@ conserved core and read as misleadingly sparse, so it is excluded by constructio
 
 ```
 data/processed/function/
-    cog_<species>.tsv                      THE deliverable — 8 columns, keyed on uniprot_ac
-    accessory/
-        cog_rpsblast_<species>.tsv         raw outfmt-6 hits (the resumable cache)
-        .cog_rpsblast_<species>.key        md5(accession set | evalue) — the cache key
+    cog_matrix_<species>.tsv               THE deliverable — see Part 2's matrix section
+    evidence/
+        cog_<species>.tsv                  the per-protein table — 8 columns, keyed on uniprot_ac
         cog_counts_<species>.tsv           per-letter counts, all 26 categories, zeros included
         cog_control_ecoli.tsv              the ground-truth comparison, row by row
+        cog_crosscheck.tsv                 COGclassifier vs emapper vs NCBI (Part 2)
         cog_manifest.tsv
-data/source/cdd/                  Cog_LE/, cddid.tbl.gz, SOURCE.md
+    scratch/
+        cog_rpsblast_<species>.tsv         raw outfmt-6 hits (the resumable cache)
+        .cog_rpsblast_<species>.key        md5(accession set | evalue) — the cache key
+data/source/cdd/                  Cog_LE/, cddid.tbl.gz, cog_func_category.tsv, SOURCE.md
 output/plots/function/cog_categories.png
 ```
 
@@ -156,7 +159,7 @@ proteins: `b0238` (hypoxanthine phosphoribosyltransferase) best-hits a PRTase pr
 `H`) where NCBI curates the whole protein as `COG0503`/`F`. Category agreement being *higher* than
 id agreement is the signal that the chain is sound — near-miss COGs usually share a category.
 
-The row-by-row comparison is in `accessory/cog_control_ecoli.tsv` with `cog_id_agrees` and
+The row-by-row comparison is in `evidence/cog_control_ecoli.tsv` with `cog_id_agrees` and
 `cog_category_agrees` flags.
 
 ### Why coverage is not 100%, and why it should not be
@@ -255,7 +258,7 @@ whatever the coverage table says, and the script exits non-zero.
 8. **`cog-24.cog.csv` is 637 MB** and is never downloaded — the control streams it through `grep`
    and keeps ~3.6k lines. It takes ~2 min. `--no-control` skips it.
 9. **`--limit` never touches the real deliverable.** A smoke test writes everything under
-   `accessory/smoke_*` — table, hit cache, counts, manifest — and skips the control, which would be
+   `scratch/smoke_*` — table, hit cache, counts, manifest — and skips the control, which would be
    meaningless on a truncated proteome. Without this, `--limit 50` silently replaced a 2,889-row
    `cog_saureus.tsv` with 50 rows. Caught before the first commit, not after.
 
@@ -352,6 +355,12 @@ eggNOG-mapper produced — `kegg_ko`, `kegg_pathway`, `kegg_module`, `brite`, `e
 `preferred_name`, `description`, and its own `cog_category` (an independent second opinion on
 Part 1's letter).
 
+**Load through `src/function.py`.** `load(species)` returns both schemes joined — the usual entry
+point; `load_cog`, `load_goslim`, `load_eggnog` read one table each, `load_goslim_terms` the
+97-term vocabulary, and `confident` / `informative` are the two filters described above
+(`confident` keeps curated rows plus eggNOG rows below an e-value cut; `informative` drops COG `R`
+and `S`). Everything reads with `keep_default_na=False`, so a missing value is `""` and not NaN.
+
 ## The control
 
 Same trick as Part 1, and scored **identically to the method it replaced** so the numbers are
@@ -372,6 +381,9 @@ where UniProt has not already — see the run log.
 `gradi-emapper` (osx-64, Rosetta). eggnog-mapper has no osx-arm64 build, and installing it into
 `gradi` would drag that env to osx-64 and take ESM-C with it — the same reasoning as `blast`.
 
+**`goslim.py` needs `goatools`** in `gradi` — it is what supplies `GODag` and `mapslim`, i.e. the
+whole slim mapping. Nothing else in this stage depends on it.
+
 1. **bioconda puts `diamond`/`mmseqs` in the env's `bin/`**, but emapper looks for them inside
    `site-packages/eggnogmapper/bin/`. Symlink them; `install.sh` records the loop.
 2. **`download_eggnog_data.py` does not work.** It fetches from `eggnogdb.embl.de`, which no longer
@@ -379,8 +391,14 @@ where UniProt has not already — see the run log.
    `eggnog5.embl.de`.
 3. **`eggnog5.embl.de` drops long transfers.** The first attempt died at 16% with
    `curl: (18) transfer closed with 5689882877 bytes remaining`. Fetch resumably (`curl -C -`) and
-   loop until the byte count equals `Content-Length`. An exit code is not evidence of data.
-4. The database is **~21 GB, public and re-derivable — do not upload it to eosvc.**
+   loop until the byte count equals `Content-Length`. An exit code is not evidence of data. **And do
+   not reach for curl's own `--retry`**: it restarts a `-C -` transfer from zero, so the loop has to
+   be yours, re-invoking `curl -C -` each time.
+4. The files unpack to **50.6 GB**, of which `eggnog.db` alone is **41.4 GB** and
+   `eggnog_proteins.dmnd` 9.3 GB (`data/source/eggnog/SOURCE.md` holds the byte counts). **~21 GB was
+   the planning estimate and it was wrong by more than half** — measure the *unpacked* size against
+   free disk before committing to a database, not the download size. Public and re-derivable —
+   **do not upload it to eosvc.**
 5. Making room for it meant deleting `data/raw/other/chembl/chembl_37/` (28 GB), which
    `PROVENANCE.md` Rule 1 documents as re-derivable; `chembl_37_sqlite.tar.gz` was verified with
    `tar -tzvf` (exit 0, correct member, 30,480,314,368 bytes) **before** the directory was removed.
@@ -426,7 +444,7 @@ assumed groups carry GO. **Test the OG→GO yield before paying for a database t
 
 ### Three-way COG cross-check
 
-`accessory/cog_crosscheck.tsv` — the same run emits `COG_category`, so Part 1's tool can be checked
+`evidence/cog_crosscheck.tsv` — the same run emits `COG_category`, so Part 1's tool can be checked
 against a real competitor on E. coli, with NCBI's curated COG2024 as ground truth:
 
 | | agreement vs NCBI | coverage |
@@ -483,7 +501,7 @@ CLI (eggnog): `--species` · `--cpu` · `--limit` · `--refresh` · `--dry-run` 
 
 ```bash
 python scripts/function/cog.py                                # three bacteria + control, ~9 min cold
-python scripts/function/cog.py --species saureus --limit 50   # smoke test -> accessory/smoke_*
+python scripts/function/cog.py --species saureus --limit 50   # smoke test -> scratch/smoke_*
 python scripts/function/cog.py --refresh                      # re-download and re-run RPS-BLAST
 python scripts/function/cog.py --dry-run
 python scripts/plots/function.py
@@ -524,7 +542,7 @@ Built from the `*_all` columns, not the single chosen term. That is the main gai
 | GO slim BP | 32–52% of BP-annotated | 7 |
 | COG letters | 12.4–12.6% of classified | 4 |
 
-Reconciled exactly against `accessory/cog_counts_<species>.tsv`, which counts only the **chosen**
+Reconciled exactly against `evidence/cog_counts_<species>.tsv`, which counts only the **chosen**
 letter: *chosen + extra-from-multi-label == matrix total*, to the unit — Kp 4,528 + 591 = 5,119,
 Ec 3,719 + 477 = 4,196, Sa 2,112 + 255 = 2,367. The gap between those two numbers is precisely the
 information the old headline column discarded.
@@ -574,3 +592,6 @@ all 13,020. Shape checks pass on a wrong matrix; this does not.
 
 **Load through `src/function.py`** — `load_goslim_matrix`, `load_cog_matrix`,
 `load_goslim_matrix_all`, `load_cog_matrix_all`, `matrix_manifest`.
+
+CLI: `--species` · `--dry-run` · `-q`. There is no `--refresh` and no `--limit`: the script reads
+two finished tables and reshapes them in seconds, so a re-run is the refresh.

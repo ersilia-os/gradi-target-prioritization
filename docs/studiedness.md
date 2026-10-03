@@ -5,7 +5,11 @@ also the novelty the GraDi collaboration is looking for. `src.studiedness.novelt
 number read the other way.
 
 **Deliverable:** `data/processed/studiedness/studiedness_<species>.tsv`, complete and canonical for
-the three bacteria — `uniprot_ac · studiedness_own · studiedness_family · evidence`.
+the three bacteria — `uniprot_ac · n_papers_own · n_papers_family · evidence`.
+
+**The number is a paper count.** `n_papers_family` is the number of curated PubMed references on
+the best-studied prokaryotic SwissProt homolog. Nothing is scaled, weighted or blended: a 5 is
+five papers, a 0 is zero papers. See §6 for the 0–1 composite this replaced and why it went.
 
 ---
 
@@ -25,8 +29,8 @@ Measured on UniProt 2026_03 (2026-09-21), fetching
 it. So the usable number is **transferred from homologs**, which is also CLAUDE.md's standing rule:
 *map by sequence, not by accession, when reaching an external database*.
 
-`studiedness_own` still ships, because it *is* the measurement of darkness — and keeping it beside
-`studiedness_family` is what makes "dark in *Klebsiella*, famous in *E. coli*" readable off one row.
+`n_papers_own` still ships, because it *is* the measurement of darkness — and keeping it beside
+`n_papers_family` is what makes "dark in *Klebsiella*, famous in *E. coli*" readable off one row.
 
 **Correction to the old spec:** `scripts/studiedness/README.md` (now retired) claimed protein
 existence was "already fetched by `proteomes/download.py`, so this part is nearly free". It was
@@ -88,15 +92,15 @@ biology. Scoring it 0 fails in the one direction this axis must not fail. Admitt
 
 | species | scope | with a donor | lost vs `any` | different donor | rho vs `any` |
 |---|---|---|---|---|---|
-| Kp | **prokaryotic** | 3,767 | **15** | 254 | 0.990 |
-| Kp | bacteria | 3,705 | 77 | 329 | 0.985 |
+| Kp | **prokaryotic** | 3,767 | **15** | 215 | 0.989 |
+| Kp | bacteria | 3,705 | 77 | 290 | 0.983 |
 | Kp | any | 3,782 | 0 | — | 1.000 |
-| Sa | **prokaryotic** | 1,613 | **4** | 152 | 0.990 |
-| Sa | bacteria | 1,601 | 16 | 179 | 0.986 |
-| Ec | prokaryotic / bacteria / any | 4,374 | 0 | 224 / 240 | 0.986 / 0.983 |
+| Sa | **prokaryotic** | 1,613 | **4** | 129 | 0.991 |
+| Sa | bacteria | 1,601 | 16 | 158 | 0.987 |
+| Ec | prokaryotic / bacteria / any | 4,374 | 0 | 183 / 201 | 0.982 / 0.978 |
 
 **The honest headline: the scope barely matters numerically.** The three scores correlate at
-**rho 0.983–0.990** and only 254 of 5,728 Kp proteins change score at all. The human donors were
+**rho 0.978–0.991** and only 215 of 5,728 Kp proteins change at all. The human donors were
 visually striking and numerically almost irrelevant, because the log scale saturates above
 P_REF = 204 papers — Kp `groEL` scores 1.000 from human HSPD1 (934 papers) *and* 1.000 from
 E. coli `groEL` (246). The restriction is kept because it makes the number mean the right thing,
@@ -106,11 +110,11 @@ not because it moves it.
 
 | scope | scored | spearman | pearson |
 |---|---|---|---|
-| **prokaryotic** | 2,945 (66.9%) | 0.5411 | **0.5351** |
-| bacteria | 2,920 (66.3%) | 0.5375 | 0.5319 |
-| any | 2,954 (67.1%) | **0.5436** | 0.4998 |
+| **prokaryotic** | 2,945 (66.9%) | 0.328 | **0.350** |
+| bacteria | 2,920 (66.3%) | 0.322 | 0.344 |
+| any | 2,954 (67.1%) | **0.339** | 0.348 |
 
-Spearman spans 0.006 across all three — a tie — and the two metrics *disagree* about the winner,
+Spearman spans 0.017 across all three — a tie — and the two metrics *disagree* about the winner,
 which is itself the signal that the difference is noise. `prokaryotic` has the best pearson, is
 within noise on spearman, and strands 15 Kp proteins instead of 77.
 
@@ -119,7 +123,7 @@ in-scope hit below the floor" and `no_hit` means "no in-scope hit at all". Reusi
 unrestricted hit set would file a protein whose only curated relative is eukaryotic as though it
 had a distant prokaryotic one — a much weaker novelty claim than the tier implies.
 
-**Nothing is discarded.** `studiedness_family_prokaryotic`, `_bacteria` and `_any` all ship in
+**Nothing is discarded.** `n_papers_family_prokaryotic`, `_bacteria` and `_any` all ship in
 `evidence/transfer_<species>.tsv`, with `donor_scope` naming the shipped one and `donor_ac_any` /
 `donor_organism_any` recording the donor the unrestricted scope would have chosen. Switching the
 deliverable to another scope is a column swap, not a re-run.
@@ -143,12 +147,16 @@ Two conclusions:
 
 1. **NCBI is dark on Kp and Sa too**, through a different door. It is not a fix for the own-literature
    problem and the axis does not pretend otherwise.
-2. **It materially sharpens the DONOR ranking**, which is what `studiedness_family` consumes — and
-   the union earns its keep on *S. aureus* as well, taking it from 12.4% to **18.7%** with 184
-   proteins getting their first paper.
+2. **It does sharpen the donor ranking** — 189 distinct values against UniProt's 47, and on
+   *S. aureus* the union would lift coverage from 12.4% to 18.7% with 184 proteins getting a
+   first paper.
 
-So `n_pubs` is the **union** of the two sources (the `max`, not the sum — they overlap heavily and
-adding them would double-count). Both components ship, so the union can be undone.
+**But it is NOT the shipped number** — that changed on 2026-09-22. `n_papers_family` counts
+UniProt curated references only, because "papers a curator read and used" is **one consistent
+definition applied to every row**, whereas `max(curated, gene-linked)` silently switched
+definition per protein: Kp `rpoB` took NCBI's 350 while ~11% of donors took SwissProt's number.
+gene2pubmed remains a **measured alternative** in `evidence/` — the `interpro2go` precedent — and
+both components ship in `evidence/transfer_<species>.tsv`. See §6.
 
 ---
 
@@ -205,31 +213,67 @@ alternative is recorded, not silently dropped.)
 
 ---
 
-## 6. The scale
+## 6. The number, and the composite score it replaced
 
-Both columns are
-`0.6 * min(1, log1p(n_pubs) / log1p(P_REF)) + 0.4 * (annotation_score - 1) / 4`, with **one fixed
-global `P_REF`** over all 575,748 reviewed entries (`evidence/scale.tsv`).
+`n_papers_family` = **curated PubMed references on the best-studied prokaryotic SwissProt
+homolog**. `n_papers_own` = the same count on this accession. Two integers, one definition, no
+scaling. `src.studiedness.scaled()` derives a 0–1 version on the fly for anyone combining this
+axis with the others — deliberately **not stored**, so there is one source of truth on disk.
 
-**Not a per-proteome percentile** — that is the documented `geptop_score` trap, where a
-proteome-relative score means 0.6 in Kp is not 0.6 in Sa. Here the three species *and* the two
-columns are directly comparable.
+### REJECTED — the 0–1 composite that shipped first
 
-**`P_REF` is the 99th percentile (204 papers), and P95 was measured and rejected.** The SwissProt
-distribution is extremely skewed:
+Until 2026-09-22 the axis shipped
+`0.6 × min(1, log1p(n)/log1p(204)) + 0.4 × (annotation_score − 1)/4`. The project owner could not
+interpret it, and three measurements showed that was the design's fault, not a documentation gap.
+**Do not reintroduce it.**
 
-| P50 | P75 | P90 | P95 | P99 | P99.9 | max |
-|---|---|---|---|---|---|---|
-| 1 | 3 | 12 | 38 | **204** | 1,195 | 20,402 |
+1. **The same value meant different things.** At 0.5: **13 papers** if the donor's annotation
+   score was 3, **83** if it was 1, **1** if it was 5. A protein with *zero* papers scored 0.4
+   when its donor was annotation-5.
+2. **The two halves double-counted.** UniProt's annotation score is largely a function of how much
+   is known, so it correlated with the paper count at **r = 0.64–0.70**.
+3. **The weights did the opposite of what the code claimed.** Literature was weighted 0.6
+   "because it is the quantity the axis is named for", but the annotation component's spread was
+   nearly double (sd 0.33–0.36 against 0.17–0.20), so **annotation swung the score more**. The
+   0.6/0.4 split was invented and never measured.
 
-Anchoring at P95 clipped the top and left E. coli with a median `studiedness_own` of **exactly
-1.000** — unrankable ties over half a proteome, the same failure CLAUDE.md records for v1's
-under-regularised logistic in stage 04. At P99 only ~1% of SwissProt saturates, and a
-**`saturated > 20%` guard** exits `transfer.py` if that ever changes.
+Dropping the annotation term moved the ranking by spearman 0.86–0.91 — a real change, not a
+relabelling.
 
----
+### There is no ceiling — an earlier claim in this project was wrong
 
----
+An earlier version of this document said SwissProt reference counts "saturate at 58, a
+curation-practice ceiling". **That was false.** Verified directly against UniProt: the TSV export
+is not truncated (human TP53 returns **225** PubMed ids), counts reach **225 overall and 119
+among prokaryotic entries**, and the 58 is simply *E. coli* GroEL (`P0A6F5`) happening to be the
+most-curated donor selected in all three species.
+
+### The dynamic range is small, and the ties are in the right place
+
+Bacterial proteins carry few curated references — median donor 4–6, 37–48 distinct values. What
+matters for a prioritized shortlist is *where* the ties fall:
+
+| | distinct | median (scored) | top of the ranking | largest non-zero tie |
+|---|---|---|---|---|
+| Kp | 46 | 6 | 58p ×1 · 56p ×2 · 50p ×1 | 466 proteins at 4 papers (12.4% of scored) |
+| Ec | 48 | 6 | 58p ×1 · 56p ×2 · 50p ×1 | 625 at 4 papers (14.3%) |
+| Sa | 37 | 4 | 58p ×1 · 46p ×2 · 38p ×1 | 305 at 2 papers (18.9%) |
+
+The median column is over *scored* proteins only; §9's deliverable table gives the whole-proteome
+median, which on Kp and Sa is dragged down by the unscored tail (Kp 4, Sa 1).
+
+**The top is near-unique and the ties sit in the poorly-studied bulk** — exactly the right shape.
+A `MAX_TIE_FRACTION` guard (25% of the *scored* proteins, zero excluded) exits the stage if that
+ever stops being true.
+
+### Why SwissProt-curated only, and not the union with NCBI
+
+`gene2pubmed` is larger for **87–94% of donors, median 2.8×** (see §3), and it was in the shipped
+number until 2026-09-22. It is now a measured alternative rather than the count, because
+"references a UniProt curator read and used" is **one consistent definition** applied to every
+row, whereas `max(curated, gene-linked)` silently switched definitions per protein — for Kp
+`rpoB` the shipped number came from NCBI (350) and for ~11% of donors from SwissProt. Both
+components still ship in `evidence/transfer_<species>.tsv`.
 
 ## 7. Traps, each hit at least once during the build
 
@@ -245,7 +289,11 @@ is what exposed it.
 Fixed in two stages, both measured: k=500 globally, then a **deep second pass at k=5,000 over
 only the 1,403 queries (12.6%) still capped** — raising k globally to 5,000 would be 65M rows.
 After the deep pass **0 of 1,403 remain capped**, so every query now has its complete homolog
-list. Effect on the held-out control, at every floor:
+list. Effect on the held-out control, at every floor — **measured while the axis still shipped the
+0–1 composite, so the absolute values are superseded** (the paper-count control reads 0.2909 /
+0.3280 / 0.2507 at the same three floors; see §8). What this table establishes is the *ordering*,
+which the method change does not touch: k=500 beats k=50 and the deep pass beats k=500, at every
+floor.
 
 | floor | k=50 | k=500 | k=500 + deep |
 |---|---|---|---|
@@ -259,7 +307,8 @@ the run prints the capped fraction — if it is ever large again, raise `--deep-
 **2. Anchoring the log scale at P95 made half of E. coli an unrankable tie.** See §6.
 
 **3. Preferring the closest band over the most-cited donor is worse, not better.** It looks like
-the safer rule and was tried: held-out control **0.4426 against 0.4666** at the 40% floor. The
+the safer rule and was tried: held-out control **0.4426 against 0.4666** at the 40% floor
+(composite-era numbers, like trap 1's — the comparison is the finding, not the absolute level). The
 quantity being carried is literature volume, and the best-cited homolog predicts "this family is
 studied" better than the nearest one does.
 
@@ -285,22 +334,56 @@ failed the gold standard.
 **The E. coli held-out transfer control** — the one that makes the axis believable. *E. coli* is
 the only anchor whose own literature is real, so it is the only place transfer can be tested at
 all. Every **Escherichia** taxid (90 of them, 24,423 SwissProt entries) is struck out of the donor
-pool and `studiedness_family` recomputed, then correlated against E. coli's own measured
-`studiedness_own`.
+pool and `n_papers_family` recomputed, then correlated against E. coli's own measured
+`n_papers_own`.
 
-**Measured under the shipped `prokaryotic` scope: spearman 0.5411, pearson 0.5351, over 2,945 of
-4,403 proteins (66.9%) that still find a non-Escherichia donor.** Floor 0.45, frozen in
-`transfer.py`; the run exits non-zero below it. All three donor scopes are scored (see §2b) and
-land in `evidence/control_ecoli_summary.tsv`.
+**Measured under the shipped `prokaryotic` scope: spearman 0.328, pearson 0.350 (on log1p, since
+both sides are skewed integers), over 2,945 of 4,403 proteins (66.9%) that still find a
+non-Escherichia donor.** Floor **0.25**, frozen in `transfer.py`; the run exits non-zero below it.
+All three donor scopes are scored (see §2b) and land in `evidence/control_ecoli_summary.tsv`
+(prokaryotic 0.328 · bacteria 0.322 · any 0.339 — still a tie).
 
-**DO NOT MAXIMISE IT.** The control correlates two deliberately different quantities — a protein
-with 3 papers of its own whose human homolog has 300 *should* score low on `own` and high on
-`family`, and that gap is the entire point of the axis. Worse, rho rises monotonically with the
-floor (0.5922 at 95%) for a nearly circular reason: the exclusion removes *Escherichia* only, so
-at a high floor the surviving donors are largely *Salmonella* and *Shigella* near-duplicates whose
-publication counts track E. coli's because they are effectively the same proteins. Tuning the
-floor to maximise rho would drive it to 95%, where `family` collapses onto `own` and the axis
-stops doing anything.
+**It reads lower than it used to, and that is a circularity being removed, not a regression.**
+While the axis shipped the 0–1 composite this control read 0.5411. But the blend put a
+0.4-weighted annotation term on *both* sides, and own-vs-donor annotation score correlates at
+**spearman 0.950** — so a large part of that number was annotation agreeing with itself rather
+than literature transferring. Counting papers only gives **0.328**, which is the honest figure.
+The floor was re-derived accordingly; 0.25 leaves headroom while staying far above chance, since
+the guard exists to catch a broken join (which would read ~0), not to certify a particular rho.
+
+**DO NOT MAXIMISE IT** — but note that the shipped floor is nevertheless its optimum. The control
+correlates two deliberately different quantities: a protein with 3 papers of its own whose homolog
+has 300 *should* score low on `own` and high on `family`, and that gap is the entire point of the
+axis. So the control has a ceiling well below 1 and is a **floor-check, not an objective** — it
+exists to catch a broken join (which reads ~0), not to certify a particular rho.
+
+**The identity floor is 40%, and the control's own optimum agrees with it**
+(`evidence/floor_sensitivity.tsv`, recomputed every run):
+
+| identity floor | Kp with a donor | Ec | Sa | control spearman | control n |
+|---|---|---|---|---|---|
+| 20% | 78.0% | 99.3% | 70.3% | 0.2804 | 3,571 |
+| 25% | 77.4% | 99.3% | 68.8% | 0.2909 | 3,532 |
+| 30% | 73.8% | 99.3% | 65.4% | 0.3149 | 3,369 |
+| **40%** | **65.8%** | **99.3%** | **55.8%** | **0.3280** | **2,945** |
+| 60% | 56.5% | 99.3% | 40.5% | 0.2767 | 2,411 |
+| 95% | 19.6% | 99.3% | 35.9% | 0.2507 | 1,787 |
+
+**rho PEAKS at the shipped 40% floor and falls away on both sides, reaching its LOWEST value
+(0.2507) at 95%.** So 40% is not a compromise between coverage and the control — it is the
+control's best point, and it is also CLAUDE.md's standing transfer threshold, which is the reason
+it was tried first. The coverage trade-off either side is real and monotonic: 25% buys Kp 77.4%
+at rho 0.2909; 40% gives Kp 65.8% at 0.3280; 60% drops to Kp 56.5% and 0.2767, paying 9 points of
+Kp coverage for a *worse* control.
+
+**An earlier version of this document (and of CLAUDE.md) claimed the opposite** — that rho rose
+monotonically with the floor, reaching 0.5922 at 95%, so that maximising it would drive the floor
+to 95% where `family` collapses onto `own`. That was **composite-era residue**: those numbers came
+from the 0–1 blend, whose annotation term correlated with itself across the join (own-vs-donor
+annotation score, spearman 0.950) and rose with identity for that circular reason. Counting papers
+only, the circularity is gone and the shape inverts. The *caution* survives the numbers and is why
+the paragraph is kept — the control is still not a thing to maximise — but the empirical claim
+that it conflicts with the shipped floor is withdrawn.
 
 **Decoy calibration** — composition-preserving shuffles of our own 13,020 sequences, searched
 against the same database. **0 of 13,020 match at every floor from 20% to 95%.** So the floor is
@@ -308,8 +391,9 @@ not defending against spurious homology; DIAMOND's e-value already does.
 
 **Spot checks** — eight named workhorses, which is the only control that catches a join to the
 wrong accessions (that would still produce a well-formed table). Measured on the shipped run:
-`rpoB`, `gyrB`, `ftsZ`, `clpP`, `dnaA`, `secA`, `groEL` all land at **99.0–99.5th percentile in
-all three species**; `rplB` at 85.5 (Ec) / 89.1 (Kp) / 94.1 (Sa) for the reason in §7.
+All eight land above the 70th-percentile bar in all three species. Kp `groEL` reads
+**1 paper of its own, 58 on its family** (donor *E. coli* GroEL, `P0A6F5`) — the axis's whole
+point in one row.
 
 **Completeness and canonical order** — enforced through `M.reindex()`, which refuses to invent a
 missing protein. `python -m src.matrices` reports all three studiedness tables canonical.
@@ -320,18 +404,49 @@ missing protein. `python -m src.matrices` reports all three studiedness tables c
 
 ### The deliverable
 
-| species | n | with a donor | direct | close | homolog | below_floor | no_hit | median own | median family | family − own |
-|---|---|---|---|---|---|---|---|---|---|---|
-| **Kp** | 5,728 | 3,767 (65.8%) | 364 | 2,489 | 914 | 903 | 1,058 | 0.078 | 0.398 | **+0.292** |
-| **Ec** | 4,403 | 4,374 (99.3%) | 3,908 | 122 | 344 | 4 | 25 | 0.589 | 0.613 | +0.000 |
-| **Sa** | 2,889 | 1,613 (55.8%) | 248 | 268 | 1,097 | 493 | 783 | 0.000 | 0.224 | +0.046 |
+**The five tiers and their thresholds.** `evidence` is nested on identity: **`swissprot_direct`
+(≥95%) ⊃ `swissprot_close` (≥60%) ⊃ `swissprot_homolog` (≥40%)**, then the two zeros —
+**`below_floor`** (an in-scope hit exists but under the 40% floor) and **`no_hit`** (nothing
+in-scope in SwissProt at all). Both score 0 and the axis refuses to invent a number for either,
+but they are different claims: `no_hit` is the strongest novelty statement this axis makes, while
+`below_floor` merely has a too-distant curated relative. Without the split, a third of
+*K. pneumoniae* is one undifferentiated tie.
 
-Distinct `studiedness_family` values: Kp 325 · Ec 327 · Sa 213 — no saturation at either end.
+**The hard ceiling is DIAMOND's own hit rate, and it is independent of the floor**: a SwissProt
+hit *of any kind* exists for only **81.6% of Kp and 73.0% of Sa** (99.4% of Ec) — i.e.
+`direct + close + homolog + below_floor`. No choice of floor can take the axis above that; moving
+the floor only shuffles proteins between the scored tiers and `below_floor`.
 
-**`family − own` is the transfer's contribution and it behaves exactly as the axis predicts:**
-**+0.292 on K. pneumoniae**, where the anchor is dark and the family is not, and **+0.000 on
-E. coli**, where the protein's own literature already *is* its family's. That contrast is the
-clearest single number in the stage.
+| species | n | with a donor | direct | close | homolog | below_floor | no_hit | median own | median family | max family | distinct family |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Kp** | 5,728 | 3,767 (65.8%) | 364 | 2,491 | 912 | 903 | 1,058 | **1** | **4** | 58 | 46 |
+| **Ec** | 4,403 | 4,374 (99.3%) | 3,855 | 154 | 365 | 4 | 25 | 5 | 6 | 58 | 48 |
+| **Sa** | 2,889 | 1,613 (55.8%) | 332 | 225 | 1,056 | 493 | 783 | **0** | **1** | 58 | 37 |
+
+**`family − own` is the axis working, and the contrast is the clearest thing here: +3 papers
+(median) on K. pneumoniae against +0 on E. coli**, whose own literature already *is* its
+family's. On Kp the median protein has **1** paper of its own and **4** on its family; the top of
+the ranking reaches 58.
+
+Largest non-zero tie: Kp 466 proteins at 4 papers (12.4% of scored) · Ec 625 at 4 (14.3%) ·
+Sa 305 at 2 (18.9%) — all under the 25% guard, and all in the poorly-studied bulk rather than at
+the top.
+
+### Loading it
+
+**Load through `src/studiedness.py`**, never by path — the evidence tables are the ones that move.
+
+| | |
+|---|---|
+| `load(species)` · `load_all()` | the deliverable, one species or all three stacked |
+| `novelty(species)` | the same number read the other way round |
+| `scaled(n_papers)` | the 0–1 version, derived on the fly and **deliberately not stored** |
+| `definition()` | what the shipped number counts, as data |
+| `load_own` · `load_transfer` | the two components in `evidence/` |
+| `load_unknome` · `load_gene2pubmed` | the two measured alternatives |
+| `load_route_comparison` · `load_floor_sensitivity` · `load_donor_scope_comparison` | the three sweeps |
+| `control()` | the E. coli held-out summary |
+| `manifest()` | provenance and row counts |
 
 ### Route comparison (`evidence/route_comparison.tsv`) — nothing is merged
 
@@ -350,23 +465,23 @@ rule says to measure every route; it is not used.
 
 ### Unknome agreement (`evidence/unknome_agreement.tsv`)
 
-| species | n both | spearman vs `studiedness_family` | median family where Unknome present / absent |
+| species | n both | spearman vs `n_papers_family` | median family where Unknome present / absent |
 |---|---|---|---|
-| Kp | 4,079 | +0.371 | 0.598 / 0.000 (1,649 absent) |
-| Ec | 3,444 | +0.501 | 0.670 / 0.302 (959 absent) |
-| Sa | 1,882 | +0.328 | 0.381 / 0.000 (1,007 absent) |
+| Kp | 4,079 | +0.305 | 5 papers / 0 (1,649 absent) |
+| Ec | 3,444 | +0.398 | 6 / 3 (959 absent) |
+| Sa | 1,882 | +0.288 | 3 / 0 (1,007 absent) |
 
 **Verdict: correlated but not redundant — keep it as evidence, do not promote it.** At rho
-0.35–0.52 it agrees on direction while measuring a genuinely different quantity (GO annotation
+0.29–0.40 it agrees on direction while measuring a genuinely different quantity (GO annotation
 depth, not papers), so it is a usable second opinion for a protein where the literature route is
 weak. It cannot become the axis: coverage caps at the PANTHER xref, and the proteins it cannot
-reach are exactly the ones with `studiedness_family = 0` — it is silent precisely where an
+reach are exactly the ones with `n_papers_family = 0` — it is silent precisely where an
 independent opinion would be most valuable.
 
 ### The consortium's own panel (`output/plots/studiedness/interest_panel.png`)
 
-**The GraDi envelope targets are not novel.** `src/interest.py`'s panel sits at the **86th
-percentile (median) on Kp, 82nd on Ec, 74th on Sa** — well studied, as would be expected of
+**The GraDi envelope targets are not novel.** `src/interest.py`'s panel sits at the **80th
+percentile (median) on Kp, 74th on Ec, 69th on Sa** — well studied, as would be expected of
 LPS/Lpt/Bam/Sec biology. Read `interest.coverage()` first: the panel matches by gene symbol, and
 only 43 of its genes are named in Kp and 11 in Sa.
 
@@ -377,11 +492,34 @@ only 43 of its genes are named in Kp and 11 in Sa.
 | date | what |
 |---|---|
 | 2026-09-21 | Axis built. `fetch.py` (274 s, all payloads verified against `x-total-results`), `gene2pubmed.py` (83.2M rows streamed in 71 s), `unknome.py` (seconds), `transfer.py` (~12 min incl. two DIAMOND passes), `merge.py` (seconds). UniProt release **2026_03 (02-September-2026)**; SwissProt fasta dated 2026-09-03; gene2pubmed dated 2026-09-21. |
+| 2026-09-22 | **The 0-1 composite was replaced by a plain paper count** after the project owner could not interpret it; see §6. The control floor was re-derived (0.45 -> 0.25) because dropping the blend also removed a circularity in the control. Figures became survival curves. |
 | 2026-09-21 | Donor scope added. SwissProt metadata refetched with `lineage` (432 s, 30.1 MB). Three scopes computed every run; `prokaryotic` shipped. The strict-Bacteria rule was implemented first and rejected on the phage measurement in §2b. |
 
 **Order matters:** `fetch.py` → `gene2pubmed.py` → `unknome.py` → `transfer.py` → `merge.py`.
 `transfer.py` reads the gene2pubmed counts cache for donor scoring, and will run without it while
-printing that donor literature is UniProt-only and ~4× coarser.
+printing that donor literature is UniProt-only and ~4× coarser. **~20 min cold**, and every step
+caches, so a re-run is a re-parse.
+
+**Environment: the `gradi` env throughout** — no process boundary on this axis. DIAMOND is
+borrowed from **`gradi-ortho`** via `GRADI_DIAMOND_BIN`, the standing pattern (there is no
+osx-arm64 DIAMOND build, and installing it into `gradi` would flip the env to osx-64 and take
+ESM-C down with it).
+
+**CLI.** All five scripts take `--species` · `--refresh` · `--dry-run` · `-q`. `transfer.py`, which
+does the work, adds:
+
+| flag | |
+|---|---|
+| `--limit N` | smoke test — **writes only to `scratch/`**, so it can never clobber a full run |
+| `--donor-scope {prokaryotic,bacteria,any}` | §2b; all three are computed every run regardless |
+| `--max-targets` · `--deep-targets` | the two DIAMOND k values behind trap 1 (500, then 5,000) |
+| `--threads` · `--sensitivity` | DIAMOND tuning |
+| `--no-control` | skips the E. coli held-out control and its non-zero exit |
+
+**Figures:** `scripts/plots/studiedness.py` (stylia) → `output/plots/studiedness/studiedness.png`,
+`control.png`, `interest_panel.png`. **Run plot scripts one at a time** — stylia clears the
+matplotlib font cache at import, so two concurrent plot scripts delete each other's and die with a
+`FileNotFoundError` naming `~/.matplotlib`.
 
 **Deletable after a run:** `data/source/uniprot/literature/uniprot_sprot.fasta.gz` (89.5 MB),
 `data/source/ncbi/gene/gene2pubmed.gz` (273.8 MB) and everything in
