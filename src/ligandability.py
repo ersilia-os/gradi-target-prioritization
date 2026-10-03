@@ -323,17 +323,12 @@ def _coerce_precedents(d: pd.DataFrame) -> pd.DataFrame:
     ordered '9.02' above '10.1'. `src/precedents.py` now types them on the way out; this makes any
     file already on disk load correctly too.
     """
-    for c in ("n_ligands_exact", "n_ligands_bacteria", "n_ligands_human",
-              "n_targets_bacteria", "n_targets_human", "n_ligands_bacteria_complex",
-              "n_compounds_assayed_bacteria", "n_compounds_potent_bacteria"):
-        if c in d.columns:
+    for c in d.columns:
+        if c.startswith(("n_ligands", "n_assayed", "n_measured", "n_targets", "n_compounds")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
-    for c in ("best_pident_bacteria", "best_pchembl_bacteria",
-              "best_pident_human", "best_pchembl_human", "hit_rate_bacteria"):
-        if c in d.columns:
+        elif c.startswith(("best_pactivity", "best_pident", "best_pchembl", "hit_rate")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
-    for c in ("exact_route", "exact_target", "precedent_evidence"):
-        if c in d.columns:
+        elif c in ("exact_route", "exact_target"):
             d[c] = d[c].astype("string")
     return d
 
@@ -362,43 +357,66 @@ def load_effort(refresh: bool = False) -> pd.DataFrame:
 
 
 def load_precedents(species: str) -> pd.DataFrame:
-    """Ligand precedent per protein: exact / bacterial / human counts.
+    """Ligand precedent per protein: potent counts and assayed counts, three scopes each.
 
-    Written by `scripts/ligands/precedents.py --species`. Three counts and their provenance:
+    Written by `scripts/ligands/precedents.py --species`. Eight columns:
 
-        n_ligands_exact      an EXACT match -- UniProt accession or identical sequence
-        n_ligands_bacteria   UNIQUE molecules over every bacterial target passing the floors
-        n_ligands_human      the same over human targets
+        n_ligands              POTENT (pChEMBL >= 6, i.e. sub-micromolar) on THIS protein
+        n_ligands_bacterial    potent over the bacterial pool
+        n_ligands_human        potent over human targets
+        n_assayed              compounds ASSAYED against this protein, whatever the outcome
+        n_assayed_bacterial    assayed over the bacterial pool
+        n_assayed_human        assayed over human targets
+        best_pactivity_bacteria   max pChEMBL over the bacterial pool
 
-    **`n_ligands_bacteria` counts MOLECULES, not target-compound pairs** -- distinct
-    `parent_molregno` over the union, so a compound tested against three homologs counts once.
+    **Every count is DISTINCT MOLECULES** -- distinct `parent_molregno` (ChEMBL's
+    `molecule_hierarchy` parent, so salts are collapsed) over the UNION of the pool's targets,
+    never a sum of per-target counts. Measured: E. coli `folA` hits 6 bacterial targets and reads
+    443, where the per-target sum is 529 -- the 86 compounds tested against several homologs are
+    counted once.
 
-    **`n_ligands_human` is a LIABILITY, never add it to the bacterial count.** Measured on E. coli
-    `clpP`: 136 bacterial against 210 human at 56.3% identity.
+    **`*_bacterial` INCLUDES the exact match.** folA reads `n_ligands` 388 and
+    `n_ligands_bacterial` 443, and the 443 CONTAINS the 388 -- the same nesting `chembl.py` uses
+    for its direct/close/remote buckets. **Never sum the two.** The guaranteed ordering is
+    `n_ligands <= n_ligands_bacterial <= n_assayed_bacterial`.
 
-    **`n_ligands_bacteria_complex` is separate and not inside (b)** -- DNA gyrase is a
-    `PROTEIN COMPLEX` in ChEMBL, and E. coli `gyrB` carries 666 single-protein ligands against
-    1,412 complex ones. v1 dropped that track and made GyrA/GyrB look unliganded.
+    **`best_pactivity_bacteria` IS ChEMBL's `pchembl_value`** -- renamed from `best_pchembl_*`
+    because the axis speaks of activity rather than of one database's column, but it is the same
+    number, so do not go looking for a `pactivity` field in ChEMBL.
 
-    These are POTENCY-MEASURABLE ligands only, so the axis does not say "has an antibiotic" --
-    MIC and %-inhibition are absent by construction.
+    **`n_assayed*` is NA, never 0, when the effort extract is missing** -- it needs the 30.5 GB
+    dump, while everything else runs off cached extracts. A 0 would claim nobody ever assayed the
+    protein, which is the opposite piece of evidence from "we do not know".
+
+    **What a 0 in `n_ligands_bacterial` means depends on `n_assayed_bacterial`**: with a positive
+    denominator it is a measured discouragement (Kp `pyrH`: 158 compounds assayed against a
+    98.3%-identical target, none potent); with 0 it means nobody has opened the family. The
+    `precedent_evidence` category that used to encode this was dropped as redundant -- `no_homolog`
+    is `n_targets_bacteria == 0` in the evidence table.
+
+    **MIC and %-inhibition are absent by construction**, so this does not say "has an antibiotic";
+    a ribosomal protein reading empty is a fact about assay type, not biology.
     """
     _check(species)
     return _coerce_precedents(_read(_path(LIGAND_DIR, f"precedents_{species}.tsv")))
 
 
 def load_precedents_full(species: str) -> pd.DataFrame:
-    """The same, with the provenance columns the deliverable omits.
+    """The same, with the provenance columns the deliverable omits. 19 columns.
 
-    `precedents_<sp>.tsv` is deliberately four columns plus the key. This is the 13-column version:
-    which route the exact match came through, how many targets each count unions over, best
-    identity per side, and -- the one worth knowing about -- `n_ligands_bacteria_complex`.
+    Adds: which route the exact match came through (`exact_route`, `exact_target`), how many
+    targets each count unions over (`n_targets_bacteria`/`_human`), best identity per side,
+    `best_pactivity_human`, and two things worth knowing about.
 
-    **The complex track is NOT in `n_ligands_bacteria`.** E. coli `gyrB` carries 666 single-protein
-    ligands against 1,412 complex ones, and Kp `A0A0H3H0Y6` (gyrA) carries 1,410 complex
-    against 131 single.
-    Read the deliverable alone and DNA gyrase looks unliganded, which is the v1 error. Come here
-    before concluding a target has no chemistry.
+    **`n_measured*` is the ANY-POTENCY count** -- what `n_ligands*` meant before the table was
+    reshaped around potency. Kept so the previously published figures stay recoverable: proteins
+    with any measurable ligand are 180 Kp / 160 Ec / 119 Sa, against 113 / 96 / 78 at pChEMBL >= 6.
+    Guaranteed: `n_ligands_bacterial <= n_measured_bacterial <= n_assayed_bacterial`.
+
+    **The complex track is NOT in `n_ligands_bacterial`.** E. coli `gyrB` carries 666
+    single-protein measurable ligands against 1,412 complex ones, and Kp `A0A0H3H0Y6` (gyrA)
+    carries 1,410 complex against 131 single. Read the deliverable alone and DNA gyrase looks
+    unliganded, which is the v1 error. Come here before concluding a target has no chemistry.
     """
     _check(species)
     return _coerce_precedents(_read(_path(EVIDENCE_DIR, f"precedents_full_{species}.tsv")))

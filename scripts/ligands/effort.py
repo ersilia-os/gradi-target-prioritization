@@ -107,15 +107,30 @@ def stage() -> object:
     return mod
 
 
-def bacterial_taxa() -> set[int]:
-    """The superkingdom map `chembl.py` already wrote. Bacteria only, by construction of this part."""
+KINGDOMS = ("bacteria", "human")
+
+
+def taxa_for(kingdom: str) -> set[int]:
+    """Taxa for one scope, from the superkingdom map `chembl.py` already wrote.
+
+    `bacteria` is `l1 == "Bacteria"` -- 1,493 taxa, because ChEMBL files strains under their own
+    taxids (the same reason `chembl.py` matches same-species by organism NAME, not tax_id).
+    `human` is the single Homo sapiens taxon; it is a LIABILITY scope, so it needs no species
+    prefix logic.
+    """
     path = EVIDENCE_DIR / "organism_class.tsv"
     if not path.exists():
         sys.exit(f"FAILED: {path.relative_to(REPO_ROOT)} is missing -- run scripts/ligands/chembl.py first.")
     oc = pd.read_csv(path, sep="\t")
-    taxa = {int(t) for t in oc.loc[oc["l1"] == "Bacteria", "tax_id"]}
+    if kingdom == "bacteria":
+        taxa = {int(t) for t in oc.loc[oc["l1"] == "Bacteria", "tax_id"]}
+    elif kingdom == "human":
+        taxa = {9606}
+    else:
+        sys.exit(f"FAILED: unknown kingdom {kingdom!r}; choose from {KINGDOMS}")
     if not taxa:
-        sys.exit("FAILED: organism_class.tsv named no Bacteria -- refusing to write an empty extract.")
+        sys.exit(f"FAILED: organism_class.tsv named no {kingdom} taxa -- refusing to write an "
+                 "empty extract.")
     return taxa
 
 
@@ -159,9 +174,9 @@ def target_predicate(mod: object) -> tuple[str, str]:
     return matched, matched.replace(rel, "")
 
 
-def extract(db: Path, mod: object) -> tuple[pd.DataFrame, ...]:
-    """One pass: per-target effort counts, the funnel, the relation breakdown, and the assayed pairs."""
-    taxa = bacterial_taxa()
+def extract(db: Path, mod: object, kingdom: str = "bacteria") -> tuple[pd.DataFrame, ...]:
+    """One pass over ONE scope: per-target effort counts, the funnel, relations, assayed pairs."""
+    taxa = taxa_for(kingdom)
     ids = ",".join(str(t) for t in sorted(taxa))
     where, where_any = target_predicate(mod)
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -271,9 +286,9 @@ def extract(db: Path, mod: object) -> tuple[pd.DataFrame, ...]:
                   WHERE td.tax_id IN ({ids}) AND {where}"""
         base_any = base.replace(where, where_any)
         rows = [
-            ("bacterial targets, any type",
+            (f"{kingdom} targets, any type",
              f"SELECT COUNT(*) FROM target_dictionary WHERE tax_id IN ({ids})"),
-            ("bacterial SINGLE PROTEIN targets",
+            (f"{kingdom} SINGLE PROTEIN targets",
              f"SELECT COUNT(*) FROM target_dictionary WHERE target_type='SINGLE PROTEIN' "
              f"AND tax_id IN ({ids})"),
             ("...with B/F activity, any relation",
@@ -301,12 +316,16 @@ def extract(db: Path, mod: object) -> tuple[pd.DataFrame, ...]:
     # measurement nobody made. Same rule as the studiedness axis's `no_hit` vs `below_floor`.
     denom = eff["n_compounds_assayed"]
     eff["hit_rate"] = (eff["n_compounds_potent"] / denom).where(denom > 0).astype("Float64")
+    # Tag the scope on every frame: one file serves both, and a row whose kingdom is unstated is a
+    # row that will eventually be counted against the wrong pool.
+    for f in (eff, funnel, rel, assayed, extra_t):
+        f.insert(0, "kingdom", kingdom)
     return eff.sort_values("tid").reset_index(drop=True), funnel, rel, assayed, extra_t
 
 
 def report(eff: pd.DataFrame, funnel: pd.DataFrame, rel: pd.DataFrame) -> None:
     rule()
-    say("FUNNEL  -- why the bacterial target set is the size it is")
+    say("FUNNEL  -- why the target set is the size it is")
     rule()
     for _, r in funnel.iterrows():
         say(f"  {r['stage']:44s} {r['n_targets']:>7,}")
@@ -346,6 +365,9 @@ def report(eff: pd.DataFrame, funnel: pd.DataFrame, rel: pd.DataFrame) -> None:
 def main() -> int:
     global VERBOSE
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--kingdoms", nargs="+", choices=list(KINGDOMS), default=list(KINGDOMS),
+                    help="scopes to extract (default both). `human` is needed for the precedent "
+                         "table's n_assayed_human; it is ~13x the bacterial volume.")
     ap.add_argument("--refresh", action="store_true", help="re-extract even if the cache exists")
     ap.add_argument("--dry-run", action="store_true", help="say what would be done, write nothing")
     ap.add_argument("-q", "--quiet", action="store_true")
@@ -353,18 +375,16 @@ def main() -> int:
     VERBOSE = not args.quiet
 
     rule("=")
-    say("effort.py -- compounds ASSAYED per bacterial ChEMBL target, with no pChEMBL filter")
+    say("effort.py -- compounds ASSAYED per ChEMBL target, with no pChEMBL filter")
     rule("=")
     say(f"  source   : ChEMBL {L.CHEMBL_VERSION} SQLite dump")
+    say(f"  scopes   : {', '.join(args.kingdoms)}")
     say(f"  targets  : SINGLE PROTEIN, confidence >= {L.MIN_CONFIDENCE_SINGLE}, "
-        f"assay type {'/'.join(L.ASSAY_TYPES)}, Bacteria only")
-    say(f"  relaxed  : pchembl_value may be NULL -- that is the entire point of this extract")
+        f"assay type {'/'.join(L.ASSAY_TYPES)}")
+    say("  relaxed  : pchembl_value may be NULL -- that is the entire point of this extract")
     say(f"  potent   : pChEMBL >= {L.PCHEMBL_HEADLINE:g}")
-    say(f"  -> {EFFORT_PATH.relative_to(REPO_ROOT)}")
-    say(f"  -> {FUNNEL_PATH.relative_to(REPO_ROOT)}")
-    say(f"  -> {RELATION_PATH.relative_to(REPO_ROOT)}")
-    say(f"  -> {ASSAYED_PATH.relative_to(REPO_ROOT)}")
-    say(f"  -> {EXTRA_TSV.relative_to(REPO_ROOT)} + .faa   (targets the pChEMBL filter hid from DIAMOND)")
+    for pth in (EFFORT_PATH, FUNNEL_PATH, RELATION_PATH, ASSAYED_PATH, EXTRA_TSV):
+        say(f"  -> {pth.relative_to(REPO_ROOT)}")
 
     if EFFORT_PATH.exists() and not args.refresh:
         say("")
@@ -376,44 +396,64 @@ def main() -> int:
     mod = stage()
     if args.dry_run:
         say("")
-        say("  DRY RUN -- would restore-check the dump, run one SQL pass, write 2 tables")
+        say(f"  DRY RUN -- would restore-check the dump and run one SQL pass per scope "
+            f"({len(args.kingdoms)})")
         return 0
 
     db = mod.find_db(required=True)           # exits with the tar recipe if the dump is absent
     mod.assert_version(db)                    # the dump must BE the release we claim
     say("")
     say(f"  db       : {db.relative_to(REPO_ROOT)}  (version asserted)")
-    say("  extracting ...")
 
-    eff, funnel, rel, assayed, extra = extract(db, mod)
-    if eff.empty:
-        sys.exit("FAILED: the extract is empty -- refusing to write. Check the dump and the taxa map.")
+    effs, funnels, rels, assays, extras = [], [], [], [], []
+    for kingdom in args.kingdoms:
+        say(f"  extracting {kingdom} ...")
+        eff, funnel, rel, assayed, extra = extract(db, mod, kingdom)
+        if eff.empty:
+            sys.exit(f"FAILED: the {kingdom} extract is empty -- refusing to write. Check the "
+                     "dump and the taxa map.")
+        say(f"    {len(eff):>7,} targets   {len(assayed):>9,} (target, assayed compound) pairs")
+        effs.append(eff); funnels.append(funnel); rels.append(rel)
+        assays.append(assayed); extras.append(extra)
+
+    eff = pd.concat(effs, ignore_index=True)
+    assayed = pd.concat(assays, ignore_index=True)
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     eff.to_csv(EFFORT_PATH, sep="\t", index=False)
-    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    funnel["built_utc"] = stamp
-    funnel.to_csv(FUNNEL_PATH, sep="\t", index=False)
-    rel["built_utc"] = stamp
-    rel.to_csv(RELATION_PATH, sep="\t", index=False)
     assayed.to_csv(ASSAYED_PATH, sep="\t", index=False)
+    for frames, path in ((funnels, FUNNEL_PATH), (rels, RELATION_PATH)):
+        d = pd.concat(frames, ignore_index=True)
+        d["built_utc"] = stamp
+        d.to_csv(path, sep="\t", index=False)
 
-    # Only the targets the existing FASTA does NOT already carry -- this file is a SUPPLEMENT that
-    # `src/precedents.py` concatenates, never a replacement. Overlapping rows would double-count.
-    known = set(pd.read_csv(SCRATCH_DIR / "chembl_targets.tsv", sep="\t")["tid"])
-    new = extra[~extra["tid"].isin(known)].copy()
-    new.drop(columns=["sequence"]).to_csv(EXTRA_TSV, sep="\t", index=False)
-    seqs = new.drop_duplicates("component_id")
-    EXTRA_FAA.write_text("".join(f">{c}\n{q}\n" for c, q in
-                                 zip(seqs["component_id"], seqs["sequence"])))
-    say(f"             {len(new):,} target rows / {len(seqs):,} sequences the pChEMBL filter had "
-        f"hidden -> {EXTRA_FAA.name}")
+    # The DIAMOND supplement is BACTERIA-ONLY on purpose: it exists so bacterial targets whose
+    # compounds were all assayed and none measurable can be reached by the search at all. Human is
+    # a liability scope where only potent matters, so it needs no equivalent -- and adding human
+    # sequences to the subject database would change `n_ligands_human` for reasons unrelated to
+    # this extract. Only targets the existing FASTA does NOT carry: it is a SUPPLEMENT that
+    # `src/precedents.py` concatenates, never a replacement, and overlap would double-count.
+    bact = [e for e, k in zip(extras, args.kingdoms) if k == "bacteria"]
+    if bact:
+        known = set(pd.read_csv(SCRATCH_DIR / "chembl_targets.tsv", sep="\t")["tid"])
+        new = bact[0][~bact[0]["tid"].isin(known)].copy()
+        new.drop(columns=["sequence"]).to_csv(EXTRA_TSV, sep="\t", index=False)
+        seqs = new.drop_duplicates("component_id")
+        EXTRA_FAA.write_text("".join(f">{c}\n{q}\n" for c, q in
+                                     zip(seqs["component_id"], seqs["sequence"])))
+        say(f"  supplement: {len(new):,} target rows / {len(seqs):,} sequences the pChEMBL filter "
+            f"had hidden -> {EXTRA_FAA.name}")
 
-    say(f"  wrote    : {len(eff):,} bacterial targets x {eff.shape[1]} columns")
-    say(f"             {len(assayed):,} (target, assayed compound) pairs -- so the "
-        f"denominator can be UNIONED, not summed")
-    report(eff, funnel, rel)
+    say(f"  wrote    : {len(eff):,} targets x {eff.shape[1]} columns, "
+        f"{len(assayed):,} assayed pairs -- the denominator can be UNIONED, not summed")
+    for kingdom in args.kingdoms:
+        sub = eff[eff["kingdom"] == kingdom]
+        rule()
+        say(f"SCOPE: {kingdom}")
+        report(sub, pd.concat([f for f, k in zip(funnels, args.kingdoms) if k == kingdom]),
+               pd.concat([r for r, k in zip(rels, args.kingdoms) if k == kingdom]))
     rule("=")
     return 0
 

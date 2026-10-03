@@ -1,7 +1,7 @@
 # Stage 06 — ligandability, part 1: measured bioactivity
 
-`scripts/ligands/chembl.py` · `scripts/ligands/bindingdb.py` ·
-`scripts/plots/ligands.py` · loader `src/ligandability.py`
+`scripts/ligands/chembl.py` · `effort.py` · `transfer_calibration.py` · `bindingdb.py` ·
+`precedents.py` · `scripts/plots/ligands.py` · loaders `src/ligandability.py`, `src/precedents.py`
 
 Asks one question of every protein: **can a small molecule bind it?** Answered from ChEMBL 37 by
 mapping the three bacterial proteomes onto ChEMBL's target sequences with DIAMOND, then counting
@@ -117,16 +117,74 @@ resolved silently: the literal all-organism count ships as `allorg_n_compounds` 
 `allorg_n_scaffolds`, and human ships as its own liability block. Read the difference rather than
 trusting the restriction.
 
-## The 60% band is the one arbitrary number, and it turns out not to matter
+## The 95/60/40 bands CANNOT be calibrated, and that is the result
 
 `close` was set at 60% from stage 05's measured identities (Kp↔Ec RBH median **86%**, Kp↔human
 **37%**), to sit above the cross-kingdom noise floor and below the cross-genus ortholog median.
+Panel C of `chembl_coverage.png` argued the choice was low-stakes on distributional grounds: the
+identity of liganded hits is **strongly bimodal** — a mass at 40–45%, a spike at 95–100%, a trough
+between — so very little evidence lives near 60 and moving the band moves few proteins.
 
-Panel C of `chembl_coverage.png` shows why the choice is low-stakes: the identity distribution of
-liganded hits is **strongly bimodal** — a large mass at 40–45% and a spike at 95–100%, with a trough
-between roughly 55 and 95. Very little evidence lives near 60, so moving the band moves few proteins.
+**`scripts/ligands/transfer_calibration.py` supersedes that argument by measuring the thing the
+bands are supposed to encode.** It is self-contained inside ChEMBL, which is the only place the
+measurement is possible: for a **pair** of bacterial targets we know *both* ligand sets, so "does
+ligand evidence travel at this identity?" has an answer. **1,582 pairs over 687 sequences and 131
+species.** Three negatives, all of them useful.
 
-`close` is also a **superset of `species` by construction**. The bands alone do not nest — a
+### 1. Compound-set overlap does not transfer at any identity
+
+**Median Jaccard is ~0.00 in every band, 95–100% included.** Among the pairs that share anything at
+all it is **0.018–0.036**, with no trend across the ladder.
+
+Two near-identical ChEMBL targets are **one enzyme screened twice against different libraries** —
+they share the protein, not the chemistry. So Jaccard measures *campaign coincidence*, not
+transferability, and cannot calibrate a transfer rule. That negative is the reason the conditional
+below is the statistic.
+
+### 2. `P(potent | neighbour potent)` is FLAT from 25% to 100% identity
+
+Pairs where both targets carry ≥5 assayed compounds, by the identity of the pair:
+
+| identity band | n_pairs | P(potent \| neighbour potent) | lift over base |
+|---|---|---|---|
+| 25–30 | 60 | 0.866 | 1.40× |
+| 30–40 | 178 | 0.929 | 1.50× |
+| 40–50 | 106 | 0.976 | 1.58× |
+| 50–60 | 38 | 0.844 | 1.36× |
+| 60–70 | 23 | 0.952 | 1.54× |
+| 70–80 | 10 | 0.941 | 1.52× |
+| 80–90 | **2** | 0.667 | 1.08× |
+| 90–95 | **3** | 1.000 | 1.62× |
+| 95–100 | 36 | 0.957 | 1.55× |
+
+Base rate **0.619**. **No decay, and a lift of only ~1.36–1.58× across the whole range.** The cause
+is selection, and it is structural: **62% of bacterial ChEMBL targets already carry a potent
+compound**, because a protein enters ChEMBL when somebody believed it was druggable.
+
+**So the identity floor controls COVERAGE, not transfer reliability. Document it as a conservatism
+choice; never as an accuracy threshold.** Calibrating it honestly would need proteins nobody chose
+to screen, which ChEMBL by construction does not contain.
+
+**Read `n_pairs` before quoting a band.** 80–90 rests on **2 pairs** and 90–95 on **3** — they are
+noise, and the population is bimodal for the same reason the identity histogram is: a bacterial
+target's nearest ChEMBL relative is either the same enzyme in another strain or a different family,
+rarely anything between.
+
+### 3. Neither species nor RBH adds anything beyond identity
+
+At 95–100%, same-species scores **0.955** against cross-species **0.960** — indistinguishable. RBH
+is *below* the unrestricted conditional in five of the nine bands (0.44 against 0.93 at 30–40%, on
+10 pairs). **So no orthology criterion is added to the bucket rule**, and the useful part is
+knowing the simple rule was not leaving anything on the table before anyone builds the complicated
+one.
+
+Evidence `evidence/transfer_calibration.tsv` (band × population × split), pairs in
+`scratch/transfer_pairs.tsv`. CLI: `--min-compounds 5` · `--threads` · `--dry-run` · `-q`. DIAMOND
+from `gradi-ortho`. ~2 min.
+
+### The bands still nest, and that part is not arbitrary
+
+`close` is a **superset of `species` by construction**. The bands alone do not nest — a
 same-species paralog at 45% identity is in `species` but below the 60% cut — and a non-monotonic
 ladder is a footgun for anything downstream that subtracts one bucket from another. The consequence,
 stated plainly: **a same-species target between 40 and 60% identity is counted as `close`.**
@@ -171,6 +229,31 @@ with ≥ 10 compounds assayed, 148 (32.7%) never reached pChEMBL 6** (at ≥ 5 c
 41.6%). A protein somebody tried and failed to drug is a measured discouragement; a protein nobody
 has opened is an open question. Before this they were the same zero.
 
+### TWO denominators ship, and neither is merged
+
+A denominator is only a denominator against a stated population, so `scratch/chembl_effort.tsv`
+(869 bacterial targets × 17 columns) carries both:
+
+| column | population | why it exists |
+|---|---|---|
+| `n_compounds_assayed` | **population-identical to `chembl.py`'s predicate** — B/F, confidence ≥ 8, `standard_relation = '='` | this is what `hit_rate` divides by |
+| `n_compounds_assayed_any_relation` | the same, with the `standard_relation = '='` clause dropped | an inequality is still a measurement |
+| `n_compounds_reported_inactive` | the explicit `>` rows | the non-binders, counted |
+
+**An `IC50 > 100 µM` is the clearest statement in the database that a compound does not bind**, so
+an *effort* count must include it. Dropping the `=` clause alone recovers **118 targets**, **6,682
+`>` rows over 4,834 compounds** and **32,093 null-relation rows**. But a *ratio* needs its
+denominator drawn from the numerator's own population — hence both columns, side by side, neither
+merged into the other. `hit_rate` is **null, never 0**, where nothing was assayed.
+
+**How the two stay population-identical.** `effort.py` does not restate `chembl.py`'s predicate; it
+**imports `assert_version` and `_activity_where` from it by explicit spec load**, and **exits
+non-zero if either clause it relaxes is no longer there**. That guard is not decoration: a
+denominator computed over a different target population from the numerator is wrong in a way no
+shape check could ever see — the columns line up, the ratio is finite, and it means nothing.
+
+CLI: `--refresh` · `--dry-run` · `-q`. ~2 min, and it needs the 30.5 GB dump restored.
+
 ## REJECTED — a "ChEMBL precedence model" on embeddings
 
 Proposed 2026-09-28 (*"train on chembl, X = proteins, y = num_ligands, and then learn a model"*)
@@ -193,7 +276,7 @@ down, not silently dropped.
    100% agreement with `chembl.py`. This is Unknome §5 reason (2), and it applies harder here
    because the lookup is already a canonical deliverable rather than a possibility.
 4. **The honest baseline is not chance, and it is a lookup too.** Measured on our three proteomes
-   against `n_ligands_bacteria > 0` (base rate 3.1–4.1%): protein length alone scores AUROC
+   against "has any measurable bacterial ligand" (now `n_measured_bacterial > 0`; base rate 3.1–4.1%): protein length alone scores AUROC
    0.66–0.71, **studiedness `n_papers_family` scores 0.83–0.86 / AP 0.15–0.17**. A model would have
    to beat a citation count that names its own donors. (`best_pident_bacteria` scores 0.999 and is
    **circular** — it IS the label's definition at the 40% floor. It is not a baseline.)
@@ -214,7 +297,7 @@ construction, rather than being a popularity model wearing a ligandability label
 
 ## Precedent: species-level exact, and what a zero means
 
-**`n_ligands_exact` is species-level, not byte-level.** It was "identical sequence, or an accession
+**The exact count (`n_ligands` / `n_measured`) is species-level, not byte-level.** It was "identical sequence, or an accession
 match", so a single substitution in another isolate demoted the same enzyme to a homolog and its
 ligands left the exact count. It is now the UNION of three routes — accession, identical sequence,
 and **same species at ≥ 95% identity** (two-word binomial, the same rule `chembl.py` uses for its
@@ -233,33 +316,78 @@ The case that makes it concrete:
 A peptide deformylase inhibitor programme was invisible to the exact count because ChEMBL's entry
 is a different *E. coli* strain. **95% here is a claim about protein identity, not about how far
 evidence travels** — `transfer_calibration.py` measured the potency conditional as flat from 25% to
-100%, so no identity number is an accuracy threshold on this axis.
+100% (see *The 95/60/40 bands CANNOT be calibrated*), so no identity number on this axis is an
+accuracy threshold.
 
-### Four evidence tiers, because a 0 meant three different things
+Two spot checks, read from `evidence/precedents_full_ecoli.tsv` as shipped (measurable-potency
+counts, exact / bacterial / human): **`folA` 517 / 595 / 0** — a heavily prosecuted antibacterial
+target with no human liability at all — and **`clpP` 30 / 136 / 210 human at 56.3% identity**,
+which is the degradation handle's selectivity problem arriving from a third independent direction
+(stage 05's orthology and Part 1's selectivity figure are the other two).
 
-`precedent_evidence` ships in the deliverable:
+### The table: potent counts and assayed counts
 
-| tier | Kp | Ec | Sa | meaning |
-|---|---|---|---|---|
-| `liganded` | 180 | 160 | 119 | measurable ligands on a homolog |
-| **`screened_clean`** | **95** | **92** | **44** | somebody assayed compounds, none measurable |
-| `never_screened` | 11 | 9 | 6 | a homolog exists; nobody opened it |
-| `no_homolog` | 5,442 | 4,142 | 2,720 | nothing within the floors |
+The deliverable asks two questions per scope, not one — **"did anyone find a sub-micromolar
+binder"** and **"did anyone look"**:
 
-**Kp `pyrH`: 158 compounds assayed against a 98.3%-identical target, not one potent.** E. coli
-`polA` 36, `mrcB` 34, `phoA` 16, `tolC` 5. Those are measured discouragements, and until now they
-were the same zero as a protein nobody has ever opened — which is the opposite piece of evidence.
+| column | meaning |
+|---|---|
+| `n_ligands` | potent (pChEMBL ≥ 6) on **this protein** |
+| `n_ligands_bacterial` | potent over the bacterial pool |
+| `n_ligands_human` | potent over human targets — liability |
+| `n_assayed` | compounds **assayed** against this protein, any outcome |
+| `n_assayed_bacterial` | assayed over the bacterial pool |
+| `n_assayed_human` | assayed over human targets |
+| `best_pactivity_bacteria` | max pChEMBL over the bacterial pool |
 
-`hit_rate_bacteria` is **null, never 0**, where nothing was assayed. Both it and
-`n_compounds_assayed_bacteria` are UNIONED over the homology pool exactly as the ligand counts are:
-a compound assayed against three homologs is one compound, and summing per-target counts would
-inflate the denominator precisely where the pool is widest.
+Measured, proteins with at least one:
 
-**The tier could not have fired without `effort.py`'s 326 recovered sequences.** `chembl.py` builds
-`chembl_targets.faa` after the pChEMBL filter, so a target whose compounds were all assayed and
-none measurable has no sequence at all — DIAMOND cannot reach it, and `screened_clean` would have
-shipped permanently empty while looking implemented. Those targets carry no ligand rows by
-construction, which is why `liganded` reproduces 180 / 160 / 119 exactly after the change.
+| | Kp | Ec | Sa |
+|---|---|---|---|
+| potent, this protein | 5 | 64 | 32 |
+| **potent, bacterial** | **113** | **96** | **78** |
+| any measurable potency (`n_measured_bacterial`, evidence table) | 180 | 160 | 119 |
+| assayed, bacterial | 275 | 252 | 163 |
+
+**The potent figures are the same 113 / 96 / 78 `chembl.py` reports**, so the two tables now agree
+on what "has a ligand" means. They did not before: the counts were *any measurable potency*, which
+includes a pChEMBL of 4.2 — a weak binder nobody would call a ligand.
+
+**Every count is DISTINCT MOLECULES** — distinct `parent_molregno` over the **union** of the pool's
+targets, never a sum of per-target counts. E. coli `folA` hits 6 bacterial targets and reads 443
+where the per-target sum is 529; the 86 compounds tested against several homologs are counted once.
+`gyrB`: union 295, sum 351.
+
+**`*_bacterial` INCLUDES the exact match.** folA reads 388 potent on itself and 443 bacterial, and
+the 443 *contains* the 388 — the same nesting `chembl.py` uses for direct ⊆ close ⊆ remote.
+**Never sum the two.** Guaranteed per row:
+`n_ligands ≤ n_ligands_bacterial ≤ n_measured_bacterial ≤ n_assayed_bacterial`.
+
+**`best_pactivity_bacteria` is ChEMBL's `pchembl_value`**, renamed because the axis speaks of
+activity rather than of one database's column name. Do not look for a `pactivity` field in ChEMBL.
+
+**`n_assayed*` is NA, never 0, when the effort extract is absent** — it needs the 30.5 GB dump,
+while the rest runs off cached extracts. A 0 would claim nobody ever assayed the protein.
+
+### Reading a zero
+
+A 0 in `n_ligands_bacterial` means one of three things, and `n_assayed_bacterial` says which:
+
+| | |
+|---|---|
+| assayed > 0 | **a measured discouragement** — Kp `pyrH`: 158 compounds assayed against a 98.3%-identical target, none potent. Also Ec `polA` 36, `mrcB` 34, `phoA` 16 |
+| assayed = 0, `n_targets_bacteria` > 0 | a homolog exists, nobody has opened it |
+| `n_targets_bacteria` = 0 | nothing in ChEMBL within the floors — ~95% of each proteome |
+
+A four-way `precedent_evidence` category used to encode this. **It was dropped**: "158 assayed, 0
+potent" says strictly more than a label, and every category is recoverable from the counts plus
+`n_targets_bacteria` in the evidence table.
+
+**Those assayed numbers could not exist without `effort.py`'s 326 recovered sequences.**
+`chembl.py` builds `chembl_targets.faa` after the pChEMBL filter, so a target whose compounds were
+all assayed and none measurable has no sequence at all and DIAMOND cannot reach it. They carry no
+ligand rows by construction, which is why the potent counts reproduce 113 / 96 / 78 exactly after
+the change.
 
 ## The selectivity finding
 
@@ -333,16 +461,24 @@ left the verdict unchanged at 33 / 11.5%.
 | `allorg_n_compounds`, `allorg_n_scaffolds` | the literal all-organism count, so the Bacteria restriction is visible |
 | `complex_n_compounds`, `complex_best_target` | component of a liganded complex |
 
-`accessory/`: `chembl_targets.tsv` (component↔target bridge) · `chembl_ligands.tsv` (2.59M
-target×compound pairs) · `chembl_hits.tsv` (the raw DIAMOND join, unfiltered by band) ·
-`chembl_targets.faa` · `scaffolds.tsv` (1.3M parent compounds → SMILES, InChIKey, molecule ChEMBL
-id, generic scaffold) · `organism_class.tsv` · `cutoff_sensitivity.tsv` · `control.tsv` ·
-`manifest.tsv` · `bindingdb_*`.
+**`evidence/`** — cite-or-check: `chembl_hits.tsv` (the raw DIAMOND join, unfiltered by band) ·
+`scaffolds.tsv` (1.3M parent compounds → SMILES, InChIKey, molecule ChEMBL id, generic scaffold) ·
+`organism_class.tsv` · `cutoff_sensitivity.tsv` · `control.tsv` · `precedent_control.tsv` ·
+`precedents_full_<species>.tsv` · `transfer_calibration.tsv` · `chembl_effort_funnel.tsv` ·
+`chembl_effort_relations.tsv` · `bindingdb_gain.tsv` · `manifest.tsv`.
+
+**`scratch/`** — regenerable caches, safe to purge: `chembl_targets.tsv` (component↔target bridge)
+· `chembl_ligands.tsv` (2.59M target×compound pairs) · `chembl_targets.faa` · `chembl_assayed.tsv`
+· `chembl_effort.tsv` and `chembl_effort_targets.{tsv,faa}` · `transfer_pairs.tsv` ·
+`bindingdb_ligands.tsv` · `bindingdb_targets.faa` · `hits/` · `smoke_*`.
+
+The three `scratch/` extracts the precedents tool runs on total 82 MB and are what let it answer
+without the dump — see Part 3.
 
 | helper | returns |
 |---|---|
 | `load(species)` / `load_all()` | the deliverable |
-| `load_targets` / `load_ligands` / `load_hits` / `load_scaffolds` | the accessory matrices |
+| `load_targets` / `load_ligands` / `load_hits` / `load_scaffolds` | the supporting matrices |
 | `load_cutoff_sensitivity` / `control` / `manifest` | the run record |
 | `evidence_level(df)` | `direct` / `species` / `close` / `remote` / `none` — the tightest bucket with a potent ligand |
 | `selectivity_risk(df)` | `log2((human+1)/(bacterial+1))` on scaffolds; a triage flag, not a cross-reactivity prediction |
@@ -364,15 +500,53 @@ Requiring `pchembl_value IS NOT NULL` already performs most quality filtering fo
 
 ```bash
 python scripts/ligands/chembl.py --dry-run
-python scripts/ligands/chembl.py --limit 200 --species ecoli   # -> accessory/smoke_*
+python scripts/ligands/chembl.py --limit 200 --species ecoli   # -> scratch/smoke_*
 python scripts/ligands/chembl.py                               # ~2 min with the dump
+python scripts/ligands/effort.py                               # ~2 min, needs the dump
+python scripts/ligands/transfer_calibration.py                 # ~2 min, DIAMOND from gradi-ortho
 python scripts/ligands/bindingdb.py                            # ~8 min, first pass
+python scripts/ligands/precedents.py --species kpneumoniae     # ~1 s per sequence, no dump
 python scripts/plots/ligands.py
 ```
 
+Full CLIs:
+
+| script | flags |
+|---|---|
+| `chembl.py` | `--species` · `--pchembl` · `--threads` · `--limit` · `--refresh` · `--dry-run` · `-q` |
+| `effort.py` | `--refresh` · `--dry-run` · `-q` |
+| `transfer_calibration.py` | `--min-compounds 5` · `--threads` · `--dry-run` · `-q` |
+| `precedents.py` | `--sequence` · `--fasta` · `--accession` · `--organism NAME` · `--species` (batch → `precedents_<sp>.tsv`, complete and canonical) · `--min-identity 40` · `--min-pchembl` · `-q` |
+
+DIAMOND comes from `gradi-ortho` via `GRADI_DIAMOND_BIN` in all of them.
+
 The 30.5 GB dump is needed only for the first run; **a cached re-run takes 0.3 min and needs no
 database at all**. Restore it with `tar -xzf data/raw/other/chembl/chembl_37_sqlite.tar.gz -C
-data/raw/other/chembl` — see `data/raw/other/chembl/SOURCE.md`.
+data/raw/other/chembl` — see `data/raw/other/chembl/SOURCE.md`. Extraction takes **30 s**, not the
+~4 min first recorded.
+
+### The archive is verified, and the version is now ASSERTED rather than declared
+
+`chembl_37_sqlite.tar.gz` matches **EBI's published sha256** (`33c2037405…`, from
+`releases/chembl_37/checksums.txt`) and that URL's `Content-Length` byte-for-byte, so what is on
+disk is the genuine complete release and not a truncated or resumed transfer. **That had never been
+checked** — the first run recorded byte counts only, and a byte count does not detect corruption.
+Two gaps the check exposed, both closed:
+
+1. **`CHEMBL_VERSION = "37"` was a bare literal while `find_db` globs `chembl_*.db`.** A different
+   release extracted beside this one would have been consumed silently and labelled 37 in every
+   manifest. **`assert_version()`** now reads the dump's own `version` table (filename as fallback)
+   and exits non-zero on a mismatch.
+2. **`SOURCE.md` pointed at the FTP `latest/` path**, which moves with every release. The pinned
+   `releases/chembl_37/` URL replaces it.
+
+**The cached extracts reproduce byte-for-byte from the restored dump.** `extract_chembl(refresh=
+True)` into a temp directory returned all three sha256-identical: `chembl_targets.tsv` 9,347 × 9,
+`chembl_ligands.tsv` 2,591,526 × 6, `chembl_targets.faa` 8,469 records. The dump self-identifies as
+`ChEMBL_37` dated 2026-05-01 and its counts match the release notes. Independently, *before* the
+restore, 4 targets were checked against live ChEMBL: `CHEMBL1293248` 24,681 activities and
+`CHEMBL2390811` 8/8 agree **exactly**; the two deltas (`CHEMBL5465386` +18, `CHEMBL2026` +26) are
+the `potential_duplicate` rows the extract drops on purpose.
 
 ## Traps
 
@@ -389,8 +563,22 @@ data/raw/other/chembl` — see `data/raw/other/chembl/SOURCE.md`.
   and raise `csv.field_size_limit`.
 - **BindingDB has no taxonomy id.** v1 bridged the superkingdom via ChEMBL genus names but *warned
   and returned an empty set* when the file was missing, silently emptying its bacterial bucket. Here
-  the map comes from `accessory/organism_class.tsv` and a missing or empty map exits non-zero; the
+  the map comes from `evidence/organism_class.tsv` and a missing or empty map exits non-zero; the
   count of unclassifiable organism strings (207) is printed every run.
+- **ChEMBL's `version` table IS NOT ONE ROW — it holds 11, and `ChEMBL_37` is not first.** A
+  `fetchone()` returns `Bioassay Ontology 2.0`, and `LIKE 'ChEMBL_%'` does not disambiguate either,
+  because `ChEMBL_Structure_Pipeline 1.2.0` matches it. Only `ChEMBL_<digits>` exactly is the
+  release. **The first `assert_version()` got this wrong and rejected the correct database** — it
+  had passed a synthetic one-row fixture, i.e. it tested the assumption rather than the schema,
+  which is the house rule about asserting on content wearing a different hat.
+  Two upstream versions worth knowing, both read from that same table: **Swiss-Prot 2025_03**
+  supplies `component_sequences` (the sequences `precedents.py` searches), and **RDKit 2022.09.4**
+  did the salt stripping behind `molecule_hierarchy` — which is what the whole `parent_molregno`
+  collapse rests on.
+- **A denominator must come from the numerator's population.** `effort.py` relaxes exactly one
+  clause of `chembl.py`'s predicate and imports the rest rather than restating it, exiting non-zero
+  if either clause it relaxes has moved. Two counts drawn from different target populations line up
+  perfectly in a spreadsheet and mean nothing.
 - **Do not use Python's `hash()` for a cache key.** String hashing is randomised per process, so a
   builtin-hash sequence id differs between the run that writes a cache and the run that reads it.
   `hashlib.sha1` throughout.
@@ -470,9 +658,14 @@ a per-species table. This asks *what about **this** sequence* — any sequence, 
 from 82 MB of cached extracts.
 
 ```
-(a) n_ligands_exact      ligands on an EXACT match: UniProt accession, or identical sequence
-(b) n_ligands_bacteria   UNIQUE ligands across BACTERIAL targets, by identity
-(c) n_ligands_human      ligands on HUMAN orthologs
+n_ligands              POTENT (pChEMBL >= 6) on THIS protein -- accession, identical
+                       sequence, or same species at >= 95%
+n_ligands_bacterial    potent over the bacterial pool   (INCLUDES this protein)
+n_ligands_human        potent over human targets        (LIABILITY, never summed in)
+n_assayed              compounds ASSAYED against this protein, whatever the outcome
+n_assayed_bacterial    assayed over the bacterial pool
+n_assayed_human        assayed over human targets
+best_pactivity_bacteria   max pChEMBL over the bacterial pool
 ```
 
 ## What it runs on
@@ -489,20 +682,23 @@ distinct compounds**, of which **110,019** sit on Bacteria targets and **1,101,3
 
 ## Three things the counts mean, and one they do not
 
-**(b) counts MOLECULES, not target-compound pairs.** `parent_molregno` is ChEMBL's
+**They count MOLECULES, not target-compound pairs.** `parent_molregno` is ChEMBL's
 `molecule_hierarchy` parent, so salts are already collapsed; taking the DISTINCT set over the union
-of every passing target means a compound tested against three homologs counts **once**. Summing
-per-target counts would inflate it, and the wider the identity band the worse it gets — which is
-precisely the regime this tool is for.
+of every passing target means a compound tested against three homologs counts **once**. Measured:
+E. coli `folA` reads 443 over 6 targets where the per-target sum is 529. Summing would inflate it,
+and the wider the identity band the worse it gets — precisely the regime this tool is for. This
+holds for the assayed side too, which is why `effort.py` emits `(target, compound)` pairs rather
+than per-target totals.
 
-**(c) is a liability, not a precedent.** A ligand-bearing human ortholog says the fold is druggable
-*and* that hitting it may be dangerous. E. coli `clpP` is the case: **136 bacterial against 210
-human** at 56.3% identity, the human mitochondrial CLPP ortholog. The CLI prints a warning when (c)
-exceeds (b). Never sum them.
+**`n_ligands_human` is a liability, not a precedent.** A ligand-bearing human ortholog says the
+fold is druggable *and* that hitting it may be dangerous. E. coli `clpP` is the case: **136
+bacterial measurable against 210 human** at 56.3% identity, the human mitochondrial CLPP ortholog.
+The CLI warns when human exceeds bacterial. Never sum them.
 
-**The complex track is separate and is not inside (b).** E. coli `gyrB`: **666 single-protein
-ligands, 1,412 complex**. Kp `A0A0H3H0Y6` (gyrA): **1,410 complex against 131 single.** DNA gyrase is a
-`PROTEIN COMPLEX` in ChEMBL and v1's single-protein-only rule made GyrA/GyrB look unliganded.
+**The complex track is separate and is not inside `n_ligands_bacterial`.** E. coli `gyrB`: **666
+single-protein measurable ligands, 1,412 complex**. Kp `A0A0H3H0Y6` (gyrA): **1,410 complex against
+131 single.** DNA gyrase is a `PROTEIN COMPLEX` in ChEMBL and v1's single-protein-only rule made
+GyrA/GyrB look unliganded. `n_ligands_bacterial_complex` is in the evidence table.
 
 **It does not say "has an antibiotic".** `pchembl` is 100% populated in the extract, so every count
 is of potency-measurable ligands — `=` relations on IC50/EC50/Ki/Kd/Potency in nM. MIC and
@@ -526,11 +722,17 @@ from the axis it sits beside.
 `evidence/precedent_control.tsv`, written on every `--species` run: agreement with
 `chembl_<sp>.tsv` **at matched semantics** (pChEMBL ≥ 6, complex track included).
 
-| species | both positive | precedents-only | chembl-only | agreement |
-|---|---|---|---|---|
-| kpneumoniae | 113 | 4 | **0** | **99.9%** |
-| ecoli | 96 | 4 | **0** | **99.9%** |
-| saureus | 78 | 4 | **0** | **99.9%** |
+| species | both positive | precedents-only | chembl-only | agreement | count mismatches | total ligand delta |
+|---|---|---|---|---|---|---|
+| kpneumoniae | 113 | **0** | **0** | **100%** | 0 | 0 |
+| ecoli | 96 | **0** | **0** | **100%** | 0 | 0 |
+| saureus | 78 | **0** | **0** | **100%** | 0 | 0 |
+
+*(These replace a "precedents-only 4 / agreement 99.9%" table that this page carried after the
+agreement had already become exact — the adversarial-audit section below records the fix, and the
+shipped `precedent_control.tsv` has read `agreement 1.0`, `n_count_mismatch 0`,
+`total_ligand_delta 0` and `max_abs_delta 0` on all three species since. `matched_semantics` in
+that file states the comparison: `pchembl>=6, SINGLE track both sides (chembl.py:452)`.)*
 
 At *default* settings the two differ, and both reasons are design rather than defect: the tool
 excludes the complex track, and counts every measurable ligand rather than only pChEMBL ≥ 6 — 66 of

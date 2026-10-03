@@ -1,8 +1,18 @@
-"""Ligand precedent for ANY protein sequence: three counts, from cached ChEMBL extracts.
+"""Ligand precedent for ANY protein sequence: potent counts and assayed counts.
 
-    (a) n_ligands_exact      ligands on an EXACT match -- UniProt accession, or identical sequence
-    (b) n_ligands_bacteria   UNIQUE ligands reachable across BACTERIAL targets by identity
-    (c) n_ligands_human      ligands on HUMAN orthologs
+    n_ligands             POTENT (pChEMBL >= 6, sub-micromolar) on THIS protein
+    n_ligands_bacterial   potent over the bacterial pool   (INCLUDES this protein)
+    n_ligands_human       potent over human targets        (LIABILITY, never summed in)
+    n_assayed             compounds ASSAYED against this protein, whatever the outcome
+    n_assayed_bacterial   assayed over the bacterial pool
+    n_assayed_human       assayed over human targets
+    best_pactivity_bacteria   max pChEMBL over the bacterial pool -- ChEMBL's `pchembl_value`
+
+TWO QUESTIONS, NOT ONE. "Has anyone found a sub-micromolar binder" and "has anyone looked" are
+different, and a single count conflates them. A 0 against 158 assayed compounds is a measured
+discouragement; a 0 against 0 is an open question. The assayed side comes from
+`scripts/ligands/effort.py`, which reads the dump WITHOUT the pChEMBL filter the rest of the axis
+applies -- so it sees the compounds that were tried and did not work.
 
 This is a QUERY TOOL over arbitrary input, which is what separates it from
 `scripts/ligands/chembl.py`. That script answers "what does our proteome have" and needs the 30.5 GB
@@ -80,15 +90,25 @@ EXACT_PIDENT = L.DIRECT_PIDENT              # 95.0
 HIT_COLS = ["query", "component_id", "pident", "ppos", "length",
             "qlen", "slen", "qcov", "scov", "evalue", "bitscore"]
 
-OUT_COLS = [
-    "id", "n_ligands_exact", "n_ligands_bacteria", "n_ligands_human",
-    "exact_route", "exact_target",
-    "n_targets_bacteria", "best_pident_bacteria", "best_pchembl_bacteria",
-    "n_targets_human", "best_pident_human", "best_pchembl_human",
-    "n_ligands_bacteria_complex",
-    "n_compounds_assayed_bacteria", "n_compounds_potent_bacteria", "hit_rate_bacteria",
-    "precedent_evidence",
+# The deliverable seven, then provenance. `n_ligands*` are POTENT (pChEMBL >= 6 = 1 uM);
+# `n_assayed*` are compounds tried at all, whatever the outcome.
+DELIVERABLE = [
+    "n_ligands", "n_ligands_bacterial", "n_ligands_human",
+    "n_assayed", "n_assayed_bacterial", "n_assayed_human",
+    "best_pactivity_bacteria",
 ]
+OUT_COLS = [
+    "id", *DELIVERABLE,
+    "exact_route", "exact_target",
+    "n_targets_bacteria", "best_pident_bacteria",
+    "n_targets_human", "best_pident_human", "best_pactivity_human",
+    "n_measured", "n_measured_bacterial", "n_measured_human",
+    "n_ligands_bacterial_complex",
+]
+COUNT_COLS = [c for c in OUT_COLS if c.startswith(("n_ligands", "n_assayed", "n_measured",
+                                                   "n_targets"))]
+FLOAT_COLS = ["best_pactivity_bacteria", "best_pactivity_human",
+              "best_pident_bacteria", "best_pident_human"]
 
 _CACHE: dict = {}
 
@@ -177,9 +197,13 @@ def _effort() -> tuple[dict, bool]:
     per-target counts would inflate the denominator precisely where the pool is widest, which is
     where the hit rate matters most.
 
+    Covers BOTH scopes -- the file carries a `kingdom` column (bacteria / human) and tids are
+    unique across them, so one dict serves `n_assayed`, `n_assayed_bacterial` and `n_assayed_human`
+    without the caller needing to know which pool a target came from.
+
     Optional by design -- it needs the 30.5 GB dump restored, while everything else here runs off
-    82 MB of cached extracts. Absent, the effort columns are NA and the tier degrades to what the
-    old two-way split could say. NA is honest; a zero would claim nobody ever screened the protein.
+    82 MB of cached extracts. Absent, every `n_assayed*` column is NA. NA is honest; a zero would
+    claim nobody ever assayed the protein, which is the opposite piece of evidence.
     """
     if "e" not in _CACHE:
         path = SCRATCH / "chembl_assayed.tsv"
@@ -249,9 +273,11 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
     # proteome is one species.
     org_of = ({k: organisms for k in sequences} if isinstance(organisms, str)
               else dict(organisms or {}))
-    lg_all = lg                              # unfiltered -- the potency tier needs the real values
-    if min_pchembl is not None:
-        lg = lg[lg["pchembl"] >= min_pchembl]
+    # `min_pchembl` IS the potency cut for `n_ligands*`, not a pre-filter on everything. Under the
+    # old schema the counts were "any measurable" and this narrowed them; now they are potent by
+    # definition, so the flag sets WHERE potent starts. `n_measured*` stays unfiltered -- it exists
+    # precisely to be the any-potency number -- and filtering `lg` here would silently redefine it.
+    potency_cut = L.PCHEMBL_HEADLINE if min_pchembl is None else float(min_pchembl)
 
     # ONE COMPONENT MAPS TO MANY TIDS -- 9,347 rows over 8,469 distinct component_ids, 490 of them
     # with more than one tid and up to 15. `dict(zip(...))` keeps only the LAST and silently drops
@@ -299,21 +325,38 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
     by_query = dict(list(hits.groupby("query"))) if len(hits) else {}
 
     assayed_by_tid, have_effort = _effort()
-    potent_by_tid = (lg_all[(lg_all["track"] == "single")
-                            & (lg_all["pchembl"] >= L.PCHEMBL_HEADLINE)]
+    potent_by_tid = (lg[(lg["track"] == "single") & (lg["pchembl"] >= potency_cut)]
                      .groupby("tid")["parent_molregno"].apply(set).to_dict())
 
-    def ligands_of(comps) -> tuple[set, set]:
-        """UNION of compounds over components -> DISTINCT molecules, counted once.
+    def pool_of(comps) -> dict[str, set]:
+        """UNION of molecules over a set of components -> DISTINCT molecules, counted ONCE.
 
-        Walks EVERY tid a component maps to, not just one. See the comment on `comp2tids`.
+        **Everything this tool reports is a count of distinct `parent_molregno` over the union of
+        the pool's targets, never a sum of per-target counts.** A compound assayed against three
+        homologs is ONE compound, and the wider the identity band the worse a sum inflates --
+        which is the regime this tool runs in. `parent_molregno` is ChEMBL's `molecule_hierarchy`
+        parent, so a compound and its hydrochloride salt are already one molecule; v1 counted raw
+        `molregno` and double-counted salts.
+
+        Returns four sets per pool, all on the same molecule key so they nest:
+        `assayed` (any outcome) >= `measured` (a potency value exists) >= `potent` (pChEMBL >= 6),
+        plus `complex` for the separate protein-complex track.
+
+        Walks EVERY tid a component maps to, not just one -- the one-to-many collapse that made
+        gyrA read as unliganded (858bf01) would silently deflate all four.
         """
-        sg, cx = set(), set()
+        out = {k: set() for k in ("potent", "measured", "assayed", "complex")}
         for cid in comps:
             for tid in comp2tids.get(cid, ()):
-                sg |= single.get(tid, set())
-                cx |= cplx.get(tid, set())
-        return sg, cx
+                out["measured"] |= single.get(tid, set())
+                out["potent"] |= potent_by_tid.get(tid, set())
+                out["assayed"] |= assayed_by_tid.get(tid, set())
+                out["complex"] |= cplx.get(tid, set())
+        return out
+
+    def n_assayed(pool: dict[str, set]) -> object:
+        """NA, not 0, when the effort extract is absent -- a 0 would claim nobody ever assayed it."""
+        return len(pool["assayed"]) if have_effort else pd.NA
 
     rows = []
     for qid, seq in sequences.items():
@@ -341,35 +384,9 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
                 comps.update(same["component_id"])
         route = ";".join(routes) if routes else "none"
         comps = sorted(comps)
-        ex_single, ex_cplx = ligands_of(comps)
-
-        b_single, b_cplx = ligands_of(bact["component_id"])
-        h_single, _ = ligands_of(hum["component_id"])
-
-        # ---- effort: distinct compounds ASSAYED across the same bacterial pool, and the tier.
-        b_assayed, b_potent = set(), set()
-        for cid in bact["component_id"]:
-            for tid in comp2tids.get(cid, ()):
-                b_assayed |= assayed_by_tid.get(tid, set())
-                b_potent |= potent_by_tid.get(tid, set())
-        n_assayed = len(b_assayed) if have_effort else pd.NA
-        n_potent = len(b_potent)
-        hit_rate = (len(b_potent & b_assayed) / len(b_assayed)) if (have_effort and b_assayed) else pd.NA
-
-        # A zero is an ANSWER, not a gap -- the studiedness axis's `no_hit` vs `below_floor` rule
-        # applied here. `screened_clean` (somebody tried, nothing measurable came out) and
-        # `never_screened` (nobody opened it) are opposite evidence and were the same zero across
-        # ~96% of every proteome until now.
-        if len(b_single):
-            tier = "liganded"
-        elif not len(bact):
-            tier = "no_homolog"
-        elif not have_effort:
-            tier = "unknown_effort"
-        elif b_assayed:
-            tier = "screened_clean"
-        else:
-            tier = "never_screened"
+        ex = pool_of(comps)
+        bp_ = pool_of(bact["component_id"])
+        hp_ = pool_of(hum["component_id"])
 
         def bp(sub):
             """Best pChEMBL over the SINGLE track only, matching what the count reports."""
@@ -380,24 +397,38 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
 
         rows.append({
             "id": qid,
-            # SINGLE track, like (b) and (c). Mixing tracks here put 713 next to a
-            # bacterial 0 on E. coli gyrA -- three columns that cannot be compared.
-            "n_ligands_exact": len(ex_single),
-            "n_ligands_bacteria": len(b_single),
-            "n_ligands_human": len(h_single),
+            # THE DELIVERABLE SIX. `n_ligands*` are POTENT (pChEMBL >= 6, i.e. sub-micromolar),
+            # `n_assayed*` are compounds tried at all. SINGLE track throughout -- mixing in the
+            # complex track put 713 next to a bacterial 0 on E. coli gyrA, three columns that
+            # cannot be compared.
+            #
+            # `*_bacterial` is INCLUSIVE of the exact match, like chembl.py's nested buckets:
+            # E. coli folA reads n_ligands 443 and n_ligands_bacterial 519, where the 519 CONTAINS
+            # the 443. **Never sum the two** -- that double-counts every compound on the protein
+            # itself.
+            "n_ligands": len(ex["potent"]),
+            "n_ligands_bacterial": len(bp_["potent"]),
+            "n_ligands_human": len(hp_["potent"]),
+            "n_assayed": n_assayed(ex),
+            "n_assayed_bacterial": n_assayed(bp_),
+            "n_assayed_human": n_assayed(hp_),
+            "best_pactivity_bacteria": bp(bact),
+
+            # ---- evidence only, below here
             "exact_route": route,
             "exact_target": ";".join(str(c) for c in comps) if comps else pd.NA,
             "n_targets_bacteria": len(bact),
             "best_pident_bacteria": round(bact["pident"].max(), 1) if len(bact) else pd.NA,
-            "best_pchembl_bacteria": bp(bact),
             "n_targets_human": len(hum),
             "best_pident_human": round(hum["pident"].max(), 1) if len(hum) else pd.NA,
-            "best_pchembl_human": bp(hum),
-            "n_ligands_bacteria_complex": len(b_cplx),
-            "n_compounds_assayed_bacteria": n_assayed,
-            "n_compounds_potent_bacteria": n_potent,
-            "hit_rate_bacteria": hit_rate,
-            "precedent_evidence": tier,
+            "best_pactivity_human": bp(hum),
+            # ANY measurable potency, the old `n_ligands_*` semantics. Kept so the previously
+            # published 180/160/119 stay recoverable and the reshape can be shown to have
+            # reinterpreted nothing.
+            "n_measured": len(ex["measured"]),
+            "n_measured_bacterial": len(bp_["measured"]),
+            "n_measured_human": len(hp_["measured"]),
+            "n_ligands_bacterial_complex": len(bp_["complex"]),
         })
     out = pd.DataFrame(rows, columns=OUT_COLS)
     # TYPE THE COLUMNS EXPLICITLY. Building the frame from dicts containing `pd.NA` makes every
@@ -405,14 +436,11 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
     # the STRINGS '4.36' and '' -- `>= 6` then raises TypeError and a sort orders '9.02' above
     # '10.1'. Nullable Int64/Float64 keep "no measurement" distinguishable from zero while still
     # comparing and sorting numerically.
-    for c in ("n_ligands_exact", "n_ligands_bacteria", "n_ligands_human",
-              "n_targets_bacteria", "n_targets_human", "n_ligands_bacteria_complex",
-              "n_compounds_assayed_bacteria", "n_compounds_potent_bacteria"):
+    for c in COUNT_COLS:
         out[c] = pd.to_numeric(out[c], errors="coerce").astype("Int64")
-    for c in ("best_pident_bacteria", "best_pchembl_bacteria",
-              "best_pident_human", "best_pchembl_human", "hit_rate_bacteria"):
+    for c in FLOAT_COLS:
         out[c] = pd.to_numeric(out[c], errors="coerce").astype("Float64")
-    for c in ("exact_target", "exact_route", "precedent_evidence"):
+    for c in ("exact_target", "exact_route"):
         out[c] = out[c].astype("string")
     return out
 
