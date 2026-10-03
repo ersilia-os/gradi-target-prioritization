@@ -292,11 +292,11 @@ scripts/
   essentiality/   labels.py  deg_proteomes.py  geptop.py  ogee.py
                   screens.py  predict.py  merge.py  registry.py   -> essentiality_<sp>.tsv
   ligands/        chembl.py  bindingdb.py  effort.py
-                  precedents.py  transfer_calibration.py          -> chembl_<sp>.tsv
+                  ligands.py  transfer_calibration.py             -> ligands_<sp>.tsv
   studiedness/    fetch.py  gene2pubmed.py  unknome.py
                   transfer.py  merge.py                           -> studiedness_<sp>.tsv
   pockets/        structures.py  predict.py  holo.py
-                  alphafill_check.py  merge.py                    -> structure_<sp>.tsv
+                  alphafill_check.py  merge.py                    -> pockets_<sp>.tsv
   interactome/                              README.md only -- a real axis, no code yet
   plots/          10 scripts, ALL figures
   workers/        tabpfn_cv.py             transversal; every axis may call it
@@ -456,8 +456,16 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   missing accessions rather than zero-filling: **(0, 0) is a real position**, in the dense centre.
 
 - **`localization/predict.py`** + **`localization/merge.py`** → **`localization_<species>.tsv`**,
-  5 columns, **from sequence alone**: `localization` + `confidence` (DeepLocPro 1.0) and
-  `cytoplasmic_fraction` + `has_signal_peptide` (TMbed). Env **`gradi-loc`** across a
+  **3 columns**, **from sequence alone**: `localization` (DeepLocPro 1.0) and
+  `cytoplasmic_fraction` (TMbed). **`confidence` ships in `evidence/deeplocpro_<species>.tsv`**
+  (owner's call, 2026-10-03), byte-identical — but DeepLocPro **always** returns a call, so the
+  label now reads equally authoritative for every protein and nothing in the table says which calls
+  are weak: **12–15% sit below 0.7 confidence, 2–4% below 0.5.** Join it back before trusting one
+  label. **`has_signal_peptide` ships in `evidence/tmbed_<species>.tsv`**
+  (owner's call, 2026-10-03), byte-identical. It is the one column that says **WHY** a fraction is
+  near zero — exported rather than membrane-buried — which is exactly the degradability mechanism
+  (a secreted protein transits the cytoplasm unfolded and IS reachable; a membrane protein never
+  does), so `degradability/enrichment.py` joins it back explicitly. Env **`gradi-loc`** across a
   process boundary (`localization/workers/deeplocpro.py`, `GRADI_LOC_BIN`); the two tracks run
   **sequentially, never concurrently**. DeepLocPro always returns a call, so **100% coverage is a
   property of the method** and there is no `unknown` class.
@@ -714,7 +722,8 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   **OrthoDB has NO root level spanning domains**: `<n>at2` and `<n>at2759` are **not comparable**, so
   cross-domain similarity is `neighbors.tsv`. Details: `docs/orthology.md`.
 
-- **`ligands/chembl.py`** → `chembl_<species>.tsv`: measured bioactivity from **ChEMBL 37**, mapping
+- **`ligands/chembl.py`** → **`evidence/chembl_<species>.tsv`**: measured bioactivity from
+  **ChEMBL 37**, mapping
   the three bacterial proteomes onto ChEMBL's target sequences with DIAMOND and counting
   **non-redundant** ligands at four nested distances. A cached re-run needs no database.
 
@@ -747,10 +756,14 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
 
   Needs **rdkit from PyPI** (a conda install flips `gradi` to osx-64 and takes ESM-C with it). The
   30.5 GB dump is deleted after each run; recovery in `data/raw/other/chembl/SOURCE.md`.
-  **Load through `src/ligandability.py`**. Details: `docs/ligands.md`.
+  **Load through `src/ligandability.py`** — **`load()` is the DELIVERABLE** (`ligands_<sp>.tsv`),
+  `load_chembl()` the evidence table, `load_full()` the 19-column provenance view. Swapped
+  2026-10-03: `load()` used to return the ChEMBL table, which stopped making sense once that was
+  demoted. **`load_ligands()` is NOT any of these** — it is the raw `scratch/chembl_ligands.tsv`
+  extract, 2.6M rows. Details: `docs/ligands.md`.
 
 - **`ligands/effort.py`** → `scratch/chembl_effort.tsv`, **the DENOMINATOR and the axis's only real
-  negatives**: `chembl.py` and `precedents.py` both require `pchembl_value IS NOT NULL`, so a
+  negatives**: `chembl.py` and `ligands.py` both require `pchembl_value IS NOT NULL`, so a
   compound somebody assayed that did NOT work is invisible, and "nobody screened this" collapses into
   "people screened it and nothing worked". Of **453 bacterial targets with ≥10 compounds assayed, 148
   (32.7%) never reached pChEMBL 6**, and 208 targets were invisible entirely.
@@ -801,9 +814,19 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   never as an accuracy threshold.** Calibrating it honestly needs proteins nobody chose to screen,
   which ChEMBL by construction does not contain.
 
-- **`ligands/precedents.py`** + **`src/precedents.py`** — **ligand precedent for ANY sequence**, a
-  query tool rather than a proteome stage, needing no database (three cached extracts, 82 MB, ~1 s).
-  `--species` runs it in batch to `precedents_<sp>.tsv`.
+- **`ligands/ligands.py`** + **`src/precedents.py`** — **THE AXIS DELIVERABLE**,
+  `ligands_<species>.tsv`, 8 columns; also a query tool for ANY sequence, needing no database
+  (three cached extracts, 82 MB, ~1 s).
+
+  **`chembl_<species>.tsv` was DEMOTED to `evidence/` on 2026-10-03** (owner's call), because
+  measured against `ligands_<species>.tsv` it is largely a duplicate: `n_ligands_bacterial` ==
+  `remote_n_compounds` and `n_ligands_human` == `human_n_compounds` **exactly** — same 113 Kp
+  proteins, 5,286 vs 5,286 compounds, ρ 1.0. **What ONLY the chembl table has, so read it from
+  `evidence/` when you need it**: `*_n_scaffolds` (Kp's 5,286 potent compounds are **1,593 Murcko
+  scaffolds**, 3.3 per scaffold — the difference between 50 starting points and 50 analogues of one
+  series), the identity bands broken out (direct 21 / close 79 / remote 113 proteins), the match
+  provenance (`best_target`/`best_pident`/`best_organism`) and `allorg_*`. **What ONLY the
+  deliverable has is the denominator**, `n_assayed*` — the axis's only real negatives.
 
   **TWO QUESTIONS, NOT ONE, and a single count conflates them**: `n_ligands*` is POTENT (pChEMBL ≥ 6)
   and `n_assayed*` is "has anyone looked", each over three scopes — this protein, the bacterial pool,
@@ -836,11 +859,18 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   ones, never merged.
 
 - **`pockets/structures.py`** → **`predict.py`** → **`holo.py`** → **`merge.py`** — **structural
-  ligandability**: can a small molecule bind this fold? Deliverable `structure_<species>.tsv`, 7
-  columns, complete and canonical for the three bacteria: `p2rank_score` · `fpocket_score` ·
+  ligandability**: can a small molecule bind this fold? Deliverable `pockets_<species>.tsv`, **6
+  columns**, complete and canonical for the three bacteria: `p2rank_score` · `fpocket_score` ·
   `p2rank_n_pockets` (predicted, on AlphaFold v6 models) · `holo_identity` (measured: % identity
-  to the closest bacterial PDB chain with a drug-like ligand in the aligned site) · `af_plddt` ·
-  `evidence`. All `gradi`; fpocket/P2Rank from `gradi-pockets`, DIAMOND from `gradi-ortho`. ~40 min
+  to the closest bacterial PDB chain with a drug-like ligand in the aligned site) · `af_plddt`.
+
+  **No `evidence` column** (owner's call, 2026-10-03): it was a function of two shipped columns —
+  `af_plddt` is NA exactly when no model exists, `holo_identity > 0` exactly when a drug-like
+  bacterial co-crystal was found — verified exactly reconstructible on all three species before
+  removal. **An NA in the pocket columns is "could not look", NOT "looked and found nothing"**: a
+  protein WITH a model and no admitted pocket gets 0, so never `fillna(0)` — that is the v1
+  mistake. The one thing the labels added is the model's provenance (AlphaFold DB vs ESMFold),
+  which is `model_source` in `evidence/alphafold_<species>.tsv`. All `gradi`; fpocket/P2Rank from `gradi-pockets`, DIAMOND from `gradi-ortho`. ~40 min
   cold. **Load through `src/pockets.py`.** Details: `docs/pockets.md`.
 
   **Confidence enters ONCE**: a pocket counts only if its residues average pLDDT ≥ 70. v1 applied

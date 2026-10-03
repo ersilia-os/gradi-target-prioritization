@@ -116,14 +116,12 @@ COLUMNS: dict[str, dict[str, str]] = {
     "localization": AC | {
         "localization": "DeepLocPro's compartment, from sequence alone. The model always returns a "
                         "call and has no `unknown` class, so 100% coverage is a property of the "
-                        "method, not evidence.",
-        "confidence": "the winning class probability.",
+                        "method, not evidence -- and `confidence` is no longer here to say which "
+                        "calls are weak. 12-15% of them sit below 0.7; read "
+                        "evidence/deeplocpro_<sp>.tsv before trusting one label.",
         "cytoplasmic_fraction": "TMbed: fraction of residues on the cytoplasmic side. PREFER this "
                                 "over the label where a choice is forced -- it corroborates "
                                 "`extracellular`, the weakest class, from outside DeepLocPro.",
-        "has_signal_peptide": "TMbed called a signal peptide -- i.e. the protein transits the "
-                              "cytoplasm unfolded, which is what makes secreted proteins "
-                              "degradable rather than protected.",
     },
     "degradability": AC | {
         "adep4_prob": "seed-averaged out-of-fold p(substrate), TabPFN-3.5 on ESM-C. One comparable "
@@ -164,41 +162,7 @@ COLUMNS: dict[str, dict[str, str]] = {
                                 "12 of 28 and 12 of 3 are different claims and nothing else in the "
                                 "row tells them apart.",
     },
-    "chembl": AC | {
-        "direct_hit": "a ChEMBL target at >=95% identity exists.",
-        "best_target": "that target's ChEMBL id.",
-        "best_pident": "% identity to it.",
-        "best_organism": "the organism it was assayed in -- 94% empty, because 21 Kp single-protein "
-                         "targets exist against 5,728 proteins. Homology transfer IS the axis.",
-        "n_compounds_tested": "compounds on the exact target.",
-        "direct_n_compounds": "potent (pChEMBL >= 6) compounds in the >=95% bucket.",
-        "direct_n_scaffolds": "distinct Murcko scaffolds there -- 50 analogues of one series is not "
-                              "50 starting points.",
-        "direct_best_pchembl": "best pChEMBL in that bucket.",
-        "species_n_compounds": "potent compounds on same-species targets, matched by organism NAME, "
-                               "not tax_id (562 finds 65 E. coli targets, the name finds 225).",
-        "species_n_scaffolds": "scaffolds there.",
-        "species_best_pchembl": "best pChEMBL there.",
-        "close_n_compounds": "the >=60% bucket. NESTED: direct is inside close is inside remote.",
-        "close_n_scaffolds": "scaffolds there.",
-        "close_best_pchembl": "best pChEMBL there.",
-        "remote_n_compounds": "the >=40% bucket, restricted to TRUE Bacteria -- an unrestricted "
-                              "`non-human` bucket once gave 424 potent Kp proteins against a true 175.",
-        "remote_n_scaffolds": "scaffolds there.",
-        "remote_best_pchembl": "best pChEMBL there.",
-        "human_n_compounds": "potent compounds on human homologs. A LIABILITY block, never merged "
-                             "into a bacterial count -- clpP carries 106 human against 61 bacterial.",
-        "human_n_scaffolds": "scaffolds there.",
-        "human_best_pchembl": "best human pChEMBL.",
-        "human_best_pident": "identity to the closest human target.",
-        "allorg_n_compounds": "every organism, the unrestricted count, kept for comparison only.",
-        "allorg_n_scaffolds": "scaffolds there.",
-        "complex_n_compounds": "potent compounds where the ChEMBL target is a PROTEIN COMPLEX -- run "
-                               "at confidence >=6, because >=8 returns exactly zero complexes and "
-                               "DNA gyrase is a complex in ChEMBL.",
-        "complex_best_target": "that complex's ChEMBL id.",
-    },
-    "precedents": AC | {
+    "ligands": AC | {
         "n_ligands": "POTENT (pChEMBL >= 6) distinct molecules on THIS protein, species-level.",
         "n_ligands_bacterial": "potent molecules over the bacterial pool. CONTAINS `n_ligands` -- "
                                "never sum the two. Distinct parent_molregno over the UNION of "
@@ -212,7 +176,7 @@ COLUMNS: dict[str, dict[str, str]] = {
         "best_pactivity_bacteria": "max pChEMBL over the bacterial pool. This is ChEMBL's "
                                    "`pchembl_value` renamed, not a new quantity.",
     },
-    "structure": AC | {
+    "pockets": AC | {
         "p2rank_score": "best P2Rank pocket score on the AlphaFold v6 model. TRUST THIS over "
                         "fpocket -- against the holo column, AUROC 0.64-0.71 vs 0.53-0.59.",
         "fpocket_score": "best fpocket score, kept for comparison.",
@@ -220,8 +184,9 @@ COLUMNS: dict[str, dict[str, str]] = {
                             "pLDDT >= 70 -- confidence enters ONCE, here, and nowhere else.",
         "holo_identity": "MEASURED: % identity to the closest bacterial PDB chain holding a "
                          "drug-like ligand in the aligned site. Matches the SITE, not the chain.",
-        "af_plddt": "mean pLDDT of the AlphaFold model.",
-        "evidence": "`pdb+af` / `af_only` / `none` -- which structures the row rests on.",
+        "af_plddt": "mean pLDDT of the AlphaFold model. NA means NO MODEL -- and an NA in the "
+                    "pocket columns is 'could not look', not 'looked and found nothing'. A "
+                    "protein WITH a model and no admitted pocket gets 0. Never fillna(0).",
     },
     "function": AC | {
         "cog_categories": "`;`-joined COG2024 category letters, vocabulary order. Empty = not "
@@ -294,7 +259,11 @@ TABLES = [
                     "DeepLocPro's training set, so Ec agreement is a sanity check, not validation.",
          also="Two predictors side by side, never reduced to one call: DeepLocPro answers WHICH "
               "compartment, TMbed HOW MUCH of the chain faces the cytoplasm, and where they "
-              "disagree the disagreement is the information. No `evidence` column here, unlike "
+              "disagree the disagreement is the information. `has_signal_peptide` ships in "
+              "evidence/tmbed_<sp>.tsv, not here -- it says WHY a fraction is near zero (exported "
+              "vs membrane-buried), which is what makes secreted proteins degradable and membrane "
+              "proteins protected, so join it back before filtering on localization. "
+              "No `evidence` column here, unlike "
               "every other axis: both predictors cover 100% by construction, so it was constant "
               "and said nothing. The per-predictor tables stay in evidence/, because the tracks "
               "run and resume independently."),
@@ -334,29 +303,31 @@ TABLES = [
                     "table is for: a sparse matrix cannot express a zero at all.",
          also="orthologs.tsv and neighbors.tsv ship beside it and are SPARSE. orthodb_<sp>.tsv is a "
               "separate, stable grouping -- filter it on orthodb_confidence, not on identity."),
-    dict(key="chembl", axis="ligands", title="chembl_<sp>.tsv",
-         path="data/processed/ligands/chembl_<sp>.tsv",
+    dict(key="ligands", axis="ligands", title="ligands_<sp>.tsv",
+         path="data/processed/ligands/ligands_<sp>.tsv",
          loader=ligandability.load,
-         question="Has anyone made a potent compound against this protein, or anything like it?",
-         read_first="Proteins with a potent ligand: Kp 113 / Ec 96 / Sa 78 -- about 2% of each "
-                    "proteome, and that must not be forced upward. It is a fact about how little "
-                    "of the bacterial proteome anyone has screened. `pchembl_value` only exists "
-                    "for = relations on IC50/EC50/Ki/Kd/Potency, so MIC is absent BY CONSTRUCTION: "
-                    "this axis does not say 'has an antibiotic'.",
-         also="Counts verified against the LIVE ChEMBL API: 88/88 comparisons over 49 proteins "
-              "match exactly."),
-    dict(key="precedents", axis="ligands", title="precedents_<sp>.tsv",
-         path="data/processed/ligands/precedents_<sp>.tsv",
-         loader=ligandability.load_precedents,
          question="...and if not, did anyone look?",
          read_first="TWO QUESTIONS, NOT ONE. A 0 against 158 assayed compounds is a measured "
                     "discouragement; a 0 against 0 is an open question. Kp pyrH is the case to "
-                    "remember -- 158 compounds against a 98.3%-identical target, not one potent."),
-    dict(key="structure", axis="pockets", title="structure_<sp>.tsv",
-         path="data/processed/pockets/structure_<sp>.tsv",
+                    "remember -- 158 compounds against a 98.3%-identical target, not one potent. "
+                    "Proteins with a potent ligand are ~2% of each proteome (Kp 113 / Ec 96 / "
+                    "Sa 78) and that must not be forced upward -- it is a fact about how little "
+                    "of the bacterial proteome anyone has screened.",
+         also="WHAT THIS TABLE CANNOT SAY: how many distinct SCAFFOLDS those compounds cover. On "
+              "Kp the 5,286 potent compounds collapse to 1,593 Murcko scaffolds (3.3 per "
+              "scaffold), which is the difference between 50 starting points and 50 analogues of "
+              "one series -- that is `*_n_scaffolds` in evidence/chembl_<sp>.tsv, along with the "
+              "identity bands and the match provenance. `pchembl_value` only exists for = "
+              "relations on IC50/EC50/Ki/Kd/Potency, so MIC is absent BY CONSTRUCTION: this axis "
+              "does not say 'has an antibiotic'."),
+    dict(key="pockets", axis="pockets", title="pockets_<sp>.tsv",
+         path="data/processed/pockets/pockets_<sp>.tsv",
          loader=pockets.load,
          question="Could a small molecule bind this fold at all?",
-         read_first="Trust p2rank_score, not fpocket. `holo_identity` is the only MEASURED column "
+         read_first="No evidence column: `af_plddt` is NA exactly when there is no model, and "
+                    "`holo_identity` > 0 exactly when a drug-like bacterial co-crystal was found, "
+                    "which is all the old labels said. Trust p2rank_score, not fpocket. "
+                    "`holo_identity` is the only MEASURED column "
                     "here -- the other scores are predictions on AlphaFold models. Drug-likeness "
                     "is built from published sources, not a denylist: QED >= 0.2 and Ro3 were "
                     "measured and REJECTED because both delete antibiotics."),
@@ -600,9 +571,22 @@ def build_matrix(spec: dict, species: str, sample: list[str], quiet: bool) -> di
     }
 
 
+def unavailable_card(spec: dict, species: str, exc: Exception) -> dict:
+    """A card for an axis whose loader will not run -- usually because the stage is mid-rewrite
+    and its code expects columns the shipped table does not have yet. Named, never omitted."""
+    return {
+        "key": spec["key"], "axis": spec["axis"], "kind": "unavailable",
+        "title": spec["title"].replace("<sp>", SPECIES_SHORT[species]),
+        "path": spec["path"].replace("<sp>", species),
+        "question": spec["question"],
+        "error": f"{type(exc).__name__}: {exc}",
+    }
+
+
 def build(quiet: bool) -> dict:
     payload = {"species": [], "generated": pd.Timestamp.now().strftime("%Y-%m-%d"), "cards": {}}
     problems: list[str] = []
+    unavailable: list[str] = []
     for sp in SPECIES:
         prot = proteomes.load(sp)
         sample, missing = sample_accessions(sp, prot)
@@ -621,12 +605,27 @@ def build(quiet: bool) -> dict:
         })
         cards = []
         for spec in TABLES:
-            card, probs = build_table(spec, sp, sample, quiet)
+            # An axis mid-flight must not take the other nine down with it. A loader that RAISES
+            # is a different failure from a schema that drifted: the first is loud and obvious,
+            # the second is silent, which is why only the second exits non-zero. The card still
+            # ships, carrying the error, so the page says what is missing instead of hiding it.
+            try:
+                card, probs = build_table(spec, sp, sample, quiet)
+                problems += probs
+            except Exception as exc:                                        # noqa: BLE001
+                card = unavailable_card(spec, sp, exc)
+                unavailable.append(f"{sp}/{spec['key']}: {type(exc).__name__}: {exc}")
+                if not quiet:
+                    print(f"    {spec['key']:<34} UNAVAILABLE -- {type(exc).__name__}: {exc}")
             cards.append(card)
-            problems += probs
         for spec in MATRICES:
             cards.append(build_matrix(spec, sp, sample, quiet))
         payload["cards"][sp] = cards
+
+    if unavailable and not quiet:
+        print("\n  UNAVAILABLE -- these axes could not be loaded and ship as a notice on the page:")
+        for u in unavailable:
+            print(f"    {u}")
 
     if problems:
         print("\nThe column descriptions no longer match the files:", file=sys.stderr)

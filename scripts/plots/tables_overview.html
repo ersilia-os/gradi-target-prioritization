@@ -480,7 +480,7 @@ function renderNav() {
       ${g.items.map(({ c, i }) => `
         <button class="navitem" data-i="${i}" aria-current="${i === state.card}">
           <span>${esc(c.title)}</span>
-          <span class="sub">${c.n_cols}c</span>
+          <span class="sub">${c.n_cols ? c.n_cols + "c" : "—"}</span>
         </button>`).join("")}
     </div>`).join("");
   document.querySelectorAll(".navitem").forEach(b =>
@@ -648,11 +648,30 @@ function setHash() {
   history.replaceState(null, "", `#${state.sp}/${cards()[state.card].key}`);
 }
 
+/* An axis whose loader will not run. Shown, never silently dropped -- a missing card would read
+   as "this axis does not exist", which is the opposite of what is true. */
+function renderUnavailable(c) {
+  return `
+    <div class="card">
+      <p class="question">${esc(c.question)}</p>
+      <div class="readfirst">
+        <span class="eyebrow">Not available in this build</span>
+        <p>This axis is mid-rewrite: its loader expects columns the shipped table does not have
+           yet, so the card could not be built. The table on disk is unchanged — what is stale is
+           this page, not the data.</p>
+      </div>
+      <div class="sectionhead"><h3>What the loader said</h3></div>
+      <pre class="statline" style="white-space:pre-wrap; margin:0;">${esc(c.error)}</pre>
+    </div>`;
+}
+
 function render() {
   const c = cards()[state.card];
   document.getElementById("axislabel").textContent = `${c.axis} · ${c.title}`;
   document.getElementById("path").textContent = c.path;
-  document.getElementById("card").innerHTML = c.kind === "matrix" ? renderMatrix(c) : renderTable(c);
+  document.getElementById("card").innerHTML =
+    c.kind === "unavailable" ? renderUnavailable(c)
+    : c.kind === "matrix" ? renderMatrix(c) : renderTable(c);
   document.getElementById("card").scrollTop = 0;
   renderSpecies();
   renderNav();
