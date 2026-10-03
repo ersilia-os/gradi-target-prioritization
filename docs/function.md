@@ -95,8 +95,10 @@ conserved core and read as misleadingly sparse, so it is excluded by constructio
 
 ```
 data/processed/function/
-    cog_matrix_<species>.tsv               THE deliverable — see Part 2's matrix section
+    function_<species>.tsv                 THE DELIVERABLE — 3 columns, keyed on uniprot_ac
     evidence/
+        goslim_matrix_<species>.tsv        the same content as a matrix   (n, 99)
+        cog_matrix_<species>.tsv           the same content as a matrix   (n, 28)
         cog_<species>.tsv                  the per-protein table — 8 columns, keyed on uniprot_ac
         cog_counts_<species>.tsv           per-letter counts, all 26 categories, zeros included
         cog_control_ecoli.tsv              the ground-truth comparison, row by row
@@ -516,12 +518,52 @@ The script exits non-zero if a spot check fails or if E. coli category agreement
 
 ## The deliverable: two complete matrices
 
-`scripts/function/matrix.py` reduces this stage to **exactly two matrices per species**. It
-**recomputes nothing** — it reshapes `cog_<species>.tsv` and `goslim_<species>.tsv`, and runs in
-seconds.
+`scripts/function/matrix.py` reduces this stage to **one packed table per species, with both
+matrices beside it**. It **recomputes nothing** — it reshapes `cog_<species>.tsv` and
+`goslim_<species>.tsv`, and runs in seconds.
 
-    goslim_matrix_<species>.tsv     uniprot_ac + 97 GO-slim term columns + evidence   (n, 99)
-    cog_matrix_<species>.tsv        uniprot_ac + 26 COG letter columns   + evidence   (n, 28)
+    function_<species>.tsv          uniprot_ac · cog_categories · goslim_terms
+    evidence/goslim_matrix_<sp>.tsv uniprot_ac + 97 GO-slim term columns + evidence   (n, 99)
+    evidence/cog_matrix_<sp>.tsv    uniprot_ac + 26 COG letter columns   + evidence   (n, 28)
+
+### Why both forms ship
+
+The packed table became the deliverable on the project owner's instruction, **2026-10-03**. Both
+term columns are `;`-joined in vocabulary order, and an **empty string means no term** — a complete
+row, not a missing one.
+
+**The matrices stay because a packed list cannot express a structural zero.** It cannot distinguish
+a term that is merely unannotated from one the organism cannot reach:
+
+| | GO-slim columns always zero | why |
+|---|---|---|
+| Kp | 16 / 97 | 8 eukaryote/plant concepts + 8 not seen here |
+| Ec | 8 / 97 | the eukaryote/plant 8 |
+| **Sa** | **19 / 97** | the 8, plus 11 Gram-negative envelope terms it structurally lacks |
+
+COG `Y` (nuclear structure) is always zero in all three, for the same kind of reason. Those are
+**kept columns** in the matrix and simply absent from the packed column, so anything that needs to
+tell *impossible* from *unknown* — or that wants an `hstack`-able feature matrix — reads
+`load_goslim_matrix()` / `load_cog_matrix()`.
+
+**The two forms are provably interchangeable, asserted in both directions**: the matrices
+round-trip to the long-form source, and the packed columns re-expand to the matrices exactly. A
+shape check would pass on a wrong table; these do not.
+
+**Neither scheme ships an evidence column** (owner's call, 2026-10-03).
+
+COG never had one to carry: `cogclassifier` vs `none` is 1:1 with non-empty vs empty on all three
+species — measured, not assumed — so it only restated the term column.
+
+GO-slim's was a real distinction, but a thin one: `curated` vs `eggnog` separates **322 proteins
+out of 13,020** — Kp 231, Ec 75, Sa 16 — and it survives **byte-identically in two files that stay
+on disk and stay audited**, as `evidence` in `evidence/goslim_matrix_<species>.tsv` and as
+`goslim_source` in `evidence/goslim_<species>.tsv`.
+
+**The cost, stated plainly:** the shipped table no longer says whether a protein's GO terms came
+from UniProt curation or from an eggNOG orthogroup. That matters for the eggNOG tier specifically,
+which is orthology-inferred rather than curated — read one of those two files before treating a
+term as curated.
 
 | species | goslim annotated | all-zero | cog annotated | all-zero |
 |---|---|---|---|---|
@@ -590,8 +632,9 @@ The real check is a **round-trip**, not a shape check: reconstructing the `;`-jo
 the matrix reproduces `goslim_*_all` and `cog_category_all` exactly, for every protein. Passing for
 all 13,020. Shape checks pass on a wrong matrix; this does not.
 
-**Load through `src/function.py`** — `load_goslim_matrix`, `load_cog_matrix`,
-`load_goslim_matrix_all`, `load_cog_matrix_all`, `matrix_manifest`.
+**Load through `src/function.py`** — `load(species)` for the packed deliverable, `load_long` for
+the joined long-form source, `load_goslim_matrix` / `load_cog_matrix` (+ their `_all` variants) for
+the matrices, `matrix_manifest`.
 
 CLI: `--species` · `--dry-run` · `-q`. There is no `--refresh` and no `--limit`: the script reads
 two finished tables and reshapes them in seconds, so a re-run is the refresh.

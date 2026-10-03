@@ -51,6 +51,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from src import function as F  # noqa: E402
+from src import matrices as M  # noqa: E402
 from src import proteomes as P  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "data" / "processed" / "function"
@@ -175,6 +176,56 @@ def verify(species: str, mat: pd.DataFrame, src: pd.DataFrame, kind: str, vocab_
     say(f"      round-trip OK for all {len(mat):,} proteins")
 
 
+PACKED_COLUMNS = ["uniprot_ac", "cog_categories", "goslim_terms"]
+
+
+def pack(matrix: pd.DataFrame, vocab_cols: list[str], sep: str) -> list[str]:
+    """Collapse a binary matrix back to one `;`-joined term list per row, vocabulary order."""
+    arr = matrix[vocab_cols].to_numpy(dtype=bool)
+    cols = np.array(vocab_cols, dtype=object)
+    return [sep.join(cols[row]) for row in arr]
+
+
+def build_packed(species: str, mats: dict, vocabs: dict) -> pd.DataFrame:
+    """The deliverable: one row per protein, one packed column per scheme.
+
+    **Derived FROM the matrices, not from the source**, so `verify()`'s round-trip against the
+    long-form table still governs this table too -- and the reverse direction is asserted below,
+    which makes the two forms provably interchangeable rather than merely both present.
+
+    **Neither scheme carries an evidence column here** (owner's call, 2026-10-03). COG never had
+    one to carry: `cogclassifier` is strictly 1:1 with "has a category" and `none` with "has not",
+    measured on all three species. GO-slim's was real but thin -- `curated` vs `eggnog` separates
+    only **322 proteins out of 13,020** (Kp 231 · Ec 75 · Sa 16) -- and it survives byte-identically
+    in TWO places that stay on disk and stay audited: `evidence/goslim_matrix_<sp>.tsv` as
+    `evidence`, and `evidence/goslim_<sp>.tsv` as `goslim_source`.
+
+    **So the shipped table no longer says whether a GO term was UniProt-curated or inferred from an
+    eggNOG orthogroup.** Read one of those two files before treating a term as curated.
+    """
+    cog, goslim = mats["cog"], mats["goslim"]
+    out = pd.DataFrame({
+        "uniprot_ac": cog["uniprot_ac"].to_numpy(),
+        # COG letters are single characters and the canonical source packs them unseparated;
+        # `;` here so one split rule reads both columns.
+        "cog_categories": pack(cog, vocabs["cog"], ";"),
+        "goslim_terms": pack(goslim, vocabs["goslim"], ";"),
+    })
+
+    # The reverse round-trip: re-expanding the packed columns must reproduce the matrices exactly.
+    # A shape check passes on a wrong table; this does not.
+    for kind, mat, cols, packed in (("cog", cog, vocabs["cog"], out["cog_categories"]),
+                                    ("goslim", goslim, vocabs["goslim"], out["goslim_terms"])):
+        idx = {t: i for i, t in enumerate(cols)}
+        back = np.zeros((len(out), len(cols)), dtype=np.int8)
+        for r, field in enumerate(packed):
+            for term in _split(field):
+                back[r, idx[term]] = 1
+        if not np.array_equal(back, mat[cols].to_numpy(dtype=np.int8)):
+            sys.exit(f"FATAL {species}/{kind}: packed column does not re-expand to its matrix")
+    return out[PACKED_COLUMNS]
+
+
 def main() -> None:
     global VERBOSE
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
@@ -187,7 +238,7 @@ def main() -> None:
 
     cvocab, gvocab = cog_vocabulary(), goslim_vocabulary()
     rule("=")
-    say("STAGE 02 - functional annotation as two COMPLETE binary matrices")
+    say("STAGE 02 - functional annotation: one packed table, two matrices beside it")
     rule("=")
     say(f"  goslim   {len(gvocab)} term columns  (mf {int((gvocab.aspect=='molecular_function').sum())} · "
         f"bp {int((gvocab.aspect=='biological_process').sum())} · "
@@ -199,16 +250,23 @@ def main() -> None:
     if args.dry_run:
         say("dry run: nothing written."); return
 
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     rows = []
     for sp in args.species:
         rule()
         say(f"{sp}")
         rule()
+        mats, vocabs = {}, {}
         for kind, builder, vocab_cols in (("goslim", build_goslim, list(gvocab.go_id)),
                                           ("cog", build_cog, list(cvocab.letter))):
             mat, src = builder(sp, gvocab if kind == "goslim" else cvocab)
             verify(sp, mat, src, kind, vocab_cols)
-            path = OUT_DIR / f"{kind}_matrix_{sp}.tsv"
+            mats[kind], vocabs[kind] = mat, vocab_cols
+            # The matrices are EVIDENCE, not the deliverable (owner's call, 2026-10-03). They are
+            # what carries the structural zeros -- a term a species cannot reach is a kept column
+            # here and simply absent in the packed table, which cannot tell "impossible" from
+            # "unannotated".
+            path = EVIDENCE_DIR / f"{kind}_matrix_{sp}.tsv"
             mat.to_csv(path, sep="\t", index=False)
             annotated = int((mat["evidence"] != "none").sum())
             terms_per = mat[vocab_cols].to_numpy().sum(axis=1)
@@ -225,7 +283,19 @@ def main() -> None:
                          "dead_columns": len(dead),
                          "evidence": ";".join(f"{k}={v}" for k, v in
                                               mat.evidence.value_counts().items())})
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+
+        packed = M.reindex(build_packed(sp, mats, vocabs), sp)
+        ppath = OUT_DIR / f"function_{sp}.tsv"
+        packed.to_csv(ppath, sep="\t", index=False)
+        n_cog = int((packed["cog_categories"] != "").sum())
+        n_go = int((packed["goslim_terms"] != "").sum())
+        say(f"    packed  {packed.shape[0]:,} x {packed.shape[1]} -> "
+            f"{ppath.relative_to(REPO_ROOT)}")
+        say(f"      cog_categories {n_cog:,} ({100*n_cog/len(packed):.1f}%)   "
+            f"goslim_terms {n_go:,} ({100*n_go/len(packed):.1f}%)   "
+            f"both empty {int(((packed.cog_categories=='') & (packed.goslim_terms=='')).sum()):,}")
+        say("      re-expands to both matrices exactly (asserted)")
+
     SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(EVIDENCE_DIR / "matrix_manifest.tsv", sep="\t", index=False)
     rule("=")

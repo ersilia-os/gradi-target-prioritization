@@ -116,8 +116,11 @@ def audit(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
     for sp in species:
         tables = [
             ("proteomes/proteome",          D / "proteomes"     / f"proteome_{sp}.tsv"),
-            ("function/goslim_matrix",      D / "function"      / f"goslim_matrix_{sp}.tsv"),
-            ("function/cog_matrix",         D / "function"      / f"cog_matrix_{sp}.tsv"),
+            ("function/function",           D / "function"      / f"function_{sp}.tsv"),
+            # The matrices are evidence now, not the deliverable -- still audited, because they
+            # are what carries the structural zeros the packed table cannot express.
+            ("function/goslim_matrix",      D / "function" / "evidence" / f"goslim_matrix_{sp}.tsv"),
+            ("function/cog_matrix",         D / "function" / "evidence" / f"cog_matrix_{sp}.tsv"),
             ("localization/localization",   D / "localization"  / f"localization_{sp}.tsv"),
             ("degradability/degradability", D / "degradability" / f"degradability_{sp}.tsv"),
             ("essentiality/essentiality",   D / "essentiality"  / f"essentiality_{sp}.tsv"),

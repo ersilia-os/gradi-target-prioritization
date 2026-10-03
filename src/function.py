@@ -108,7 +108,51 @@ def load_goslim_terms() -> pd.DataFrame:
 
 
 def load(species: str) -> pd.DataFrame:
-    """Both schemes for one species, joined on `uniprot_ac`. The usual entry point."""
+    """`function_<species>.tsv` — the axis deliverable. One row per protein, four columns:
+
+        uniprot_ac  cog_categories  goslim_terms
+
+    Both term columns are `;`-joined lists in vocabulary order; **an empty string means the
+    protein carries no term**, which is a complete row, not a missing one. Split with
+    `.str.split(";")` after dropping empties.
+
+    **A zero-length list means NOT ANNOTATED, not "the function was ruled out."** On
+    K. pneumoniae 1,506 proteins (26.3%) carry no GO-slim term because nothing is known about
+    them.
+
+    **No evidence column, for either scheme** (owner's call, 2026-10-03). COG never had one to
+    carry — `cogclassifier` is 1:1 with "has a category", measured on all three species. GO-slim's
+    separated only **322 proteins out of 13,020** and lives on byte-identically as `evidence` in
+    `evidence/goslim_matrix_<species>.tsv` and as `goslim_source` in `evidence/goslim_<species>.tsv`.
+    **So this table does not say whether a GO term is UniProt-curated or inferred from an eggNOG
+    orthogroup** — read one of those two files before treating a term as curated.
+
+    **What this form CANNOT say, and the matrices can.** A packed list cannot distinguish a term
+    that is merely unannotated from one the organism structurally cannot reach: 8 GO-slim terms
+    are eukaryote/plant concepts, *S. aureus* has 19 unreachable because it is Gram-positive, and
+    COG `Y` is nuclear structure. Those are **kept columns** in
+    `evidence/{goslim,cog}_matrix_<species>.tsv` and that is where structural zeros live. Use
+    `load_goslim_matrix()` / `load_cog_matrix()` for anything that needs a feature matrix, or that
+    needs to tell "impossible" from "unknown".
+
+    **Multi-label, deliberately** — built from the `*_all` columns: 34–52% of annotated proteins
+    carry more than one slim term (max 11 on Kp), 12.4–12.6% of classified proteins more than one
+    COG letter.
+
+    The packed table and the matrices are **provably interchangeable**: `function/matrix.py`
+    asserts the matrices round-trip to the long-form source AND that the packed columns re-expand
+    to the matrices exactly.
+    """
+    if species not in SPECIES:
+        raise ValueError(f"unknown species {species!r}; expected one of {SPECIES}")
+    path = FUNCTION_DIR / f"function_{species}.tsv"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} -- run scripts/function/matrix.py first")
+    return pd.read_csv(path, sep="\t", keep_default_na=False)
+
+
+def load_long(species: str) -> pd.DataFrame:
+    """Both schemes' long-form SOURCE tables, joined on `uniprot_ac` — names, e-values, OGs."""
     return load_cog(species).merge(load_goslim(species), on="uniprot_ac", how="outer")
 
 
@@ -171,7 +215,7 @@ def load_goslim_matrix(species: str) -> pd.DataFrame:
     """
     if species not in SPECIES:
         raise ValueError(f"unknown species {species!r}; expected one of {SPECIES}")
-    path = FUNCTION_DIR / f"goslim_matrix_{species}.tsv"
+    path = EVIDENCE_DIR / f"goslim_matrix_{species}.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/function/matrix.py first")
     return pd.read_csv(path, sep="\t")
@@ -195,7 +239,7 @@ def load_cog_matrix(species: str) -> pd.DataFrame:
     """
     if species not in SPECIES:
         raise ValueError(f"unknown species {species!r}; expected one of {SPECIES}")
-    path = FUNCTION_DIR / f"cog_matrix_{species}.tsv"
+    path = EVIDENCE_DIR / f"cog_matrix_{species}.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/function/matrix.py first")
     return pd.read_csv(path, sep="\t")

@@ -526,10 +526,9 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   `eggnog` tier derives from its `gos` column, so deleting it makes the stage non-regenerable. Needs
   `goatools`.
 
-- **`function/matrix.py`** → **`function_<species>.tsv`**, 4 columns: `uniprot_ac` ·
-  `cog_categories` · `goslim_terms` · `goslim_evidence`, both term columns `;`-joined in vocabulary
-  order (owner's call, 2026-10-03 — it was two wide matrices). **Recomputes nothing** — it reshapes;
-  seconds, no database.
+- **`function/matrix.py`** → **`function_<species>.tsv`**, **3 columns**: `uniprot_ac` ·
+  `cog_categories` · `goslim_terms`, both term columns `;`-joined in vocabulary order (owner's call,
+  2026-10-03 — it was two wide matrices). **Recomputes nothing** — it reshapes; seconds, no database.
 
   **The matrices still ship, in `evidence/`** (n × 99 and n × 28) **and are still audited**, because
   they are what carries the **structural zeros the packed form cannot express** — 8 GO terms are
@@ -538,11 +537,17 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   columns re-expand to the matrices exactly. Use `load_goslim_matrix()` / `load_cog_matrix()` for a
   feature matrix or to tell "impossible" from "unknown".
 
-  **An EMPTY list means NOT ANNOTATED** — 1,506 Kp proteins (26.3%) carry no GO term because nothing
-  is known, which `goslim_evidence` separates from a real negative. **COG has no evidence column
-  because it would restate emptiness**: `cogclassifier` vs `none` is 1:1 with non-empty vs empty on
-  all three species — measured, not assumed. Built from the `*_all` columns so **multi-label is
-  preserved** (max 11 slim terms on Kp). **The COG vocabulary is VENDORED** at
+  **An EMPTY list means NOT ANNOTATED**, never "ruled out" — 1,506 Kp proteins (26.3%) carry no GO
+  term because nothing is known about them.
+
+  **NO EVIDENCE COLUMN, for either scheme.** COG never had one to carry: `cogclassifier` vs `none`
+  is 1:1 with non-empty vs empty on all three species — measured, not assumed. GO-slim's was real
+  but separated only **322 proteins of 13,020** (Kp 231 · Ec 75 · Sa 16) and survives
+  byte-identically as `evidence` in `evidence/goslim_matrix_<sp>.tsv` and `goslim_source` in
+  `evidence/goslim_<sp>.tsv`. **So the shipped table does NOT say whether a GO term is
+  UniProt-curated or inferred from an eggNOG orthogroup** — read one of those two before treating a
+  term as curated. Built from the `*_all` columns so **multi-label is preserved** (max 11 slim terms
+  on Kp). **The COG vocabulary is VENDORED** at
   `data/source/cdd/cog_func_category.tsv`: a schema that depends on a pip install is not
   reproducible. Details: `docs/function.md`.
 
