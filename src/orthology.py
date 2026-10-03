@@ -231,14 +231,28 @@ def _read(path: Path) -> pd.DataFrame:
             # count column is now numeric automatically; a writer and a loader that must be edited
             # in lockstep will eventually not be.
             df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
-        elif col in ("orthodb_confidence", "orthodb_match_pident"):
+        elif col in ("orthodb_confidence", "orthodb_match_pident",
+                     "bacterial_panel_orthologs"):
             # Float, not str: `orthodb_confidence > 0.9` is the documented way to filter these rows,
             # and leaving it as text makes that comparison raise instead of work.
+            # `bacterial_panel_orthologs` is here because it is a FRACTION whose name reads like a
+            # count -- it matches none of the prefixes above and fell through to `str`, so
+            # `.mean()` concatenated 5,728 strings and any sort was lexical. Exactly the trap the
+            # `n_` comment above describes, one column later.
             df[col] = pd.to_numeric(df[col], errors="coerce")
         elif col in ("pident", "ppos", "alnlen", "qcov", "scov", "evalue", "bitscore",
                      "bitscore_norm") or col.startswith(("best_identity_", "best_bitscore_")):
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
+
+
+# The deliverable's dtypes, asserted on every load. `_read()` is deliberately permissive -- it
+# also parses raw OrthoFinder output whose columns are named after proteomes -- so the strict
+# check lives here, where the schema is fixed and small. It exists because
+# `bacterial_panel_orthologs` shipped as TEXT: it matched none of `_read()`'s prefixes, so
+# `.mean()` concatenated 5,728 strings and every sort was lexical.
+DELIVERABLE_DTYPES = {"uniprot_ac": "object", "has_human_ortholog": "bool",
+                      "bacterial_panel_orthologs": "float64"}
 
 
 def load_orthologs() -> pd.DataFrame:
@@ -286,7 +300,15 @@ def load(species: str) -> pd.DataFrame:
     if species == "human":
         raise ValueError("human has no orthology deliverable (the panel is bacterial); "
                          'use load_dense("human")')
-    return _read(_path(ORTHOLOGY_DIR, f"orthology_{species}.tsv"))
+    df = _read(_path(ORTHOLOGY_DIR, f"orthology_{species}.tsv"))
+    wrong = {c: str(df[c].dtype) for c, want in DELIVERABLE_DTYPES.items()
+             if c in df.columns and str(df[c].dtype) != want}
+    if wrong:
+        raise TypeError(
+            f"orthology_{species}.tsv has the wrong dtypes: {wrong} (expected "
+            f"{ {c: DELIVERABLE_DTYPES[c] for c in wrong} }). A column that stays `object` is "
+            f"text pretending to be a number -- add a rule to _read() above.")
+    return df
 
 
 def load_dense(species: str) -> pd.DataFrame:

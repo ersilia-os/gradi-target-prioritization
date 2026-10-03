@@ -48,7 +48,23 @@ def load(species: str) -> pd.DataFrame:
     path = PROTEOME_DIR / f"proteome_{species}.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/proteomes/download.py first")
-    return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    return _read_identity(path)
+
+
+def _read_identity(path: Path) -> pd.DataFrame:
+    """`dtype=str` everywhere EXCEPT the flag, which must come back a real bool.
+
+    Everything else here is genuinely text -- accessions, names and sequences -- and
+    `keep_default_na=False` keeps an empty gene name as `""` rather than NaN. But
+    `is_reviewed` round-tripped as the STRINGS "True"/"False", which fails in two silent ways:
+    `df[df.is_reviewed]` raises (pandas reads it as a column selection), and
+    `df.is_reviewed == True` matches NOTHING because a string never equals a bool. Both of
+    those read as "no reviewed proteins" rather than as an error.
+    """
+    df = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    if "is_reviewed" in df.columns:
+        df["is_reviewed"] = df["is_reviewed"].map({"True": True, "False": False}).astype(bool)
+    return df
 
 
 def load_full(species: str) -> pd.DataFrame:
@@ -64,7 +80,7 @@ def load_full(species: str) -> pd.DataFrame:
     path = EVIDENCE_DIR / f"proteome_full_{species}.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/proteomes/download.py first")
-    return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    return _read_identity(path)
 
 
 def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
