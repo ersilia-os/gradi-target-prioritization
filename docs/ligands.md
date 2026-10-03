@@ -492,7 +492,23 @@ left the verdict unchanged at 33 / 11.5%.
 
 ## Outputs
 
-`data/processed/ligands/chembl_<species>.tsv`, one row per protein, keyed on `uniprot_ac`:
+`data/processed/ligands/evidence/chembl_<species>.tsv`, one row per protein, keyed on
+`uniprot_ac`. **Demoted from the task root on 2026-10-03** (owner's call): measured against
+`ligands_<species>.tsv`, which is now the axis deliverable, two of its columns are exact
+duplicates — `remote_n_compounds` == `n_ligands_bacterial` and `human_n_compounds` ==
+`n_ligands_human`, same 113 Kp proteins, 5,286 vs 5,286 compounds, ρ 1.0.
+
+**It is kept, and read from `evidence/`, for what precedents cannot express:**
+
+| only here | why it matters |
+|---|---|
+| `*_n_scaffolds` | Kp's 5,286 potent compounds are **1,593 Murcko scaffolds** — 3.3 per scaffold. 50 analogues of one series is not 50 starting points, and precedents has no scaffold column at all |
+| the bands split out | direct ≥95% (21 Kp proteins) · close ≥60% (79) · remote ≥40% (113); precedents collapses to exact + bacterial pool |
+| `best_target` · `best_pident` · `best_organism` | which ChEMBL target the match actually came from |
+| `allorg_*` | the unrestricted count, kept as the comparison that justified restricting to true Bacteria (424 vs a true 175) |
+
+**What precedents has and this does not** is the denominator, `n_assayed*` — the axis's only real
+negatives. Columns:
 
 | column | meaning |
 |---|---|
@@ -548,7 +564,7 @@ python scripts/ligands/chembl.py                               # ~2 min with the
 python scripts/ligands/effort.py                               # ~2 min, needs the dump
 python scripts/ligands/transfer_calibration.py                 # ~2 min, DIAMOND from gradi-ortho
 python scripts/ligands/bindingdb.py                            # ~8 min, first pass
-python scripts/ligands/precedents.py --species kpneumoniae     # ~1 s per sequence, no dump
+python scripts/ligands/ligands.py --species kpneumoniae     # ~1 s per sequence, no dump
 python scripts/plots/ligands.py
 ```
 
@@ -559,7 +575,7 @@ Full CLIs:
 | `chembl.py` | `--species` · `--pchembl` · `--threads` · `--limit` · `--refresh` · `--dry-run` · `-q` |
 | `effort.py` | `--refresh` · `--dry-run` · `-q` |
 | `transfer_calibration.py` | `--min-compounds 5` · `--threads` · `--dry-run` · `-q` |
-| `precedents.py` | `--sequence` · `--fasta` · `--accession` · `--organism NAME` · `--species` (batch → `precedents_<sp>.tsv`, complete and canonical) · `--min-identity 40` · `--min-pchembl` · `-q` |
+| `precedents.py` | `--sequence` · `--fasta` · `--accession` · `--organism NAME` · `--species` (batch → `ligands_<sp>.tsv`, complete and canonical) · `--min-identity 40` · `--min-pchembl` · `-q` |
 
 DIAMOND comes from `gradi-ortho` via `GRADI_DIAMOND_BIN` in all of them.
 
@@ -681,7 +697,7 @@ to eosvc.**
   (2026-05) is a year newer than the 2025-04 in use, and `PROVENANCE.md` flags it as the upgrade
   candidate. Re-running the gain measurement against it is ~8 min.
 - **Structure-based ligandability is now its own axis** — `docs/pockets.md`,
-  `structure_<species>.tsv`. Under a stricter, established drug-like definition and a binding-site
+  `pockets_<species>.tsv`. Under a stricter, established drug-like definition and a binding-site
   coverage test it gives 608 Kp proteins with bacterial holo evidence (v1's 2,525 is not
   reconciled; see that doc). AlphaFill was measured there and left out.
 - **The ribosome is missing** and the reason is structural, not incidental: its drugs are measured
@@ -696,7 +712,7 @@ to eosvc.**
 
 # Part 3 — ligand precedent for an arbitrary sequence
 
-`scripts/ligands/precedents.py` (CLI) and `src/precedents.py` (library) answer a different question
+`scripts/ligands/ligands.py` (CLI) and `src/precedents.py` (library) answer a different question
 from Part 1. Part 1 asks *what does our proteome have*, needs the 30.5 GB ChEMBL dump, and produces
 a per-species table. This asks *what about **this** sequence* — any sequence, in about a second,
 from 82 MB of cached extracts.
@@ -764,7 +780,7 @@ from the axis it sits beside.
 ## The control
 
 `evidence/precedent_control.tsv`, written on every `--species` run: agreement with
-`chembl_<sp>.tsv` **at matched semantics** (pChEMBL ≥ 6, complex track included).
+`evidence/chembl_<sp>.tsv` **at matched semantics** (pChEMBL ≥ 6, complex track included).
 
 | species | both positive | precedents-only | chembl-only | agreement | count mismatches | total ligand delta |
 |---|---|---|---|---|---|---|
@@ -786,7 +802,7 @@ records.
 ## Batch output
 
 `--species` runs a whole anchor proteome through the same code path and writes
-`precedents_<species>.tsv`, complete and in canonical row order. Measured:
+`ligands_<species>.tsv`, complete and in canonical row order. Measured:
 
 | species | any exact | any bacterial | any human |
 |---|---|---|---|
@@ -798,7 +814,11 @@ Kp's exact count is low by construction — ChEMBL holds only 21 *K. pneumoniae*
 anchor is a dark TrEMBL proteome whose accessions are largely absent. That is the same fact that
 makes homology transfer the whole game in Part 1.
 
-Load through `src/ligandability.py` — `load_precedents(species)`.
+Load through `src/ligandability.py` — **`load(species)`** for the deliverable, `load_all()` for
+all three stacked, `load_full(species)` for the 19-column provenance view, and
+`load_chembl(species)` / `load_chembl_all()` for the evidence table. Swapped on 2026-10-03 so
+`load()` means the deliverable here as it does on every other axis; it used to return the ChEMBL
+table. Note `load_ligands()` is unrelated — it is the raw `scratch/chembl_ligands.tsv` extract.
 
 ## The bug an adversarial audit found, and why the first control missed it
 

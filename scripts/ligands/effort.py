@@ -2,7 +2,7 @@
 
 Ligandability, part 1b. One read-only SQL pass over the ChEMBL 37 dump, writing per-target counts
 of compounds ACTUALLY ASSAYED -- with no pChEMBL filter -- alongside how many of them reached a
-real potency. `ligands/chembl.py` and `ligands/precedents.py` both require `pchembl_value IS NOT
+real potency. `ligands/chembl.py` and `ligands/ligands.py` both require `pchembl_value IS NOT
 NULL`, so everything a chemist tried that did not work is invisible to them.
 
 Why the axis needs this

@@ -9,7 +9,8 @@ every number here is "ligands measured against something that looks like this pr
 On disk::
 
     data/processed/ligands/
-        chembl_<species>.tsv        the deliverable, one row per protein, keyed on uniprot_ac
+        ligands_<species>.tsv            THE DELIVERABLE, one row per protein
+        evidence/chembl_<species>.tsv       the bands, scaffolds and provenance behind it
         evidence/ + scratch/
             chembl_targets.tsv      component_id x tid bridge: organism, superkingdom, target_type
             chembl_ligands.tsv      tid x parent_molregno: the best pchembl measured on that pair
@@ -231,17 +232,24 @@ def _read(path: Path) -> pd.DataFrame:
     return df
 
 
-def load(species: str) -> pd.DataFrame:
-    """One species' ligandability evidence, one row per protein, keyed on uniprot_ac."""
+def load_chembl(species: str) -> pd.DataFrame:
+    """`evidence/chembl_<species>.tsv` -- the bands, scaffolds and provenance behind the headline.
+
+    **Evidence, not the deliverable** -- `load()` is the table this axis ships. Two of these
+    columns duplicate it exactly (`remote_n_compounds` == `n_ligands_bacterial`,
+    `human_n_compounds` == `n_ligands_human`), which is why it was demoted. Read it for what the
+    deliverable cannot express: `*_n_scaffolds` (Kp's 5,286 potent compounds are 1,593 Murcko
+    scaffolds), the identity bands broken out, and which ChEMBL target the match came from.
+    """
     _check(species)
-    return _read(_path(LIGAND_DIR, f"chembl_{species}.tsv"))
+    return _read(_path(EVIDENCE_DIR, f"chembl_{species}.tsv"))
 
 
-def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
-    """All species stacked, with a `species` column added back."""
+def load_chembl_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
+    """All species' chembl evidence stacked, with a `species` column added back."""
     frames = []
     for sp in species:
-        df = load(sp)
+        df = load_chembl(sp)
         df.insert(0, "species", sp)
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
@@ -362,10 +370,11 @@ def load_effort(refresh: bool = False) -> pd.DataFrame:
     return _read(path)
 
 
-def load_precedents(species: str) -> pd.DataFrame:
-    """Ligand precedent per protein: potent counts and assayed counts, three scopes each.
+def load(species: str) -> pd.DataFrame:
+    """`ligands_<species>.tsv` -- THE AXIS DELIVERABLE. Potent counts and assayed counts, three
+    scopes each.
 
-    Written by `scripts/ligands/precedents.py --species`. Eight columns:
+    Written by `scripts/ligands/ligands.py --species`. Eight columns:
 
         n_ligands              POTENT (pChEMBL >= 6, i.e. sub-micromolar) on THIS protein
         n_ligands_bacterial    potent over the bacterial pool
@@ -404,11 +413,21 @@ def load_precedents(species: str) -> pd.DataFrame:
     a ribosomal protein reading empty is a fact about assay type, not biology.
     """
     _check(species)
-    return _coerce_precedents(_read(_path(LIGAND_DIR, f"precedents_{species}.tsv")))
+    return _coerce_precedents(_read(_path(LIGAND_DIR, f"ligands_{species}.tsv")))
 
 
-def load_precedents_full(species: str) -> pd.DataFrame:
-    """The same, with the provenance columns the deliverable omits. 19 columns.
+def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
+    """All species' deliverable stacked, with a `species` column added back."""
+    frames = []
+    for sp in species:
+        df = load(sp)
+        df.insert(0, "species", sp)
+        frames.append(df)
+    return pd.concat(frames, ignore_index=True)
+
+
+def load_full(species: str) -> pd.DataFrame:
+    """The deliverable plus the provenance columns it omits. 19 columns.
 
     Adds: which route the exact match came through (`exact_route`, `exact_target`), how many
     targets each count unions over (`n_targets_bacteria`/`_human`), best identity per side,

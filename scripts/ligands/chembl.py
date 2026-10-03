@@ -63,7 +63,7 @@ target in the pool. The closest target is still reported, as provenance.
 
 Output
 ------
-    data/processed/ligands/chembl_<species>.tsv
+    data/processed/ligands/evidence/chembl_<species>.tsv
         uniprot_ac, direct_hit, best_target, best_pident, best_organism, n_compounds_tested,
         {species,close,remote}_{n_compounds,n_scaffolds,best_pchembl},
         human_{n_compounds,n_scaffolds,best_pchembl,best_pident},
@@ -661,12 +661,12 @@ def main() -> None:
         f"  (qcov >={L.MIN_QCOV}, scov >={L.MIN_SCOV})")
     say(f"  ligands  : parent molregno, then Bemis-Murcko generic scaffold")
     say(f"  species  : {', '.join(args.species)}   (human is the reference pool, not a query)")
-    say(f"  output   : {OUT_DIR.relative_to(REPO_ROOT)}/chembl_<species>.tsv")
+    say(f"  output   : {EVIDENCE_DIR.relative_to(REPO_ROOT)}/chembl_<species>.tsv")
 
     if args.dry_run:
         say("\n  --dry-run: nothing extracted, nothing written.")
         for sp in args.species:
-            say(f"    would write {(OUT_DIR / f'chembl_{sp}.tsv').relative_to(REPO_ROOT)}")
+            say(f"    would write {(EVIDENCE_DIR / f'chembl_{sp}.tsv').relative_to(REPO_ROOT)}")
         return
 
     say()
@@ -749,7 +749,8 @@ def main() -> None:
         accs = df.uniprot_ac.tolist()
         out = aggregate(sp, hits_by_sp[sp], tgt, lig, scaf, accs, args.pchembl)
         frames[sp] = out
-        path = (SCRATCH_DIR / f"smoke_chembl_{sp}.tsv") if args.limit else (OUT_DIR / f"chembl_{sp}.tsv")
+        path = (SCRATCH_DIR / f"smoke_chembl_{sp}.tsv") if args.limit \
+            else (EVIDENCE_DIR / f"chembl_{sp}.tsv")
         out.to_csv(path, sep="\t", index=False)
         n_any = int((out.remote_n_compounds > 0).sum())
         n_direct = int(out.direct_hit.sum())

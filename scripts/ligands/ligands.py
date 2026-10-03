@@ -27,10 +27,10 @@ TWO THINGS THE NUMBERS DO NOT SAY:
     and **1,412 complex** ones. v1 dropped the complex track and made GyrA/GyrB look unliganded.
 
 Run with the `gradi` env (DIAMOND from `gradi-ortho`; `GRADI_DIAMOND_BIN` overrides):
-    python scripts/ligands/precedents.py --accession P0ABQ4
-    python scripts/ligands/precedents.py --sequence MKTAYIAKQR...
-    python scripts/ligands/precedents.py --fasta my_proteins.faa
-    python scripts/ligands/precedents.py --species kpneumoniae      # -> precedents_<sp>.tsv
+    python scripts/ligands/ligands.py --accession P0ABQ4
+    python scripts/ligands/ligands.py --sequence MKTAYIAKQR...
+    python scripts/ligands/ligands.py --fasta my_proteins.faa
+    python scripts/ligands/ligands.py --species kpneumoniae      # -> ligands_<sp>.tsv
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def control_row(sp: str, out: pd.DataFrame) -> dict:
     over all 5,728 Kp proteins. That is what this row records, so a future divergence is visible.
     """
     import numpy as np
-    c = pd.read_csv(OUT_DIR / f"chembl_{sp}.tsv", sep="\t")
+    c = pd.read_csv(OUT_DIR / "evidence" / f"chembl_{sp}.tsv", sep="\t")
     o = PR.count(dict(zip(out.uniprot_ac, P.load(sp).set_index("uniprot_ac")
                           .loc[out.uniprot_ac, "sequence"].astype(str))),
                  {k: k for k in out.uniprot_ac},
@@ -152,7 +152,7 @@ def main() -> None:
                          "species route of the exact count: same species at >=95%% identity is "
                          "THIS protein, not a homolog. --species sets it automatically.")
     src.add_argument("--species", nargs="+", choices=list(SPECIES),
-                     help="score a whole anchor proteome -> precedents_<species>.tsv")
+                     help="score a whole anchor proteome -> ligands_<species>.tsv")
     ap.add_argument("--min-identity", type=float, default=PR.DEFAULT_MIN_IDENTITY,
                     help="identity floor for (b) and (c). Default 40, the house transfer floor; "
                          "95 is 'essentially this protein'.")
@@ -191,7 +191,7 @@ def main() -> None:
             ev = OUT_DIR / "evidence"
             ev.mkdir(parents=True, exist_ok=True)
             out.to_csv(ev / f"precedents_full_{sp}.tsv", sep="\t", index=False)
-            p = OUT_DIR / f"precedents_{sp}.tsv"
+            p = OUT_DIR / f"ligands_{sp}.tsv"
             out[list(DELIVERABLE_COLUMNS)].to_csv(p, sep="\t", index=False)
             say(f"    potent: exact {int((out.n_ligands > 0).sum()):5,}   "
                 f"bacterial {int((out.n_ligands_bacterial > 0).sum()):5,}   "

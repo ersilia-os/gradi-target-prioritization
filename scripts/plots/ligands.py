@@ -131,7 +131,7 @@ def plot_selectivity(ax, all_df: pd.DataFrame) -> None:
 
 def main() -> None:
     PLOT_DIR.mkdir(parents=True, exist_ok=True)
-    frames = {sp: L.load(sp) for sp in L.SPECIES}
+    frames = {sp: L.load_chembl(sp) for sp in L.SPECIES}
     named = []
     for sp, f in frames.items():
         m = f.merge(P.load(sp)[["uniprot_ac", "gene_name"]], on="uniprot_ac", how="left")

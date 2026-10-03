@@ -125,7 +125,7 @@ def round1(per_species: int) -> list[dict]:
     rule()
     say(f"  {'sp':6s} {'gene':10s} {'targets':24s} {'ours':>8s} {'api':>8s}")
     for sp in L.SPECIES:
-        f = L.load_precedents_full(sp).merge(
+        f = L.load_full(sp).merge(
             P.load(sp)[["uniprot_ac", "gene_name"]], on="uniprot_ac", how="left")
         hit = f[f["exact_route"].ne("none")].copy()
         pick = pd.concat([hit.nlargest(per_species, "n_ligands"),
@@ -171,7 +171,7 @@ def round2(per_species: int) -> list[dict]:
     say(f"  {'sp':6s} {'gene':10s} {'tgt':>4s} {'ours_pot':>9s} {'api_pot':>8s} "
         f"{'ours_meas':>10s} {'api_meas':>9s} {'sum':>8s}")
     for sp in L.SPECIES:
-        f = L.load_precedents_full(sp).merge(
+        f = L.load_full(sp).merge(
             P.load(sp)[["uniprot_ac", "gene_name", "sequence"]], on="uniprot_ac", how="left")
         multi = f[(f["n_targets_bacteria"].fillna(0) >= 2)
                   & (f["n_ligands_bacterial"].fillna(0) > 0)]

@@ -331,7 +331,7 @@ def main() -> None:
     chembl_keys = set(scaf.standard_inchi_key.dropna())
     rows = []
     for sp in args.species:
-        chembl = L.load(sp).set_index("uniprot_ac")
+        chembl = L.load_chembl(sp).set_index("uniprot_ac")
         h = hits[sp]
         h = h[(h.qcov >= L.MIN_QCOV) & (h.scov >= L.MIN_SCOV) & (h.pident >= L.REMOTE_PIDENT)]
         pairs = h[["uniprot_ac", "seq_id"]].merge(potent_bdb, on="seq_id", how="inner")
