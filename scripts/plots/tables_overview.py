@@ -81,18 +81,6 @@ AC = {"uniprot_ac": "UniProt accession. The canonical key in every table, and th
                     "other matrix in the project follows."}
 
 
-def _ortho_block(sp: str) -> dict[str, str]:
-    """The five columns `orthology_*.tsv` repeats once per target species."""
-    name = SPECIES_LABEL.get(sp, "H. sapiens")
-    return {
-        f"n_orthologs_{sp}": f"OrthoFinder orthologs in {name}. A 0 here is MEASURED, not missing.",
-        f"n_orthologs_of_{sp}": f"the reciprocal count -- {name} proteins calling this one an ortholog.",
-        f"n_orthologs_rbh_{sp}": f"DIAMOND reciprocal-best-hits in {name}, reported BESIDE OrthoFinder, never merged.",
-        f"best_identity_{sp}": f"% identity to the closest {name} ortholog. A column, never a filter.",
-        f"best_bitscore_{sp}": f"bitscore of that same best hit.",
-    }
-
-
 COLUMNS: dict[str, dict[str, str]] = {
     "proteome": AC | {
         "is_reviewed": "SwissProt-reviewed (true) vs TrEMBL. HS11286 is a dark TrEMBL proteome -- "
@@ -142,25 +130,16 @@ COLUMNS: dict[str, dict[str, str]] = {
                         "three measured Kp screens against Geptop's 0.59-0.81.",
     },
     "orthology": AC | {
-        "orthogroup": "OrthoFinder orthogroup id, from a DE NOVO run on our own four FASTAs -- so "
-                      "it is panel-dependent and not comparable to anything outside this run.",
-        "in_orthogroup": "false means the protein is in `Orthogroups_UnassignedGenes.tsv`, which "
-                         "the stage reconciles exactly. A sparse matrix cannot express this.",
-        "orthogroup_size": "members across all four proteomes.",
-        "n_paralogs": "same-species members of the orthogroup, minus itself.",
-        "searched": "the protein was in every DIAMOND search -- what licenses reading a 0 as real.",
-    } | _ortho_block("kpneumoniae") | _ortho_block("ecoli") | _ortho_block("saureus")
-      | _ortho_block("human") | {
         "has_human_ortholog": "selectivity liability. Under-detecting human homology would make a "
                               "target look MORE selective than it is, which is why the search runs "
                               "`--very-sensitive`.",
-        "n_bacterial_orthologs": "how many OTHER bacterial proteomes in the run share this "
-                                 "protein's orthogroup -- a CONSERVATION measure, counted over "
-                                 "SPECIES not proteins, so a paralog pair does not inflate it. A 0 "
-                                 "is measured: a protein in no orthogroup genuinely has none.",
-        "bacterial_panel_size": "the denominator for the column above, shipped beside it because "
-                                "12 of 28 and 12 of 3 are different claims and nothing else in the "
-                                "row tells them apart.",
+        "bacterial_panel_orthologs": "A FRACTION, 0-1, not a count -- the share of the bacterial "
+                                    "panel sharing this protein's "
+                                    "orthogroup. THE DENOMINATOR IS 28, not 26 -- the 26 tier-C "
+                                    "comparators plus the three anchors, minus this protein's own "
+                                    "species. Counted over SPECIES, never proteins, so a paralog "
+                                    "pair does not inflate it. A 0 is MEASURED: OrthoFinder runs "
+                                    "de novo on our own FASTAs, so it is a finding, not a miss.",
     },
     "ligands": AC | {
         "n_ligands": "POTENT (pChEMBL >= 6) distinct molecules on THIS protein, species-level.",
@@ -323,12 +302,16 @@ TABLES = [
     dict(key="orthology", axis="orthology", title="orthology_<sp>.tsv",
          path="data/processed/orthology/orthology_<sp>.tsv",
          loader=orthology.load,
-         question="What is this protein's counterpart in the other three proteomes?",
+         question="Is this protein conserved across bacteria, and does a human have it?",
          read_first="A 0 HERE IS A MEASURED 0 -- OrthoFinder runs de novo on our own FASTAs and the "
-                    "stage exits unless every protein is accounted for. That is what this dense "
-                    "table is for: a sparse matrix cannot express a zero at all.",
-         also="orthologs.tsv and neighbors.tsv ship beside it and are SPARSE. orthodb_<sp>.tsv is a "
-              "separate, stable grouping -- filter it on orthodb_confidence, not on identity."),
+                    "stage exits unless every protein is accounted for, so no bacterial ortholog "
+                    "is a finding rather than a lookup miss. Median prop is 0.536 Kp / 0.571 Ec / "
+                    "0.179 Sa -- that last is S. aureus's Gram-positive isolation against a mostly "
+                    "Gram-negative panel, not a defect.",
+         also="The 29-column dense table -- orthogroup, paralogs, per-species counts and "
+              "identities -- is evidence/orthology_<sp>.tsv via load_dense(). orthologs.tsv and "
+              "neighbors.tsv ship beside it and are SPARSE; orthodb_<sp>.tsv is a separate, stable "
+              "grouping -- filter it on orthodb_confidence, not on identity."),
     dict(key="ligands", axis="ligands", title="ligands_<sp>.tsv",
          path="data/processed/ligands/ligands_<sp>.tsv",
          loader=ligandability.load,

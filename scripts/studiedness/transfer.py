@@ -578,7 +578,7 @@ def run_control(hits: pd.DataFrame, sp_meta: pd.DataFrame, own_ec: pd.DataFrame,
 
 def free_route_coverage(species: str) -> dict:
     """What the on-disk four-species ortholog table reaches. Measured, never merged."""
-    d = O.load(species)
+    d = O.load_dense(species)
     cols = [c for c in d.columns
             if c.startswith("n_orthologs_") and ("ecoli" in c or "human" in c)
             and "_of_" not in c and "_rbh_" not in c]

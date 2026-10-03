@@ -15,6 +15,42 @@ orthologs**, and **how similar are they**. All four proteomes in one run — 33,
 
 **5,064 orthogroups**, ~410 of them spanning all four species. 10 min end to end.
 
+## The deliverable is three columns
+
+`orthology_<species>.tsv`, the three bacteria only, on the project owner's instruction
+(2026-10-03):
+
+| column | meaning |
+|---|---|
+| `has_human_ortholog` | the selectivity liability |
+| `bacterial_panel_orthologs` | **a fraction, 0–1, not a count** — the share of the bacterial panel sharing this protein's orthogroup |
+
+**The denominator is 28, not 26.** The 26 tier-C comparator proteomes plus the three bacterial
+anchors, minus this protein's own species. It counts **species**, never proteins, so a paralog pair
+does not inflate it. `bacterial_panel_size` ships in the dense table so the number stays
+interpretable if the panel ever changes — 12 of 28 and 12 of 3 are different claims.
+
+| | median `prop` | `has_human_ortholog` |
+|---|---|---|
+| Kp | 0.536 | 16.6% |
+| Ec | 0.571 | 19.0% |
+| Sa | **0.179** | 21.6% |
+
+*S. aureus*'s low median is its Gram-positive isolation against a panel that is mostly
+Gram-negative — biology, not a defect.
+
+**A 0 is MEASURED.** OrthoFinder runs *de novo* on our own FASTAs and the stage exits unless every
+protein is accounted for, so "no bacterial ortholog" is a finding, not a lookup miss.
+
+**Human has no deliverable** — the panel columns are bacterial — and `load()` refuses it by name
+rather than returning something misleading. Use `load_dense("human")`.
+
+**Everything else moved to `evidence/orthology_<species>.tsv`**, 29 columns, via `load_dense()`:
+`orthogroup`, `in_orthogroup`, `orthogroup_size`, `n_paralogs`, `searched`, the five
+per-target-species columns for each of the four proteomes, `n_bacterial_orthologs` and
+`bacterial_panel_size`. Three consumers read it there: `essentiality/predict.py` (orthogroup for
+paralog grouping), `studiedness/transfer.py` and `plots/orthology.py`.
+
 ## The 26-species panel, and the two columns it is for
 
 `--panel full` adds tier C — 26 curated bacterial comparators, pinned in

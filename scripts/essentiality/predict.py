@@ -167,7 +167,7 @@ def groups_for(species: str, accessions: list[str]) -> np.ndarray:
         d = pd.read_csv(cl, sep="\t")
         m = dict(zip(d["member"].astype(str), d["cluster"].astype(str)))
         return np.array([m.get(a, "") or f"_self_{a}" for a in accessions])
-    og = O.load(species)[["uniprot_ac", "orthogroup"]]
+    og = O.load_dense(species)[["uniprot_ac", "orthogroup"]]
     m = dict(zip(og["uniprot_ac"], og["orthogroup"].fillna("")))
     return np.array([m.get(a, "") or f"_self_{a}" for a in accessions])
 

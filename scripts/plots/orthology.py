@@ -199,7 +199,7 @@ def main() -> None:
     say = (lambda m: None) if args.quiet else (lambda m: print(m, flush=True))
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    dense = O.load_all()
+    dense = O.load_dense_all()   # the per-species count columns live in evidence/ now
     species = species_present(dense)
     nb = O.load_neighbors()
     ortho = O.load_orthologs()

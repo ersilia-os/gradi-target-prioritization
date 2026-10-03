@@ -698,7 +698,22 @@ def write_outputs(nb: pd.DataFrame, ortho: pd.DataFrame, dense: dict,
         for col in df.columns:
             if col.startswith("best_identity_"):
                 df[col] = df[col].round(2)
-        df.to_csv(OUT_DIR / f"orthology_{sp}.tsv", sep="\t", index=False)
+        # The DELIVERABLE is three columns (owner's call, 2026-10-03): the selectivity liability
+        # and one conservation number. The 29-column dense table is the evidence behind them and
+        # keeps everything -- orthogroup, paralogs, per-species counts and identities.
+        df.to_csv(EVIDENCE_DIR / f"orthology_{sp}.tsv", sep="\t", index=False)
+        if "n_bacterial_orthologs" in df.columns:
+            slim = df[["uniprot_ac", "has_human_ortholog"]].copy()
+            # A PROPORTION needs its denominator stated, and it is 28, not 26: the 26 tier-C
+            # comparators plus the three bacterial anchors, minus this protein's own species.
+            # bacterial_panel_size ships in the dense table so the number stays interpretable if
+            # the panel ever changes.
+            slim["bacterial_panel_orthologs"] = (
+                df["n_bacterial_orthologs"] / df["bacterial_panel_size"]).round(4)
+            slim.to_csv(OUT_DIR / f"orthology_{sp}.tsv", sep="\t", index=False)
+        else:
+            say(f"  WARN {sp}: no n_bacterial_orthologs -- run with --panel full; "
+                f"deliverable not written")
 
     comp = (og[og.orthogroup != ""].groupby(["orthogroup", "species"]).size()
               .unstack(fill_value=0).reset_index())

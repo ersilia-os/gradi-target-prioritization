@@ -4,7 +4,8 @@ Stage 05 answers the same question two ways, and keeps them apart:
 
     data/processed/orthology/orthologs.tsv     the DISCRETE matrix -- sparse, ortholog pairs only
     data/processed/orthology/neighbors.tsv     the CONTINUOUS matrix -- sparse, top-5 per species
-    data/processed/orthology/orthology_<species>.tsv   DENSE, one row per protein
+    data/processed/orthology/orthology_<species>.tsv            uniprot_ac + 2 columns
+    data/processed/orthology/evidence/orthology_<species>.tsv   DENSE, 29 columns
 
 Why two matrices, and why a third table
 ---------------------------------------
@@ -259,20 +260,66 @@ def load_neighbors() -> pd.DataFrame:
 
 
 def load(species: str) -> pd.DataFrame:
-    """The dense per-protein view for one species -- one row per protein, every accession present.
+    """`orthology_<species>.tsv` -- THE DELIVERABLE. Three columns, the three bacteria only.
 
-    This is the table to read a zero off: `n_orthologs_<sp> == 0` means the protein was in the
-    OrthoFinder run and in every DIAMOND search, and no ortholog was found.
+        uniprot_ac  has_human_ortholog  bacterial_panel_orthologs
+
+    **`has_human_ortholog`** is the selectivity liability. Under-detecting human homology would
+    make a target look MORE selective than it is, which is why the search runs `--very-sensitive`.
+
+    **`bacterial_panel_orthologs` IS A FRACTION, 0-1, not a count** -- the name reads like one, so
+    check the scale before using it. It is OVER 28, not 26 -- the 26 tier-C comparator proteomes plus
+    the three bacterial anchors, minus this protein's own species. It counts SPECIES sharing the
+    orthogroup, never proteins, so a paralog pair does not inflate it. Median 0.536 Kp / 0.571 Ec
+    / **0.179 Sa** -- that last is *S. aureus*'s Gram-positive isolation against a panel that is
+    mostly Gram-negative, not a defect.
+
+    **A 0 is MEASURED.** OrthoFinder runs de novo on our own FASTAs and the stage exits unless
+    every protein is accounted for, so "no bacterial ortholog" is a finding, not a lookup miss.
+
+    **Human has no deliverable** -- the panel columns are bacteria-only. Use `load_dense("human")`.
+
+    Everything else -- orthogroup, paralogs, per-species ortholog counts and identities -- is in
+    `load_dense()`.
     """
     _check(species)
+    if species == "human":
+        raise ValueError("human has no orthology deliverable (the panel is bacterial); "
+                         'use load_dense("human")')
     return _read(_path(ORTHOLOGY_DIR, f"orthology_{species}.tsv"))
 
 
-def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
-    """Every species' dense table, stacked, with a `species` column first."""
+def load_dense(species: str) -> pd.DataFrame:
+    """The 29-column dense view, in `evidence/` -- one row per protein, every accession present.
+
+    This is the table to read a zero off: `n_orthologs_<sp> == 0` means the protein was in the
+    OrthoFinder run and in every DIAMOND search, and no ortholog was found. Carries `orthogroup`,
+    `in_orthogroup`, `orthogroup_size`, `n_paralogs`, the five per-target-species columns for each
+    of the four proteomes, `n_bacterial_orthologs` and `bacterial_panel_size`.
+    """
+    _check(species)
+    return _read(_path(EVIDENCE_DIR, f"orthology_{species}.tsv"))
+
+
+BACTERIA = ("kpneumoniae", "ecoli", "saureus")
+
+
+def load_all(species: tuple[str, ...] = BACTERIA) -> pd.DataFrame:
+    """The three bacteria's deliverables stacked, with a `species` column first. Human is
+    excluded by default because the panel columns are bacterial and it has no deliverable."""
     frames = []
     for sp in species:
         df = load(sp)
+        df.insert(0, "species", sp)
+        frames.append(df)
+    return pd.concat(frames, ignore_index=True)
+
+
+def load_dense_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
+    """Every species' dense table, stacked, with a `species` column first. Human included."""
+    frames = []
+    for sp in species:
+        df = load_dense(sp)
         df.insert(0, "species", sp)
         frames.append(df)
     return pd.concat(frames, ignore_index=True)

@@ -295,8 +295,8 @@ scripts/
                   ligands.py  transfer_calibration.py             -> ligands_<sp>.tsv
   studiedness/    fetch.py  gene2pubmed.py  unknome.py
                   transfer.py  merge.py                           -> studiedness_<sp>.tsv
-  pockets/        structures.py  predict.py  holo.py
-                  alphafill_check.py  merge.py                    -> pockets_<sp>.tsv
+  pockets/        structures.py  esmfold.py  predict.py  holo.py
+                  pdb_coverage.py  alphafill_check.py  merge.py   -> pockets_<sp>.tsv
   interactome/                              README.md only -- a real axis, no code yet
   plots/          10 scripts, ALL figures
   workers/        tabpfn_cv.py             transversal; every axis may call it
@@ -635,10 +635,20 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   **Load through `src/degradability.py`**; the name collides with the frozen
   `legacy/src/degradability.py`, which v2 never imports. Details: `docs/degradability.md`.
 
-- **`orthology/orthofinder.py`** → **`orthologs.tsv`** (sparse; `is_ortholog_orthofinder` and
-  `is_rbh` **side by side, never merged**), **`neighbors.tsv`** (sparse, top-5 nearest neighbours per
-  target species with identity and both coverages; self-hits dropped, so the within-species block is
-  a protein's nearest *paralogs*) and **`orthology_<species>.tsv`** (DENSE, one row per protein). All
+- **`orthology/orthofinder.py`** → **`orthology_<species>.tsv`**, **3 columns**: `uniprot_ac` ·
+  `has_human_ortholog` · `bacterial_panel_orthologs` (owner's call, 2026-10-03 — it was the 29-column
+  dense table). Also **`orthologs.tsv`** (sparse; `is_ortholog_orthofinder` and `is_rbh` **side by
+  side, never merged**), **`neighbors.tsv`** (sparse, top-5 nearest neighbours per target species
+  with identity and both coverages; self-hits dropped, so the within-species block is a protein's
+  nearest *paralogs*) and **`evidence/orthology_<species>.tsv`**, the DENSE table, via
+  `load_dense()`.
+
+  **`bacterial_panel_orthologs` IS A FRACTION (0–1), NOT A COUNT** — the name reads like a count,
+  so check the scale. **It is OVER 28, NOT 26** — the 26 tier-C comparator proteomes plus the
+  three bacterial anchors, minus this protein's own species. It counts **SPECIES**, never proteins,
+  so a paralog pair does not inflate it. Median **0.536 Kp · 0.571 Ec · 0.179 Sa** — the last is
+  *S. aureus*'s Gram-positive isolation against a mostly Gram-negative panel, not a defect.
+  **Human has NO deliverable** (the panel is bacterial) and `load()` refuses it by name. All
   four proteomes in one joint run. v1 shipped only the first, with its identity and coverage columns
   *entirely empty*, so any axis thresholding transfer on identity silently dropped everything.
 
@@ -858,11 +868,13 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   species, 11.5% over ChEMBL's 287. **Not promoted**; if it ever is, columns go *beside* the ChEMBL
   ones, never merged.
 
-- **`pockets/structures.py`** → **`predict.py`** → **`holo.py`** → **`merge.py`** — **structural
-  ligandability**: can a small molecule bind this fold? Deliverable `pockets_<species>.tsv`, **6
-  columns**, complete and canonical for the three bacteria: `p2rank_score` · `fpocket_score` ·
-  `p2rank_n_pockets` (predicted, on AlphaFold v6 models) · `holo_identity` (measured: % identity
-  to the closest bacterial PDB chain with a drug-like ligand in the aligned site) · `af_plddt`.
+- **`pockets/structures.py`** → **`esmfold.py`** → **`predict.py`** → **`holo.py`** →
+  **`pdb_coverage.py`** → **`merge.py`** — **structural ligandability**: can a small molecule bind
+  this fold? Deliverable `pockets_<species>.tsv`, **8 columns**, complete and canonical for the
+  three bacteria: `p2rank_score` · `fpocket_score` · `p2rank_n_pockets` (predicted, on AlphaFold v6
+  models) · `holo_identity` (measured: % identity to the closest bacterial PDB chain with a
+  drug-like ligand in the aligned site) · `pdb_n_structures` · `pdb_coverage` (PDB entries that
+  ARE this protein, ligand or not, and the fraction of it they cover) · `af_plddt`.
 
   **No `evidence` column** (owner's call, 2026-10-03): it was a function of two shipped columns —
   `af_plddt` is NA exactly when no model exists, `holo_identity > 0` exactly when a drug-like
@@ -877,6 +889,19 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   pLDDT twice. Neither tool reads it (P2Rank's `alphafold` config drops B-factor), so the filter is
   the only use. **Reproduces v1 exactly**: any P2Rank pocket on 4,542 Kp / 3,589 Ec proteins.
   AlphaFold models are used only if their sequence equals the proteome's (0 mismatches).
+
+  **34 proteins have no AlphaFold DB model, and no other accession has one either** (checked via
+  UniParc identical-sequence groups): AFDB skips < 16 aa (21 Ec micro-peptides), selenocysteine
+  (fdhF/fdnG/fdoG), pseudogenes written with X, and > 2,700 aa. `esmfold.py` folds the 32 up to
+  2,700 aa with ESMFold v1 (HF port, in `gradi`, CPU; U→C, X kept — **ESMFold writes no atoms for
+  an X but keeps the numbering, so read models by residue number**). The two giants (Kp irp1, Sa
+  ebh) stay NA by the **owner's decision** (~18 h of CPU). `model_source` records the predictor.
+
+  **PDB coverage is by SEQUENCE**: DIAMOND vs every `pdb_seqres` protein chain, ≥ 95% identity,
+  ≥ 50% of the chain aligned → **Kp 569 (9.9%)** proteins with a structure, against **30 (0.5%)**
+  by v1's SIFTS accession route; Ec 1,893 (43.0%), Sa 595 (20.6%). ≥ 95% counts near-identical
+  proteins of other species (Kp rpoB inherits E. coli's 411 RNAP entries), and coverage is of
+  SEQRES, not resolved residues.
 
   **"Drug-like" is built from published sources, not a denylist** — BioLiP, PLINDER's artefact
   list, PDBe cofactor classes, a nucleotide SMARTS, and **ECMDB metabolites (owner's choice,
