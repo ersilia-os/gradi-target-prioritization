@@ -4,13 +4,14 @@ The axis is wanted in both directions: an uncharacterised target is a risk, but 
 novelty the GraDi collaboration is looking for. `novelty()` reads the same data the other way.
 
     data/processed/studiedness/studiedness_<species>.tsv        THE DELIVERABLE
-        uniprot_ac
-        n_papers_uniprot_own           n_papers_uniprot_prokaryotic
-        n_papers_pubtator_own          n_papers_pubtator_prokaryotic
+        uniprot_ac · n_papers_uniprot_own · n_papers_uniprot_prokaryotic
+                   · n_papers_pubtator_prokaryotic
 
-FOUR counts in a 2x2: SOURCE (uniprot = curated references a curator read; pubtator = PubTator3
-text mining) x SCOPE (own = this accession; prokaryotic = its best-studied prokaryotic SwissProt
-homolog). **Never summed, never max()-ed, never blended.** `evidence` is NOT here -- it ships in
+THREE counts: SOURCE (uniprot = curated references a curator read; pubtator = PubTator3 text
+mining) x SCOPE (own = this accession; prokaryotic = its best-studied prokaryotic SwissProt
+homolog) -- minus the pubtator/own cell, dropped 2026-10-03 because text mining does not rescue a
+dark anchor: it was median 0 on Kp with only 2.2% of proteins above zero, and median 0 on Sa.
+**Never summed, never max()-ed, never blended.** `evidence` is NOT here -- it ships in
 `load_transfer()`.
 
 THE NUMBER IS A PAPER COUNT. THAT IS THE WHOLE DEFINITION.
@@ -130,62 +131,6 @@ transfer carries real signal on held-out data, not a score to optimise.
 gene2pubmed resolves a well-studied organism ~4x more finely (E. coli 193 distinct values against
 UniProt's 48) and gives 184 S. aureus proteins their first paper.
 
-DONORS ARE PROKARYOTIC: BACTERIA, ARCHAEA AND PHAGES -- NEVER EUKARYOTES
--------------------------------------------------------------------------
-A donor qualifies if its UniProt taxonomic lineage lacks `Eukaryota (domain)`. Without the
-restriction, five of K. pneumoniae's ten highest-scoring proteins took human donors (HSPD1, HADHA,
-CTPS1, LONP1, AFG3L2), so the score claimed "well studied because its human mitochondrial homolog
-is" -- true, and the wrong question for an antibacterial target.
-
-**Phages are deliberately IN, and "restrict to Bacteria" is the obvious rule that is wrong.** Of
-the 93 proteins a strict bacterial rule stranded with no donor, **70 lost theirs to a virus**
-(Escherichia phage lambda, P1). A prophage protein whose best-characterised relative is a lambda
-protein is not novel, and scoring it 0 fails in the one direction this axis must not fail.
-
-**Scope barely moves the numbers** -- the three scores correlate at rho 0.983-0.990 and only 254
-of 5,728 Kp proteins change, because the log scale saturates above P_REF. It is kept because it
-makes the number mean the right thing, not because it changes it. See `docs/studiedness.md` §2b.
-
-READ `evidence` BEFORE TREATING A LOW SCORE AS NOVELTY
--------------------------------------------------------
-Nested identity bands, the shape the `ligands/` axis already uses, plus two tiers that both
-score 0 and mean different things:
-
-    swissprot_direct    >= 95% identity -- effectively the same protein
-    swissprot_close     >= 60% identity
-    swissprot_homolog   >= 40% identity -- the transfer band
-    below_floor         a SwissProt hit exists, but under 40% identity or 50% coverage
-    no_hit              NOTHING in SwissProt resembles this protein at all
-
-The last two both score **0.0**, and the axis deliberately refuses to invent a number for either
--- but they are very different claims, so they are separate tiers. `no_hit` is the strongest
-novelty signal the axis produces: nothing among 575,748 curated entries looks like this protein.
-`below_floor` means it does have a distant relative whose literature is simply too far away to
-carry. Without the split, a third of K. pneumoniae would be one undifferentiated tie at the
-bottom of the ranking.
-
-Neither is a missing measurement and neither may be imputed. The hard ceiling is DIAMOND's own
-hit rate: *any* SwissProt hit exists for only **81.6% of Kp and 73.0% of Sa** (99.4% of Ec).
-
-THE 25% FLOOR IS A MEASURED TRADE-OFF, NOT A CALIBRATION
----------------------------------------------------------
-CLAUDE.md's >= 40% rule is for annotation **transfer** -- putting a GO term or an EC number on a
-protein. This axis asks something weaker: *is this protein's family studied at all?* That is
-homology detection, the task `orthology/orthodb.py` calibrated at 25%/50%.
-
-**Decoys do not decide it.** Composition-preserving shuffles of our own 13,020 sequences match
-SwissProt at **0.0% at every floor down to 20%** (`evidence/decoy_calibration.tsv`), so the floor
-is not defending against spurious homology -- DIAMOND's e-value already does that.
-
-**The held-out control decides it, and it is a genuine trade-off** -- coverage against fidelity,
-measured in `evidence/floor_sensitivity.tsv` under band-first donor selection. A looser floor
-reaches more of the proteome and carries literature further than it safely travels. 25% is the
-chosen point because it sits at the coverage ceiling (DIAMOND finds *any* SwissProt hit for only
-81.6% of Kp and 73.0% of Sa, so there is almost nothing left to gain below it) while the control
-stays above its floor. **Read `evidence` and `donor_pident`**: a `swissprot_remote` score rests on
-a 25-60% identity homolog and is a weaker claim than a `swissprot_direct` one. The sweep is
-shipped so the floor can be re-chosen without re-running DIAMOND.
-
 Unknome knownness (`load_unknome`) is a second opinion from a different quantity -- a weighted GO
 term count over the protein's PANTHER family, not a literature count. It covers only Kp 71.2% /
 Ec 78.2% / Sa 65.1%, capped by the PANTHER xref, which is why it is evidence and not a deliverable
@@ -294,23 +239,22 @@ def _counts(df: pd.DataFrame, cols: tuple[str, ...]) -> pd.DataFrame:
 def load(species: str) -> pd.DataFrame:
     """The deliverable: one row per protein, canonical order, no nulls in either count.
 
-    FOUR literature counts in a 2x2 — SOURCE x SCOPE — NEVER summed or `max()`-ed together:
+    THREE literature counts, three definitions, NEVER summed or `max()`-ed together:
 
         n_papers_uniprot_own            curated references on THIS accession. Near-flat on Kp and
                                         Sa by design — it is the measurement of darkness.
         n_papers_uniprot_prokaryotic    curated references on the best-studied prokaryotic
                                         SwissProt homolog. **THE SHIPPED RANKING — rank on this.**
-        n_papers_pubtator_own           PubTator3 TEXT-MINED papers on THIS protein's gene symbol.
-        n_papers_pubtator_prokaryotic   the same, on that donor's gene symbol.
+        n_papers_pubtator_prokaryotic   PubTator3 TEXT-MINED papers on that donor's gene symbol.
 
-    **Text mining does NOT rescue the dark anchors, which is worth knowing before reaching for it.**
-    `n_papers_pubtator_own` is median 0 on Kp with only **2.2%** of proteins above zero, and median
-    0 on Sa with 14.8% — against E. coli's median 8 and 91.5%. Where curation is silent, PubTator
-    is silent too: the darkness is real, not an artifact of which corpus was searched.
+    **The pubtator/own cell was measured and dropped** (2026-10-03). Text mining does not rescue a
+    dark anchor: `n_papers_pubtator_own` was median 0 on Kp with only **2.2%** of proteins above
+    zero and median 0 on Sa, against E. coli's median 8 and 91.5%. Where curation is silent,
+    PubTator is silent too — the darkness is real, not an artifact of which corpus was searched.
 
-    **The two `_prokaryotic` columns are near-redundant** (Spearman **0.786** on Kp), while both
-    `_own` columns are nearly independent of everything else (0.09–0.19). So the 2x2 is really one
-    strong axis — homolog literature, two ways of counting it — plus two sparse own-protein columns.
+    **The two homolog columns are near-redundant** (Spearman **0.786** on Kp), while
+    `n_papers_uniprot_own` is nearly independent of both (0.19 and 0.09). So this is one strong
+    axis — homolog literature, counted two ways — plus the own-protein darkness measure.
 
     **`n_papers_pubtator_prokaryotic` is NOT complete**: filled for 62.5% of Kp, 95.7% of Ec, 53.1%
     of Sa. An empty cell means the donor carries no gene symbol to look up, which is not a zero —
@@ -344,12 +288,11 @@ def load(species: str) -> pd.DataFrame:
     _check(species)
     df = _read(STUDIEDNESS_DIR / f"studiedness_{species}.tsv",
                "scripts/studiedness/merge.py")
-    cols = [c for c in ("n_papers_uniprot_own", "n_papers_pubtator_own",
-                        "n_papers_uniprot_prokaryotic", "n_papers_pubtator_prokaryotic")
+    cols = [c for c in ("n_papers_uniprot_own", "n_papers_uniprot_prokaryotic",
+                        "n_papers_pubtator_prokaryotic")
             if c in df.columns]
     df = _numeric(df, tuple(cols))
-    for c in ("n_papers_uniprot_own", "n_papers_pubtator_own",
-              "n_papers_uniprot_prokaryotic"):
+    for c in ("n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"):
         if c in df.columns:
             df[c] = df[c].astype(int)
     return df
