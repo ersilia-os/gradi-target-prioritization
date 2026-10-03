@@ -331,16 +331,36 @@ a way a pickled forest does not.
 
 | column | meaning |
 |---|---|
-| `<act>_hit` | the **measured** call, `1`/`0`, empty where that screen did not measure this protein |
 | `<act>_prob` | the model's probability, for **every** protein — **out-of-fold** where labeled, and **averaged over the 5 CV seeds** |
-| `<act>_source` | `measured` \| `predicted` |
 | `nn_similarity` | cosine to the nearest *S. aureus* training protein in ESM-C space |
 
-**The three-column split is what keeps `_prob` honest.** It is one comparable scale across all 13,020
-proteins, because a labeled protein carries its out-of-fold value rather than a 1.0 that would
-outrank every uncertain prediction. Ground truth stays in `_hit`. `_prob` is the **seed-averaged**
-out-of-fold value, never a single seed's — a single-seed estimate carries ±0.004 of arbitrariness
+**`_prob` is one comparable scale across all 13,020 proteins**, because a labeled protein carries
+its out-of-fold value rather than a 1.0 that would outrank every uncertain prediction. It is the
+**seed-averaged** out-of-fold value, never a single seed's — a single-seed estimate carries ±0.004 of arbitrariness
 and seed 0 alone read 0.857 against the 5-seed 0.8738.
+
+### The measured calls are not in this table
+
+Dropped on the project owner's instruction, **2026-10-03**. `<act>_hit` and `<act>_source` were
+four columns that said almost nothing: `_hit` was empty for **10,131 of 13,020** proteins — every
+*E. coli* and *K. pneumoniae* row, because no activated-ClpP screen has ever touched either
+organism — and `_source` read `predicted` for all but 1,871.
+
+**Nothing was lost, and that was checked rather than assumed.** Both columns are *exactly*
+reconstructible from `evidence/labels_saureus.tsv`, verified per species and per activator before
+the tables were rewritten: 1,677 adep4 and 1,045 onc212 calls, byte-identical on both columns. The
+labels table is strictly richer than the bit was — it carries the continuous log2FC behind each
+call (a measured −0.51 explains a `0` in a way the bit cannot) and the cluster used for grouping.
+
+Two helpers in `src/degradability.py` put the measurement back where it is wanted:
+
+| helper | returns |
+|---|---|
+| `measured(activator)` | the 1/0 calls, indexed on `uniprot_ac`. All-NA on Ec and Kp, which is the truth about them |
+| `with_measured(df)` | a copy of `df` with `<act>_hit` re-attached, for plots and audits |
+
+**`hits()` is unchanged in behaviour** — a measurement still wins over the model wherever one
+exists. It now reads the labels itself instead of a column.
 
 **The loader name collides with the frozen `legacy/src/degradability.py`.** v2 never imports that
 one; `src/degradability.py` is the only module this stage knows about, and the legacy file belongs

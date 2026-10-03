@@ -16,7 +16,7 @@ Three figures:
                      how each proteome distributes across the distance bands, and the measured
                      out-of-fold AUROC in the only two bands that carry one
 
-*E. coli* and *K. pneumoniae* have **no measured labels at all** -- `_hit` is empty for every row --
+*E. coli* and *K. pneumoniae* have **no measured labels at all** -- no screen ever measured them --
 so every point plotted for them is a ranking hypothesis. Nothing here is refitted; the tables and
 `evidence/domain_bands.tsv` are read as written.
 
@@ -88,7 +88,8 @@ def plot_score_by_measured(ax, sa: pd.DataFrame, activator: str, abc: str) -> No
     The two measured groups are out-of-fold, so this is an honest read of the separation the model
     achieves -- and it puts the unmeasured proteins, which is all Kp and Ec are, on the same axis.
     """
-    hit = sa[f"{activator}_hit"]
+    # The measured call is not a column in the deliverable -- it comes from the labels table.
+    hit = sa["uniprot_ac"].map(D.measured(activator))
     prob = sa[f"{activator}_prob"]
     groups, names, colors = [], [], []
     for name, mask, color in (

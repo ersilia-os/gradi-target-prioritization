@@ -87,7 +87,7 @@ def annotated(species: str) -> pd.DataFrame:
     ident = P.load(species)[["uniprot_ac", "gene_name", "protein_name"]]
     egg = F.load_eggnog(species)[["uniprot_ac", "preferred_name"]]
     cog = F.load_cog(species)[["uniprot_ac", "cog_category", "cog_group", "cog_name"]]
-    loc = LOC.load_deeplocpro(species)[["uniprot_ac", "localization"]]
+    loc = LOC.load(species)[["uniprot_ac", "localization"]]
     df = (pred.merge(ident, on="uniprot_ac", how="left")
               .merge(egg, on="uniprot_ac", how="left")
               .merge(cog, on="uniprot_ac", how="left")
@@ -115,7 +115,7 @@ def plot_top(ax, df: pd.DataFrame, species: str, activator: str, n: int, abc: st
     colors = [COG_GROUP_COLOR.get(g, NC.gray) for g in t.cog_group]
     ax.barh(y, t[f"{activator}_prob"], color=colors)
 
-    measured_hit = t[f"{activator}_hit"] == 1
+    measured_hit = t["uniprot_ac"].map(D.measured(activator)) == 1
     labels = [f"{lab} *" if hit else lab for lab, hit in zip(t.label, measured_hit)]
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
@@ -258,8 +258,9 @@ def main() -> None:
             named = int((t.label != t.uniprot_ac).sum())
             # How many of the top N are MEASURED hits rather than predictions. Only Sa can score
             # here, and it is the closest thing to a validation of the top of the list.
-            confirmed = int((t[f"{act}_hit"] == 1).sum())
-            measured = int(t[f"{act}_hit"].notna().sum())
+            hit = t["uniprot_ac"].map(D.measured(act))
+            confirmed = int((hit == 1).sum())
+            measured = int(hit.notna().sum())
             say(f"  {act}  {LABELS[s]}  top {args.top}   "
                 f"{named}/{len(t)} named   "
                 f"measured {measured}/{len(t)}, of which {confirmed} are confirmed hits   "

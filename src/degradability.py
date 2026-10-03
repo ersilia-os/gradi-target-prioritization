@@ -5,21 +5,24 @@ ClpP?** -- the recruiting handle for BacPROTAC-style degradation. It is a binary
 on the two *S. aureus* activator screens and applied to everything else:
 
     data/processed/degradability/degradability_{kpneumoniae,ecoli,saureus}.tsv
-        uniprot_ac
-        adep4_hit   adep4_prob   adep4_source
-        onc212_hit  onc212_prob  onc212_source
-        nn_similarity
+        uniprot_ac   adep4_prob   onc212_prob   nn_similarity
 
-Three columns per activator, and the split matters
---------------------------------------------------
-`<act>_hit` is the **measured** call -- 1, 0, or empty where that screen did not measure the protein.
+One number per activator, on one scale
+--------------------------------------
 `<act>_prob` is the model's probability for **every** protein, and for a labeled one it is the
-**out-of-fold** value from models that did not train on it, averaged over `N_CV_SEEDS` repeats of the
-cluster-grouped split. `<act>_source` says which.
+**out-of-fold** value from models that did not train on it, averaged over `N_CV_SEEDS` repeats of
+the cluster-grouped split. That is why it can be ranked across all 13,020 proteins at once. Pinning
+a measured hit to 1.0 would have put all 233 of them above every predicted protein however
+confident, so a shortlist would have filled with whatever happened to be assayed rather than with
+the best candidates.
 
-That is why `_prob` can be ranked across all 13,020 proteins at once. Pinning a measured hit to 1.0
-would have put all 233 of them above every predicted protein however confident, so a shortlist would
-have filled with whatever happened to be assayed rather than with the best candidates.
+**The measured calls are NOT in this table** (owner's call, 2026-10-03). They were two columns that
+were empty for 10,131 of 13,020 proteins -- every E. coli and K. pneumoniae row -- and the `_source`
+columns beside them read `predicted` for all but 1,871. Nothing is lost: the measurement lives in
+`evidence/labels_saureus.tsv` with its continuous log2FCs and its cluster assignment, which is
+strictly more than the bit was, and **`measured()` / `with_measured()` below re-attach it** keyed on
+`uniprot_ac`. `hits()` still lets a measurement win over the model, exactly as before -- it reads
+the labels itself rather than a column.
 
 Two activators, never merged
 ----------------------------
@@ -45,8 +48,8 @@ comparable to v1's. Do not "fix" it into symmetry.
 What these numbers are not
 --------------------------
 *E. coli* and *K. pneumoniae* have **no** activated-ClpP measurements, anywhere -- every row for them
-is a **ranking hypothesis** from a model trained in another phylum, and `<act>_hit` is empty for all
-of them. `nn_similarity` records how far the extrapolation reached; `evidence/domain_bands.tsv`
+is a **ranking hypothesis** from a model trained in another phylum, and and no screen measured
+any of them. `nn_similarity` records how far the extrapolation reached; `evidence/domain_bands.tsv`
 prices it. Read that file's caveats before quoting its numbers.
 """
 
@@ -220,10 +223,7 @@ SIMILARITY_BANDS: tuple[tuple[float, float], ...] = (
     (0.00, 0.80), (0.80, 0.90), (0.90, 0.95), (0.95, 1.01),
 )
 
-OUT_COLUMNS = ["uniprot_ac",
-               "adep4_hit", "adep4_prob", "adep4_source",
-               "onc212_hit", "onc212_prob", "onc212_source",
-               "nn_similarity"]
+OUT_COLUMNS = ["uniprot_ac", "adep4_prob", "onc212_prob", "nn_similarity"]
 
 
 def sequence_features(sequences: pd.Series) -> pd.DataFrame:
@@ -424,5 +424,33 @@ def hits(df: pd.DataFrame, activator: str, threshold: float | None = None) -> pd
     _check_activator(activator)
     if threshold is None:
         threshold = BASE_RATE_THRESHOLD[activator]
-    hit, prob = df[f"{activator}_hit"], df[f"{activator}_prob"]
+    # The measured calls are no longer a column, so read them from the labels. Behaviour is
+    # unchanged: a measurement still wins over the model wherever one exists. For E. coli and
+    # K. pneumoniae the map is empty, so every row is thresholded -- which is the truth about them.
+    hit = df["uniprot_ac"].map(measured(activator))
+    prob = df[f"{activator}_prob"]
     return df[np.where(hit.notna(), hit == 1, prob >= threshold)]
+
+
+def measured(activator: str) -> pd.Series:
+    """The MEASURED 1/0 calls for one activator, indexed by `uniprot_ac`. 1,677 adep4 / 1,045
+    onc212, all *S. aureus* -- there are no activated-ClpP measurements for E. coli or
+    K. pneumoniae anywhere, so mapping this onto either returns all-NA, which is correct.
+
+    This replaces the `<act>_hit` column the deliverable used to carry. The source of truth is
+    `evidence/labels_saureus.tsv`, which also holds the continuous log2FC behind each call and the
+    cluster used for grouping -- a measured -0.51 explains a 0 in a way the bit never could.
+    """
+    _check_activator(activator)
+    # The labels file names its call columns exactly `adep4` / `onc212`.
+    lab = load_labels().set_index("uniprot_ac")[activator]
+    return lab[lab.notna()].round(0).astype("Int64")
+
+
+def with_measured(df: pd.DataFrame) -> pd.DataFrame:
+    """`df` plus an `<act>_hit` column per activator, for the plots and audits that need the
+    measured call beside the probability. A copy -- the deliverable on disk stays four columns."""
+    out = df.copy()
+    for activator in ACTIVATORS:
+        out[f"{activator}_hit"] = out["uniprot_ac"].map(measured(activator))
+    return out

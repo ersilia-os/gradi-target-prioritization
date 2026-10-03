@@ -74,13 +74,12 @@ to the distances each species actually lands in. Read that file's caveats before
 Output
 ------
     data/processed/degradability/degradability_<species>.tsv
-        uniprot_ac
-        adep4_hit   adep4_prob   adep4_source
-        onc212_hit  onc212_prob  onc212_source
-        nn_similarity
+        uniprot_ac   adep4_prob   onc212_prob   nn_similarity
 
-`_hit` is the measured call (1/0, empty where unmeasured). `_prob` is the model's probability for
-EVERY protein -- out-of-fold where labeled, so it is one comparable scale across all 13,020.
+`_prob` is the model's probability for EVERY protein -- out-of-fold where labeled, so it is one
+comparable scale across all 13,020. **The measured calls are not a column here**: they were empty
+for every E. coli and K. pneumoniae row, and they live in `evidence/labels_saureus.tsv` with their
+continuous log2FCs. `src.degradability.measured()` re-attaches them on `uniprot_ac`.
 
     evidence/labels_saureus.tsv          measured call + log2FC on uniprot_ac + join evidence
     evidence/seqmap_audit.tsv            every join: source acc, target, pident, coverage, verdict
@@ -876,10 +875,13 @@ def main() -> None:
         out["nn_similarity"] = out["uniprot_ac"].map(
             pd.Series((Q @ T.T).max(axis=1), index=f.index)).round(4)
 
-        out = out[D.OUT_COLUMNS]
+        # `_hit` and `_source` stay as WORKING columns -- the manifest below is computed from
+        # them -- but they are not written. Both are exactly reconstructible from
+        # `evidence/labels_saureus.tsv` via `D.measured()`, and as columns they were empty for the
+        # 10,131 Ec/Kp rows that have no measurement anywhere.
         path = (SCRATCH_DIR / f"smoke_degradability_{sp}.tsv") if args.limit \
             else (OUT_DIR / f"degradability_{sp}.tsv")
-        out.to_csv(path, sep="\t", index=False)
+        out[D.OUT_COLUMNS].to_csv(path, sep="\t", index=False)
 
         # Median over PREDICTED rows only: a training protein is its own nearest neighbour, so
         # including the measured ones would report a trivial 1.000 for S. aureus.
