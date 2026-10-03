@@ -110,8 +110,14 @@ seed noise; needs a paired test between the two framings before anyone acts on i
 
 ## Every axis ends in COMPLETE matrices
 
-**One row per protein, always.** A protein with no annotation is an **all-zero row carrying an
-`evidence` label**, never a missing row. Standing instruction from the project owner.
+**One row per protein, always.** A protein with no annotation is an **all-zero row**, never a
+missing row. Standing instruction from the project owner.
+
+**An `evidence` column is the default, NOT an invariant** — narrowed 2026-10-03, when the owner
+had studiedness drop it. Where an axis omits it, the tiers must still ship in that axis's
+`evidence/` tree and the loader docstring must say what a 0 can no longer distinguish:
+`studiedness_<sp>.tsv` has no `evidence`, so a `n_papers_family == 0` is `no_hit` or
+`below_floor` and `load_transfer()` is the only way to tell — 1,961 Kp proteins.
 
 **The invariant is one row per protein, complete, in canonical order.** The SHAPE a vocabulary axis
 ships in is a per-axis choice, not a project rule — narrowed 2026-10-03, when function moved to
@@ -363,7 +369,13 @@ traps that fail silently. The measured tables, the rejected alternatives, the co
 the run log are in `docs/<task>.md`** — named at the end of each entry, and that doc is the record.
 
 - **`proteomes/download.py`** → `data/processed/proteomes/proteome_<species>.tsv`, four tables,
-  9 columns, keyed on `uniprot_ac`: identity and nothing else. Audits and xrefs are `evidence/`, the
+  **5 columns**, keyed on `uniprot_ac`: `is_reviewed` · `gene_name` · `protein_name` · `sequence`
+  (owner's call, 2026-10-03 — it was 9). **`sequence` STAYS in the deliverable deliberately**: the
+  standing rule is *map by sequence, not by accession*, so the column every external join needs
+  belongs in the table everything loads. The four provenance columns — `gene_name_source`,
+  `gene_synonyms`, `refseq`, `geneid` — are in **`evidence/proteome_full_<species>.tsv`** via
+  **`load_full()`**, and **`geneid` is NOT idle there**: `gene2pubmed.py` and `pubtator.py` key NCBI
+  literature counts on it, and `id_bridge()` reads it. Audits and xrefs are `evidence/`, the
   UniRef90 cache `scratch/`. Registry-driven from `src/proteome_registry.tsv` (41 rows, 4 tiers,
   every row carrying a required `why`).
 
@@ -1176,120 +1188,103 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   one**. **Three payloads returned HTTP 200 and were not data**, all caught by content inspection.
   Details: `docs/essentiality.md`.
 
-- **`studiedness/fetch.py`** + **`gene2pubmed.py`** + **`unknome.py`** + **`transfer.py`** +
-  **`merge.py`** → `studiedness_<species>.tsv`: `uniprot_ac · n_papers_own · n_papers_family ·
-  evidence · n_papers_family_pubtator · pubtator_ambiguous`. **Rank on `n_papers_family`** —
-  the PubTator3 column is a third definition shipped beside it, never merged. Wanted in both directions — an uncharacterised target is a risk, but it is also the
-  novelty the collaboration is looking for (`src.studiedness.novelty()` reads it the other way). Run
-  in that order; DIAMOND from `gradi-ortho`.
+- **`studiedness/fetch.py`** + **`gene2pubmed.py`** + **`pubtator.py`** + **`unknome.py`** +
+  **`transfer.py`** + **`merge.py`** → `studiedness_<species>.tsv`: `uniprot_ac · n_papers_own ·
+  n_papers_family · n_papers_family_pubtator`. Wanted in both directions — an uncharacterised
+  target is a risk, but it is also the novelty the collaboration is looking for
+  (`src.studiedness.novelty()` reads it the other way). Run in that order; DIAMOND from
+  `gradi-ortho`.
 
-  **THE NUMBER IS A PAPER COUNT** — curated SwissProt references, nothing scaled or blended. **A 0-1
-  composite shipped first and was REMOVED on 2026-09-22; do not reintroduce it**: the same value
-  meant 13 papers at annotation 3 and 83 at annotation 1, the two halves **double-counted** (r
-  0.64–0.70), and the weights did the opposite of what the code claimed. `scaled()` derives a 0-1
-  column on the fly and is deliberately **not stored**, so there is one source of truth on disk.
+  **THREE COUNTS, THREE DEFINITIONS, NEVER a `max()` ACROSS THEM** — that is what killed the 0-1
+  composite on 2026-09-22. **Rank on `n_papers_family`.**
 
-  **The anchors' own literature is a dead column, and that is the whole shape of the axis**: 5,710 of
-  5,728 Kp proteins carry exactly one PubMed id — the genome paper. `n_papers_own` ships **because it
-  IS the measurement of darkness**, and beside `_family` it makes "dark in *Klebsiella*, famous in
-  *E. coli*" readable off one row. **Do not rank Kp or Sa on `_own`; rank on `_family`.**
+  **`evidence` IS NOT IN THE DELIVERABLE** (owner, 2026-10-03) — it stays in
+  `evidence/transfer_<sp>.tsv`. So **a 0 in `n_papers_family` is ambiguous in this table**:
+  `no_hit` (nothing among 575,748 curated entries resembles it — the strongest novelty claim the
+  axis makes) and `below_floor` both read 0. On Kp that is 1,961 proteins. Join `load_transfer()`
+  before reading a 0 as novelty.
 
-  **`--max-target-seqs` was the worst bug in the axis and the lesson generalises.** DIAMOND returns
-  the top k by **bitscore** = the CLOSEST relatives, but this stage wants the **best-cited** homolog,
-  which for a conserved protein is a distant model-organism entry. At k=50 Sa `groEL`'s donor was
-  *B. subtilis* GroEL with 9 papers and E. coli GroEL (246) never appeared — **systematically
-  understating studiedness precisely for the most conserved families.**
+  **`n_papers_own` USES THE LIGANDS AXIS'S `exact` RULE** (2026-10-03): the UNION of PMIDs over
+  **accession + identical sequence + same species ≥95%**, because *a protein does not stop being
+  itself between strains* and the two axes must mean the same thing by "this protein".
+  **Union, not max** — the analogue of pooling distinct molecules. **S. aureus proteins with any
+  literature went 357 → 1,049** (NCTC 8325 is the anchor while most Sa curation sits under
+  Newman/USA300/Mu50/N315); Ec median 5 → 8; Kp distinct values 7 → 32. Held-out control
+  **0.3280 → 0.3398**. **`own` can now EXCEED `family`** (Ec median 8 vs 6) because `own` unions
+  every strain entry while `family` reads ONE donor — the old "+3 on Kp, +0 on Ec" framing is
+  withdrawn. **Still do not rank Kp or Sa on `_own`; rank on `_family`.**
+
+  **`pubtator.py` → `n_papers_family_pubtator`, keyed on NCBI GeneID.** A GeneID names one gene in
+  one organism, so **the species is already in the key** and there is no symbol ambiguity: Kp
+  `crp` reads **376** where the gene-SYMBOL route read **345,630** (human C-reactive protein).
+  No network calls — the 756 MB `gene2pubtator3.gz` bulk file.
+
+  **THE SELECTION RULE MUST MATCH THE VALUE READ, AND IT IS WORTH HALF THE SIGNAL.** Reading
+  PubTator off the donor chosen for most CURATED papers scores **−0.0132** on the held-out
+  control; `pubtator_donors()` picks the donor with most PUBTATOR papers and scores **0.3722**,
+  beating the curated column's **0.3398** on identical folds. A mismatched rule looks exactly like
+  "this source is weak" — the largest measurement error made on this axis, made twice before being
+  caught. `pubtator_donor_*` records which donor was used.
+
+  **The gene-SYMBOL routes were built, measured and REJECTED** (all-species, species-scoped with
+  strain→species rollup, and free-text): `@GENE_<SYMBOL>` is missing for most bacterial genes
+  (0 for `fnbA`, which has 1,158 papers; 31.5% of donor symbols return 0, 446 of them on donors
+  with ≥5 curated papers), and free text matches abbreviations and strain names (`tam` → the
+  Translocation Assembly Module, `nimR` → `AH1-NIMR`). **`NOT @SPECIES_9606` is a trap** — it
+  strips 76-85% of virulence/clinical literature, exactly our biology.
+
+  **A blank is NOT a zero**: blank = no in-scope donor carried a GeneID (unreachable); 0 =
+  PubTator annotated 36M abstracts and never linked that gene. Coverage of scored proteins ~95%.
+
+  **Three data traps.** `gene2pubtator3.gz` is **PMID-sorted**, so its head looks human-centric —
+  that is how an earlier untested rejection happened; **the bulk file and the `search/` API
+  disagree** (`ftsZ` 13 vs 2), the bulk being complete; and the download **truncated at 88 MB of
+  756 MB while `curl` exited 0**.
+
+  **THE NUMBER IS A PAPER COUNT** — curated SwissProt references, nothing scaled or blended. **A
+  0-1 composite shipped first and was REMOVED on 2026-09-22; do not reintroduce it**: the same
+  value meant 13 papers at annotation 3 and 83 at annotation 1, the two halves **double-counted**
+  (r 0.64–0.70), and the weights did the opposite of what the code claimed. `scaled()` derives a
+  0-1 column on the fly and is deliberately **not stored**.
+
+  **`--max-target-seqs` was the worst bug in the axis and the lesson generalises.** DIAMOND
+  returns the top k by **bitscore** = the CLOSEST relatives, but this stage wants the
+  **best-cited** homolog, which for a conserved protein is a distant model-organism entry. At
+  k=50 Sa `groEL`'s donor was *B. subtilis* GroEL with 9 papers and E. coli GroEL (246) never
+  appeared — **systematically understating studiedness precisely for the most conserved families.**
 
   **Five evidence tiers, and TWO of them score 0 meaning different things**: `swissprot_direct`
-  (≥95%) ⊃ `swissprot_close` (≥60%) ⊃ `swissprot_homolog` (≥40%), then **`below_floor`** (an in-scope
-  hit under the floor) and **`no_hit`** (nothing in SwissProt at all). `no_hit` is the strongest
-  novelty claim the axis makes. **A zero is an answer, not a gap; never impute it.**
+  (≥95%) ⊃ `swissprot_close` (≥60%) ⊃ `swissprot_homolog` (≥40%), then **`below_floor`** (an
+  in-scope hit under the floor) and **`no_hit`** (nothing in SwissProt at all). `no_hit` is the
+  strongest novelty claim the axis makes. **A zero is an answer, not a gap; never impute it.**
 
-  **The floor is 40%, and the control's own optimum agrees with it** — rho **peaks at 0.3280 there**
-  and falls away on both sides, bottoming at 0.2507 at 95%. **THE CONTROL IS A FLOOR-CHECK, NOT AN
-  OBJECTIVE**: it correlates deliberately different quantities (a protein with 3 papers whose homolog
-  has 300 *should* score low on `_own` and high on `_family`), so it has a ceiling well below 1.
-  Measured: **spearman 0.328 / pearson 0.3501 over 2,945 of 4,403 proteins**, floor 0.25, exiting
-  non-zero below. **An earlier version of this file quoted 0.5411 / floor 0.45 and warned that rho
-  "rises with the floor nearly circularly"; both were composite-era residue and the second was
-  backwards.**
+  **The floor is 40%, and the control's own optimum agrees with it** — rho peaks there and falls
+  away on both sides. **THE CONTROL IS A FLOOR-CHECK, NOT AN OBJECTIVE**: it correlates
+  deliberately different quantities, so it has a ceiling well below 1. Measured: **spearman
+  0.3398 / pearson 0.3164 over 2,945 of 4,403 proteins**, floor 0.25, exiting non-zero below.
 
   **DONOR SCOPE: not eukaryotic, and "restrict to Bacteria" is the obvious rule that is WRONG.**
-  `prokaryotic` (default) admits any donor whose lineage lacks Eukaryota — Bacteria, Archaea **and
-  phages**. Under `any`, five of Kp's ten highest-scoring proteins took human donors, making the
-  claim "well studied because its human mitochondrial homolog is"; but **strict Bacteria strands
-  prophage proteins**, 70 of the 93 it leaves donorless having lost theirs to a virus. Scope barely
-  matters numerically and is kept because it makes the number mean the right thing.
+  `prokaryotic` (default) admits any donor whose lineage lacks Eukaryota — Bacteria, Archaea
+  **and phages**. Under `any`, five of Kp's ten highest-scoring proteins took human donors; but
+  **strict Bacteria strands prophage proteins**, 70 of the 93 it leaves donorless having lost
+  theirs to a virus.
 
   **Unknome is EVIDENCE, kept and not promoted**, and its trap is severe: the per-protein download
-  reads **`knownness = 0.000` for all 1,882 S. aureus entries** including `clpP`, `rpoB` and `ftsZ`,
-  while the **cluster** table reads 10.6 for the same protein — joining the per-protein file would
-  have silently zeroed a proteome. **REJECTED and not to be re-added: training ESM-C on Unknome
-  knownness** — knownness is a cluster property, so the effective N is 15,589 not 1.9M, it
-  approximates a lookup DIAMOND does exactly and auditably, and mean-reversion would hide the novel
-  proteins the axis exists to surface.
-
-  **`studiedness/pubtator.py`** → `evidence/pubtator_<sp>.tsv` + `pubtator_route_comparison.tsv`:
-  PubTator3 text-mined counts by **TWO ROUTES THAT ARE NOT THE SAME DATASET FOR BACTERIA**.
-  PubTator3 normalises bacterial mentions to **species-agnostic gene SYMBOLS, not strain
-  GeneIDs** — clpP reads 6 by GeneID and 3,130 by symbol. **The bulk file is GeneID-only**, so
-  route B must use the API (5,076 donor symbols, ~50 min, cached and resumable). Route A reaches
-  **1.8% of Kp** against route B's **97.9% of scored Kp**; the ceiling is that only 51.2% of
-  SwissProt carries a GeneID at all.
-
-  **On the held-out control, identical folds, the TEXT-MINED SYMBOL COUNT BEATS THE CURATED ONE**
-  — 0.4054 vs 0.3428 on the common subset (n=556), 0.44 vs 0.30 over all 2,207 with a symbol —
-  while **gene2pubmed LOSES** (0.2636). **Shipped as a THIRD DELIVERABLE COLUMN** `n_papers_family_pubtator` (rank agreement with the
-  curated count rho 0.77 — correlated, not redundant) but **NOT as the ranking**: the control is
-  E. coli-only and E. coli
-  symbols are the ones that entered human nomenclature, and the count **cannot be donor-scoped**.
-  **The homonym trap is real but bounded and is NOT the advantage** — `crp` reads 345,630 (human
-  C-reactive protein), but homonyms are 3.8% of donors, score *worse*, and excluding them moves
-  the result by 0.0004; they inflate **426×** against 1.9×. **`pubtator_ambiguous` covers a SECOND artifact the
-  homonym list misses** — symbols too short to disambiguate, single-letter donors inflating
-  **191×** against 0.5× for normal 4-character ones; found only by ranking the shipped column.
-  **An empty is not a zero**: empty means the donor has no usable symbol, 0 means no donor. **Three definitions, three columns, never a `max()` across them.**
-  **Two traps**: `gene2pubtator3.gz` is **PMID-sorted**, so a head sample looks human-centric —
-  that is how the untested rejection happened — and **the bulk and the `search/` API disagree**
-  (ftsZ 13 vs 2), the bulk being the complete annotation set. A 756 MB download **truncated at
-  88 MB while curl exited 0**; verify against `Content-Length`.
+  reads **`knownness = 0.000` for all 1,882 S. aureus entries** including `clpP`, `rpoB` and
+  `ftsZ`, while the **cluster** table reads 10.6 for the same protein — joining the per-protein
+  file would have silently zeroed a proteome. **REJECTED and not to be re-added: training ESM-C on
+  Unknome knownness.**
 
   **`studiedness/confounds.py`** → `evidence/confounds.tsv`: the axis measured against every
   other axis, fitting nothing. **Read `rho` beside `scored_rho`** (scored tiers only) — every
   degradability correlation **collapses to ~0 under it** (−0.15 → +0.008), so it was the
-  zero-tier block, not the probabilities. **AUROC below 0.5 is a DIRECTION, not a failure.** Two
-  sanity checks pass and license the rest: ligand precedent reproduces `docs/ligands.md`'s
-  independent **0.83–0.86** (length 0.66–0.71), and annotation darkness reads 0.85–0.88.
+  zero-tier block, not the probabilities. **AUROC below 0.5 is a DIRECTION, not a failure.**
   **THE UNPRICED CONFOUND IS ESSENTIALITY** — `geptop_ess` rho **0.38–0.50**, and alone among the
-  axes it **survives stratification** (0.35–0.39), so stacking the two double-counts; part of it
-  is that Geptop predicts from conservation and conservation is also what gets a protein studied.
-  **Degradability and localization are clean.** What role studiedness plays in prioritisation is
-  deliberately NOT decided here.
+  axes it **survives stratification** (0.35–0.39), so stacking the two double-counts.
+  **Degradability and localization are clean.**
 
   **A finding for the collaboration: the consortium's own panel is NOT novel** — `src/interest.py`
   sits at the 80th percentile (median) on Kp. Details: `docs/studiedness.md`.
-
-- **`plots/tables_overview.py`** → `output/plots/overview/{tables.json,tables.html}`: a browsable
-  map of every deliverable table the project ships, one card per axis, built from the files on
-  disk. `gradi`, seconds, no database. Markup in `scripts/plots/tables_overview.html` beside it;
-  the page is self-contained and publishes as an Artifact unchanged. It is not a stylia figure,
-  so the one-at-a-time rule does not apply to it.
-
-  **The column meanings are HAND-WRITTEN in `COLUMNS`** — transcribed from this file and
-  `docs/<task>.md`, because there is no machine-readable source and deriving them from the data
-  would be the plausible-wrong this project avoids. **The stage exits non-zero when a column on
-  disk has no description, or a description names a column that is gone** — both directions, and
-  that reconciliation is the only thing keeping the page honest as the tables change.
-
-  **Empty strings count as EMPTY, whatever the dtype.** Several loaders read with
-  `keep_default_na=False`, so an absent value arrives as `""`; counting those as filled made
-  Kp `gene_name` read 100% coverage on a page whose whole subject is coverage.
-
-  **The sample rows are ONE FIXED PROTEIN SET per species, used in every card** — the first N rows
-  are an arbitrary slice, and a fixed set makes the canonical row order visible: the accessions
-  are identical card to card. Resolution is by gene symbol, so **an unresolved symbol is NAMED on
-  the page, not dropped**; on Sa that separates the structural absence of LPS/Lpt from the naming
-  gap, which is the same distinction `src/interest.py` warns about.
 
 ## Legacy
 

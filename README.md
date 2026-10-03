@@ -74,7 +74,7 @@ output/{results,plots}/    results and figures
 ```
 
 Tasks: `proteomes` `embeddings` `function` `localization` `orthology` `degradability`
-`essentiality` `ligands`, plus `pockets` `studiedness` `interactome` (README only, no code yet).
+`essentiality` `ligands` `studiedness`, plus `pockets` `interactome` (README only, no code yet).
 Every deliverable is a **complete matrix**: one row per protein, in the same canonical order across
 every axis — `python -m src.matrices` audits it.
 

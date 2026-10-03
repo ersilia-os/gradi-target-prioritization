@@ -10,8 +10,14 @@ that say whether the axis can be trusted. Seconds, no network, no DIAMOND.
 
 TWO PAPER COUNTS, BECAUSE THEY ANSWER DIFFERENT QUESTIONS
 -----------------------------------------------------------
-`n_papers_own` is the number of curated references on this accession; `n_papers_family` the
-number on its best-studied prokaryotic SwissProt homolog. Keeping both is what makes **"dark in
+`n_papers_own` is the number of curated references naming THIS PROTEIN -- by the ligands axis's
+`exact` rule, the union of PMIDs over accession, identical sequence and same species at >= 95%
+identity, because a protein does not stop being itself between strains. `n_papers_family` is the
+count on its best-studied prokaryotic SwissProt homolog.
+
+**`own` CAN EXCEED `family`, and that is not a bug**: `own` unions every strain entry of this
+protein while `family` reads ONE donor's count. On E. coli the medians are own 8 against family
+6, because a well-studied organism's own multi-strain literature outweighs any single homolog. Keeping both is what makes **"dark in
 K. pneumoniae, famous in E. coli"** readable off a single row -- and on this anchor that is the
 normal case, not an edge case. `n_papers_own` is near-flat on Kp and Sa *by design*: it is the
 measurement of darkness.
@@ -99,10 +105,17 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         sys.exit(f"FATAL missing {path.relative_to(REPO_ROOT)} -- "
                  "run scripts/studiedness/transfer.py first")
     tr = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
-    for c in ("n_papers_own", "n_papers_family", "donor_pident", "donor_n_pubs"):
-        tr[c] = pd.to_numeric(tr[c], errors="coerce")
+    for c in ("n_papers_own", "n_papers_family", "donor_pident", "donor_n_pubs",
+              "n_papers_family_pubtator"):
+        if c in tr.columns:
+            tr[c] = pd.to_numeric(tr[c], errors="coerce")
 
-    out = tr[["uniprot_ac", "n_papers_own", "n_papers_family", "evidence"]].copy()
+    # `evidence` is DELIBERATELY NOT IN THE DELIVERABLE (project owner, 2026-10-03). It still
+    # ships in evidence/transfer_<species>.tsv, which is where to look when a 0 needs explaining:
+    # `no_hit` (nothing in SwissProt resembles this protein -- the strongest novelty claim the
+    # axis makes) and `below_floor` (a too-distant curated relative) both read 0 here.
+    out = tr[["uniprot_ac", "n_papers_own", "n_papers_family"]].copy()
+    out = add_pubtator(out, tr, species)
     if out[["n_papers_own", "n_papers_family"]].isna().any().any():
         n = int(out[["n_papers_own", "n_papers_family"]].isna().any(axis=1).sum())
         sys.exit(f"FATAL {species}: {n:,} rows have a null count. Every protein must carry a "
@@ -117,6 +130,40 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     out = M.reindex(out, species)
     M.assert_canonical(out["uniprot_ac"], species)
     return out, tr
+
+
+def add_pubtator(out: pd.DataFrame, tr: pd.DataFrame, species: str) -> pd.DataFrame:
+    """The second count: PubTator3 text-mined papers on the donor's NCBI GeneID.
+
+    A SECOND COLUMN, NEVER MERGED INTO THE FIRST. Two literature definitions mean two columns;
+    `max(curated, text-mined)` would switch definition per protein, which is what killed the 0-1
+    composite on 2026-09-22.
+
+    **KEYED ON NCBI GeneID, SO THE SPECIES IS ALREADY IN THE KEY** -- GeneID 947587 IS E. coli
+    K-12 `ftsZ`. There is no species term to add and no gene-symbol ambiguity: the symbol route
+    this replaced read **345,630** for Kp `crp` (human C-reactive protein), where the GeneID
+    route reads **376**. No API calls either -- the counts come from `gene2pubtator3.gz`.
+
+    **ITS DONOR IS CHOSEN BY PUBTATOR, NOT BY CURATED PAPERS, AND THAT IS HALF THE SIGNAL.**
+    Held-out control: selecting on curated and reading PubTator scores **0.1810**; selecting on
+    PubTator and reading PubTator scores **0.3552**, which beats the curated column's **0.3280**
+    on identical folds. `pubtator_donor_*` in `evidence/transfer_<sp>.tsv` names which donor.
+
+    **A BLANK IS NOT A ZERO.** Empty means no in-scope donor carried an NCBI GeneID, so the route
+    could not look anything up -- unreachable, not unstudied. A 0 means PubTator annotated 36M
+    abstracts and never linked that gene. Coverage of scored proteins: ~95%.
+    """
+    col = "n_papers_family_pubtator"
+    if col not in tr.columns:
+        say(f"      NOTE {species}: transfer table predates the pubtator donor column -- "
+            "omitted. Re-run scripts/studiedness/pubtator.py then transfer.py.")
+        return out
+    v = pd.to_numeric(tr[col], errors="coerce")
+    out[col] = v
+    n_val = int(v.notna().sum())
+    say(f"      pubtator   {n_val:,} with a value ({100 * n_val / len(out):.1f}%), "
+        f"{int((v == 0).sum()):,} measured zero, {int(v.isna().sum()):,} no GeneID donor")
+    return out
 
 
 def spot_check(species: str, out: pd.DataFrame) -> tuple[list[str], list[str]]:
@@ -135,7 +182,7 @@ def spot_check(species: str, out: pd.DataFrame) -> tuple[list[str], list[str]]:
         if not ok:
             failed.append(f"{gene} ({pct:.1f}th)")
         lines.append(f"      {gene:<7} {int(row['n_papers_family']):>4} papers  "
-                     f"{pct:5.1f}th pct  {row['evidence']}"
+                     f"{pct:5.1f}th pct"
                      + ("" if ok else f"   <-- BELOW THE {SPOT_PERCENTILE:.0f}th FLOOR"))
     return lines, failed
 
@@ -178,7 +225,7 @@ def main() -> None:
     rule("=")
     say(f"  in    {(EVIDENCE_DIR / 'transfer_<species>.tsv').relative_to(REPO_ROOT)}")
     say(f"  out   {(OUT_DIR / 'studiedness_<species>.tsv').relative_to(REPO_ROOT)}")
-    say("        uniprot_ac · n_papers_own · n_papers_family · evidence")
+    say("        uniprot_ac · n_papers_own · n_papers_family · n_papers_family_pubtator")
     say("  recomputes nothing; reshapes, reindexes to canonical order, and checks")
     say("  n_papers_own is near-flat on Kp and Sa BY DESIGN -- rank on n_papers_family")
     say("  n_papers_family == 0 is an ANSWER, not a gap -- `no_hit` (nothing resembles it) and")
@@ -206,7 +253,9 @@ def main() -> None:
         path = OUT_DIR / f"studiedness_{sp}.tsv"
         out.to_csv(path, sep="\t", index=False)
 
-        tiers = out["evidence"].value_counts().to_dict()
+        # from `tr`, not `out` -- `evidence` is no longer a deliverable column, but the
+        # tier breakdown is still the most useful line in the run log.
+        tiers = tr["evidence"].value_counts().to_dict()
         gap = float((out["n_papers_family"] - out["n_papers_own"]).median())
         say(f"    {len(out):,} x {out.shape[1]}  ->  {path.relative_to(REPO_ROOT)}")
         say(f"      evidence   " + "   ".join(f"{k} {v:,}" for k, v in sorted(tiers.items())))

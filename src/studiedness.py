@@ -212,6 +212,14 @@ SCALE_REFERENCE = 204.0
 # homolog, and that group is already split into `no_hit` and `below_floor`.
 MAX_TIE_FRACTION = 0.25
 
+# PubTator3 symbol-count inflation over the curated count, above which `pubtator_ambiguous` is
+# set. **THERE IS NO NATURAL CUT HERE -- the ratio is a smooth heavy tail** (p50 0.5 · p75 1.9 ·
+# p90 9.2 · p95 39.8 · p99 621), so this is a CONSERVATISM CHOICE, not an accuracy threshold --
+# the same status `ligands/transfer_calibration.py` records for its identity bands. 50 sits at
+# about p95.5. The RATIO ITSELF SHIPS (`n_papers_family_pubtator_ratio`), so anyone who wants a
+# different cut sets one without re-running anything.
+PUBTATOR_RATIO_FLAG = 50.0
+
 # Nested identity bands for the SwissProt transfer, and the floor below which nothing transfers.
 # 25% is decoy-calibrated (see the module docstring); 95% is CLAUDE.md's "direct" band; 60% is the
 # ligands axis's "close". Coverage floor 50% on BOTH query and subject, so a single domain cannot
@@ -279,14 +287,48 @@ def _counts(df: pd.DataFrame, cols: tuple[str, ...]) -> pd.DataFrame:
 def load(species: str) -> pd.DataFrame:
     """The deliverable: one row per protein, canonical order, no nulls in either count.
 
-    Two integers: `n_papers_own` (curated references on this accession) and `n_papers_family`
-    (on its best-studied prokaryotic SwissProt homolog). `n_papers_own` is near-flat on Kp and Sa
-    by design -- rank on `n_papers_family`, and read `evidence` before calling a 0 novelty.
+    THREE literature counts, three definitions, NEVER summed or `max()`-ed together:
+
+        n_papers_own              curated references on THIS accession. Near-flat on Kp and Sa
+                                  by design -- it is the measurement of darkness.
+        n_papers_family           curated references on the best-studied prokaryotic SwissProt
+                                  homolog. **THE SHIPPED RANKING -- rank on this.**
+        n_papers_family_pubtator  PubTator3 TEXT-MINED papers on that donor's gene SYMBOL.
+
+    **`evidence` IS NOT IN THIS TABLE** (project owner, 2026-10-03) -- it ships in
+    `load_transfer(species)`. A 0 in `n_papers_family` is therefore ambiguous here: it may be
+    `no_hit` (nothing in 575,748 curated entries resembles the protein, the strongest novelty
+    claim the axis makes) or `below_floor` (a curated relative exists but below 40% identity).
+    Join `load_transfer()` on `uniprot_ac` before reading a 0 as novelty.
+
+    **Why the third column exists**: it measurably transfers better -- held-out E. coli control,
+    identical folds, **0.4054 against 0.3428** on the common subset, and it reaches 97.9% of
+    scored Kp where a GeneID-keyed count reaches 1.8%.
+
+    **Why it is NOT the ranking**: that control is E. coli-only, and E. coli gene symbols are
+    precisely the ones that entered human nomenclature, so it is weakest where the failure mode
+    lives. The count is also SPECIES-AGNOSTIC -- it cannot be donor-scoped the way the curated
+    count is (see `docs/studiedness.md` 2b), so a residual eukaryotic contribution survives.
+
+    **Two kinds of blank in `n_papers_family_pubtator`, and they are different claims**: `0`
+    means no donor at all (what `n_papers_family` also says, with `evidence` giving the kind),
+    while **empty means a donor exists but carries no gene symbol to look up** -- not a measured
+    zero. Kp 80 · Ec 10 · Sa 117 scored proteins.
+
+    **`pubtator_ambiguous`** marks a lookup likely measuring a DIFFERENT protein: a human gene
+    symbol (`crp` returns
+    345,630 papers for human C-reactive protein, not the cAMP receptor protein. 3.8% of donors;
+    they score WORSE than average, so this flags an artifact rather than explaining the column.
     """
     _check(species)
     df = _read(STUDIEDNESS_DIR / f"studiedness_{species}.tsv",
                "scripts/studiedness/merge.py")
-    return _counts(df, ("n_papers_own", "n_papers_family"))
+    cols = [c for c in ("n_papers_own", "n_papers_family", "n_papers_family_pubtator")
+            if c in df.columns]
+    df = _numeric(df, tuple(cols))
+    for c in ("n_papers_own", "n_papers_family"):
+        df[c] = df[c].astype(int)
+    return df
 
 
 def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
@@ -385,6 +427,60 @@ def load_donor_scope_comparison() -> pd.DataFrame:
 def load_floor_sensitivity() -> pd.DataFrame:
     """Coverage and control score across identity floors -- the one arbitrary number, swept."""
     return _read(EVIDENCE_DIR / "floor_sensitivity.tsv", "scripts/studiedness/transfer.py")
+
+
+def load_pubtator(species: str) -> pd.DataFrame:
+    """PubTator3 text-mined counts per anchor protein, by BOTH routes. Evidence, not the axis.
+
+    Written by `scripts/studiedness/pubtator.py`. Columns:
+
+        n_pubs_pubtator_geneid              keyed on NCBI GeneID, from the 756 MB bulk file
+        n_pubs_pubtator_symbol_anyspecies   keyed on gene SYMBOL, from the PubTator3 API
+
+    **THE TWO ARE NOT THE SAME DATASET FOR BACTERIA.** PubTator3 normalises bacterial gene
+    mentions to species-agnostic symbol concepts rather than to strain GeneIDs, so the GeneID
+    route is nearly blind outside E. coli while the symbol route carries real volume.
+
+    **`_symbol_anyspecies` IS NAMED FOR ITS LIMITATION.** It pools every organism with a gene of
+    that name -- `@GENE_CLPP` sums E. coli, S. aureus, human mitochondrial and plant CLPP -- so
+    it **cannot be donor-scoped** and must never be merged into a scoped count. Using it without
+    that caveat reintroduces "well studied because its human homolog is", which
+    `docs/studiedness.md` 2b rejects for donor scope.
+
+    **Three definitions mean three columns, never a `max()` across them** -- mixing definitions
+    per protein is what killed the 0-1 composite on 2026-09-22.
+    """
+    _check(species)
+    return _read(EVIDENCE_DIR / f"pubtator_{species}.tsv", "scripts/studiedness/pubtator.py")
+
+
+def load_pubtator_route_comparison() -> pd.DataFrame:
+    """What each PubTator3 route reaches per species: coverage, distinct values, largest tie."""
+    return _read(EVIDENCE_DIR / "pubtator_route_comparison.tsv",
+                 "scripts/studiedness/pubtator.py")
+
+
+def load_confounds() -> pd.DataFrame:
+    """How studiedness relates to every other axis -- a measurement, not a decision.
+
+    Written by `scripts/studiedness/confounds.py`. One row per
+    (species, axis, endpoint, studiedness_column), carrying spearman `rho`, the same rho over the
+    SCORED proteins alone (`scored_rho`), and for binary endpoints AUROC, PR-AUC, the base rate,
+    and length's AUROC/PR-AUC beside them as the baseline.
+
+    **READ `rho` AND `scored_rho` TOGETHER.** A third of K. pneumoniae scores 0 in two tiers, and
+    a relationship that collapses toward zero in `scored_rho` was a correlation with "did DIAMOND
+    find a donor", not with studiedness. Degradability is exactly that case: Kp `adep4_prob` reads
+    rho -0.152 overall and +0.008 scored-only.
+
+    **AUROC BELOW 0.5 IS A DIRECTION, NOT A FAILURE** -- it is studiedness predicting the endpoint
+    as named, so `goslim_unannotated` reading 0.153 means studiedness predicts being *annotated*
+    at 0.847. Left uninverted so the direction of each relationship stays visible.
+
+    **An AUROC without length's beside it means nothing** -- length is the generic confound on
+    this project and scores 0.66-0.73 on ligand precedent by itself.
+    """
+    return _read(EVIDENCE_DIR / "confounds.tsv", "scripts/studiedness/confounds.py")
 
 
 def control() -> pd.DataFrame:
