@@ -57,7 +57,8 @@ WHAT THIS SCRIPT CHECKS
    (`holo_identity >= 95`) from those with no holo evidence at all, and again at family level
    (`holo_identity > 0`, `*_fam`), which has more positives. The two columns are computed
    with no shared input, so agreement is recovered, not built in. Reported plainly either way.
-4. **Reproduces v1?** Proteins with any P2Rank pocket (before admission) against v1's
+4. **Reproduces v1?** Proteins with any P2Rank pocket (before admission; AlphaFold DB models only,
+   since v1 had no ESMFold) against v1's
    4,542 Kp / 3,589 Ec (`legacy/docs/ligandability_log.md`).
 
 Run with the `gradi` env, after structures.py -> predict.py -> holo.py -> pdb_coverage.py.
@@ -183,7 +184,9 @@ def checks(species: str, out: pd.DataFrame, pk: pd.DataFrame) -> tuple[dict, lis
     pos = m[m["holo_identity"] >= EXACT_HOLO]
     fam = m[m["holo_identity"] > 0]
     neg = m[m["holo_identity"] == 0]
-    any_p2 = pk.loc[pk["tool"] == "p2rank", "uniprot_ac"].nunique()
+    # v1 only ever had AlphaFold DB models, so the reproduction check counts those alone.
+    af_only = pk["model"].eq("alphafold_db_v6") if "model" in pk else True
+    any_p2 = pk.loc[(pk["tool"] == "p2rank") & af_only, "uniprot_ac"].nunique()
     res = {
         "species": species, "n": len(out),
         "model": int(len(m)),
