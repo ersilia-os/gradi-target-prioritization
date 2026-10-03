@@ -99,7 +99,11 @@ def frame(species: str) -> pd.DataFrame:
     cog = F.load_cog(species)[["uniprot_ac", "cog_category", "cog_category_all"]]
     ident = P.load(species)[["uniprot_ac", "gene_name"]]
     egg = F.load_eggnog(species)[["uniprot_ac", "preferred_name"]]
-    loc = LOC.load(species)  # compartment + cytoplasmic_fraction + has_signal_peptide
+    # compartment + cytoplasmic_fraction; `has_signal_peptide` ships in evidence/ now, and the
+    # signal-peptide enrichment test below is one of the findings this axis rests on -- a secreted
+    # protein transits the cytoplasm unfolded, so it is degradable where a membrane protein is not.
+    loc = LOC.load(species).merge(
+        LOC.load_tmbed(species)[["uniprot_ac", "has_signal_peptide"]], on="uniprot_ac", how="left")
     topo = LOC.load_topology(species)[["uniprot_ac", "n_tm_helix", "n_tm_strand"]]
     df = (pred.merge(cog, on="uniprot_ac", how="left")
               .merge(ident, on="uniprot_ac", how="left")

@@ -46,8 +46,15 @@ LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aur
 
 
 def frame(species: str) -> pd.DataFrame:
-    """One species' compartment call joined to its TMbed topology."""
-    return LOC.load(species).merge(LOC.load_topology(species), on="uniprot_ac")
+    """One species' compartment call joined to its TMbed topology.
+
+    `confidence` and `has_signal_peptide` are no longer in the deliverable -- joined back from
+    `load_deeplocpro()` and `load_tmbed()`, because the confidence-by-compartment box and the
+    signal-peptide panels below are the whole point of the extracellular cross-check."""
+    return (LOC.load(species)
+            .merge(LOC.load_deeplocpro(species)[["uniprot_ac", "confidence"]], on="uniprot_ac")
+            .merge(LOC.load_tmbed(species)[["uniprot_ac", "has_signal_peptide"]], on="uniprot_ac")
+            .merge(LOC.load_topology(species), on="uniprot_ac"))
 
 
 def present(df: pd.DataFrame) -> list[str]:

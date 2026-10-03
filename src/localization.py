@@ -267,7 +267,22 @@ def load_tmbed(species: str) -> pd.DataFrame:
 def load(species: str) -> pd.DataFrame:
     """`localization_<species>.tsv` -- the axis's single deliverable, complete and canonical.
 
-        uniprot_ac  localization  confidence  cytoplasmic_fraction  has_signal_peptide
+        uniprot_ac  localization  cytoplasmic_fraction
+
+    **`confidence` is NOT here** (owner's call, 2026-10-03) — byte-identical in
+    `evidence/deeplocpro_<species>.tsv`, via `load_deeplocpro()`. **Know what goes with that.**
+    DeepLocPro always returns a call and has no `unknown` class, so `localization` reads equally
+    authoritative for every protein; `confidence` was the only column saying otherwise. **12–15% of
+    calls sit below 0.7 and 2–4% below 0.5** — the winning class holding less than half the
+    probability mass. Join it back before trusting a single label, and use
+    `load_probabilities()` for the full un-remapped six-vector.
+
+    **`has_signal_peptide` is NOT here either** (owner's call, 2026-10-03) — it ships byte-identically in
+    `evidence/tmbed_<species>.tsv`, via `load_tmbed()`. What it said that `cytoplasmic_fraction`
+    alone cannot is **why** a fraction is near zero: exported rather than membrane-buried. That
+    distinction is mechanistically live — a secreted protein transits the cytoplasm unfolded and IS
+    reachable by activated ClpP, where a membrane protein never does and is protected — so join it
+    back before using localization as a degradability filter.
 
     **No `evidence` column, unlike the other axes.** Both predictors cover 100% of every proteome
     BY CONSTRUCTION, so the column was constant across all 13,020 proteins and said nothing;

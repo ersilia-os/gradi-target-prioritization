@@ -10,8 +10,33 @@ species, so the label means the same thing in each.
 
 | column | from | what it is |
 |---|---|---|
-| `localization` · `confidence` | DeepLocPro 1.0 | the compartment call |
-| `cytoplasmic_fraction` · `has_signal_peptide` | TMbed | the topology score |
+| `localization` | DeepLocPro 1.0 | the compartment call |
+| `cytoplasmic_fraction` | TMbed | the topology score |
+
+**`confidence` is not in the deliverable** (owner's call, 2026-10-03) — byte-identical in
+`evidence/deeplocpro_<species>.tsv`. This one has teeth: DeepLocPro **always** returns a call and
+has no `unknown` class, so every row looks equally decided, and `confidence` was the only thing
+distinguishing them:
+
+| | median | < 0.7 | < 0.5 |
+|---|---|---|---|
+| Kp | 0.975 | 841 (14.7%) | 246 (4.3%) |
+| Ec | 0.982 | 524 (11.9%) | 108 (2.5%) |
+| Sa | 0.964 | 421 (14.6%) | 55 (1.9%) |
+
+Below 0.5 the winning class holds less than half the probability mass. Join it back before
+trusting a single label; `load_probabilities()` gives the full un-remapped six-vector.
+
+**`has_signal_peptide` is not in the deliverable either** (owner's call, 2026-10-03). It ships
+byte-identically in `evidence/tmbed_<species>.tsv` via `load_tmbed()` — Kp 604 (10.5%), Ec 564
+(12.8%), Sa 211 (7.3%).
+
+**Join it back before using localization as a degradability filter.** It is the only column that
+says *why* `cytoplasmic_fraction` is near zero — **exported** rather than **membrane-buried** — and
+those have opposite consequences for activated ClpP: a secreted protein transits the cytoplasm
+unfolded and is reachable (measured hit rate 0.049/0.346), a membrane protein is co-translationally
+inserted and never presents a soluble chain (0.031/0.105). `degradability/enrichment.py` and
+`plots/localization.py` both join it explicitly for that reason.
 
 **No `evidence` column, unlike every other axis.** Both predictors cover 100% of every proteome by
 construction — DeepLocPro always returns a call and TMbed labels every residue — so the column was

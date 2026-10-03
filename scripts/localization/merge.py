@@ -1,7 +1,7 @@
 """Stack the two localization predictors into the axis's single deliverable.
 
     data/processed/localization/localization_<species>.tsv
-        uniprot_ac  localization  confidence  cytoplasmic_fraction  has_signal_peptide
+        uniprot_ac  localization  cytoplasmic_fraction
 
 **No `evidence` column.** Both predictors cover 100% of every proteome by construction, so it was
 constant across all 13,020 proteins and carried no information. The completeness check it would
@@ -48,8 +48,18 @@ from src import proteomes as P  # noqa: E402
 OUT_DIR = REPO_ROOT / "data" / "processed" / "localization"
 EVIDENCE_DIR = OUT_DIR / "evidence"
 
-COLUMNS = ["uniprot_ac", "localization", "confidence",
-           "cytoplasmic_fraction", "has_signal_peptide"]
+COLUMNS = ["uniprot_ac", "localization", "cytoplasmic_fraction"]
+# `confidence` is NOT shipped (owner's call, 2026-10-03). Byte-identical in
+# `evidence/deeplocpro_<species>.tsv`. KNOW WHAT GOES WITH IT: DeepLocPro always returns a call,
+# so `localization` reads equally authoritative for every protein, and `confidence` was the only
+# thing saying otherwise -- 12-15% of calls sit below 0.7 and 2-4% below 0.5, i.e. the winning
+# class holds less than half the probability mass. Join it back before trusting a single label.
+# `has_signal_peptide` is NOT shipped (owner's call, 2026-10-03). It stays byte-identical in
+# `evidence/tmbed_<species>.tsv` via `load_tmbed()`, and the console summary below still reports
+# it. What it uniquely said, and `cytoplasmic_fraction` alone cannot: WHY a fraction is near zero
+# -- exported rather than membrane-buried. That distinction is mechanistically live for
+# degradability (a secreted protein transits the cytoplasm unfolded and IS degradable; a membrane
+# protein never does and is protected), so `degradability/enrichment.py` joins it back explicitly.
 
 # **No `evidence` column, by decision.** Both predictors cover 100% of every proteome BY
 # CONSTRUCTION -- DeepLocPro always returns a call and TMbed labels every residue -- so the column
@@ -80,7 +90,8 @@ def merge_species(species: str, quiet: bool) -> pd.DataFrame:
     df.attrs["n_deeplocpro"] = int(df["localization"].notna().sum())
     df.attrs["n_tmbed"] = int(df["cytoplasmic_fraction"].notna().sum())
 
-    df = M.reindex(df[COLUMNS], species)   # canonical row order -- see src/matrices.py
+    keep = COLUMNS + ["confidence", "has_signal_peptide"]
+    df = M.reindex(df[keep], species)   # canonical row order -- see src/matrices.py
 
     if not quiet:
         n = len(df)
@@ -128,7 +139,7 @@ def main() -> None:
                 failures.append(f"{species}: {track} is silent for {missing} proteins -- both "
                                 f"predictors cover every protein by construction, so this is a "
                                 f"broken run, not a sparse one")
-        df.to_csv(OUT_DIR / f"localization_{species}.tsv", sep="\t", index=False)
+        df[COLUMNS].to_csv(OUT_DIR / f"localization_{species}.tsv", sep="\t", index=False)
 
     if not args.quiet:
         rule()
