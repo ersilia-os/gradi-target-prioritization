@@ -184,6 +184,14 @@ COLUMNS: dict[str, dict[str, str]] = {
                             "pLDDT >= 70 -- confidence enters ONCE, here, and nowhere else.",
         "holo_identity": "MEASURED: % identity to the closest bacterial PDB chain holding a "
                          "drug-like ligand in the aligned site. Matches the SITE, not the chain.",
+        "pdb_n_structures": "distinct PDB entries with a chain that IS this protein (>=95% "
+                            "identity, matched by SEQUENCE -- the accession route reached 30 of "
+                            "5,728 Kp proteins). Ligand or not: this is structural COVERAGE, the "
+                            "question holo_identity does not ask.",
+        "pdb_coverage": "fraction of this protein's residues covered by the union of those chains. "
+                        "Of the DEPOSITED sequence (SEQRES), not of resolved residues, so "
+                        "disordered loops still count -- it overstates where constructs carry "
+                        "unresolved termini.",
         "af_plddt": "mean pLDDT of the AlphaFold model. NA means NO MODEL -- and an NA in the "
                     "pocket columns is 'could not look', not 'looked and found nothing'. A "
                     "protein WITH a model and no admitted pocket gets 0. Never fillna(0).",
@@ -248,6 +256,24 @@ TABLES = [
               "embeddings_<sp>.npz (ESM-C, 1,152-d), prott5_<sp>.npz (1,024-d) and "
               "proteomelm_<sp>.npz. They have no accession column -- their rows are positional, "
               "so alignment is ONLY ever by order."),
+    dict(key="function", axis="function", title="function_<sp>.tsv",
+         path="data/processed/function/function_<sp>.tsv",
+         loader=function.load,
+         question="What does this protein do?",
+         read_first="AN EMPTY LIST MEANS 'NOT ANNOTATED', NOT 'ABSENT'. On K. pneumoniae 1,506 "
+                    "proteins (26.3%) carry no GO-slim term because nothing is known about them, "
+                    "never because the function was ruled out. Coverage is NOT 100% and must not "
+                    "be forced to be: NCBI's own curators reach 81.6% of E. coli K-12 with COG, so "
+                    "there is no headroom, and raising the e-value buys noise.",
+         also="Both columns are `;`-joined and MULTI-LABEL by design -- 34-52% of annotated "
+              "proteins carry more than one slim term (max 11 on Kp). WHAT THIS FORM CANNOT SAY: "
+              "a packed list cannot tell a term that is unannotated from one the organism "
+              "structurally cannot reach (8 GO terms are eukaryote/plant, Sa has 19 because it is "
+              "Gram-positive, COG `Y` is nuclear structure). Those stay as kept columns in "
+              "evidence/{goslim,cog}_matrix_<sp>.tsv, which these columns re-expand to exactly. "
+              "Nor does it say whether a GO term was UniProt-curated or inferred from an eggNOG "
+              "orthogroup -- that is `goslim_source` in evidence/goslim_<sp>.tsv, and it "
+              "separates 322 of 13,020 proteins."),
     dict(key="localization", axis="localization", title="localization_<sp>.tsv",
          path="data/processed/localization/localization_<sp>.tsv",
          loader=localization.load,
@@ -340,24 +366,6 @@ TABLES = [
                     "scaled. A zero is an answer, not a gap; never impute it.",
          also="The unpriced confound is essentiality: rho 0.38-0.50 with geptop_ess, and alone "
               "among the axes it survives stratification -- stacking the two double-counts."),
-    dict(key="function", axis="function", title="function_<sp>.tsv",
-         path="data/processed/function/function_<sp>.tsv",
-         loader=function.load,
-         question="What does this protein do?",
-         read_first="AN EMPTY LIST MEANS 'NOT ANNOTATED', NOT 'ABSENT'. On K. pneumoniae 1,506 "
-                    "proteins (26.3%) carry no GO-slim term because nothing is known about them, "
-                    "never because the function was ruled out. Coverage is NOT 100% and must not "
-                    "be forced to be: NCBI's own curators reach 81.6% of E. coli K-12 with COG, so "
-                    "there is no headroom, and raising the e-value buys noise.",
-         also="Both columns are `;`-joined and MULTI-LABEL by design -- 34-52% of annotated "
-              "proteins carry more than one slim term (max 11 on Kp). WHAT THIS FORM CANNOT SAY: "
-              "a packed list cannot tell a term that is unannotated from one the organism "
-              "structurally cannot reach (8 GO terms are eukaryote/plant, Sa has 19 because it is "
-              "Gram-positive, COG `Y` is nuclear structure). Those stay as kept columns in "
-              "evidence/{goslim,cog}_matrix_<sp>.tsv, which these columns re-expand to exactly. "
-              "Nor does it say whether a GO term was UniProt-curated or inferred from an eggNOG "
-              "orthogroup -- that is `goslim_source` in evidence/goslim_<sp>.tsv, and it "
-              "separates 322 of 13,020 proteins."),
 ]
 
 # The two matrices are EVIDENCE now, not deliverables -- `function_<sp>.tsv` carries the same
