@@ -30,9 +30,17 @@ tails missing from the electron density still count as covered. Observed-residue
 need the coordinates (SIFTS residue mappings) for every chain; SEQRES is the cheap, standard proxy
 and overstates coverage where constructs carry unresolved termini.
 
-`pdb_chains_<species>.tsv` (`uniprot_ac · pdb · chain · identity`) is what lets `holo.py` count
+`pdb_chains_<species>.tsv` (`uniprot_ac · pdb · chain · identity · chain_coverage`) is what lets
+`holo.py` count
 the ligands bound to this protein's OWN structures with no alignment of its own: these chains ARE
 this protein, so their BioLiP ligand rows attach directly by `(pdb, chain)`.
+
+**`chain_coverage` is how much of the PDB CHAIN our protein accounts for, and it is the fusion
+warning.** At 1.0 the chain is this protein. Well below it, the chain is a construct in which this
+protein is only the larger part -- an MBP fusion, say -- and a ligand bound to the *other* part is
+still a BioLiP row on that chain. `MIN_SCOV = 50` lets those through by design (it exists to admit
+domain constructs), so read this column before trusting a ligand count on a known crystallisation
+chaperone. See `docs/pockets.md`.
 
 Run with the `gradi` env; DIAMOND from `gradi-ortho` (`GRADI_DIAMOND_BIN` overrides). ~5 min.
   python scripts/pockets/pdb_coverage.py
@@ -124,8 +132,9 @@ def score(species: str, hits: pd.DataFrame,
           chains_of: dict[str, list[str]]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(per-protein summary, long table of every matched PDB chain)."""
     prot = P.load(species)[["uniprot_ac", "sequence"]]
-    h = hits[(hits["pident"] >= MIN_PIDENT)
-             & (100 * (hits["send"] - hits["sstart"] + 1) / hits["slen"] >= MIN_SCOV)]
+    hits = hits.assign(
+        scov=100 * (hits["send"] - hits["sstart"] + 1) / hits["slen"])
+    h = hits[(hits["pident"] >= MIN_PIDENT) & (hits["scov"] >= MIN_SCOV)]
     g = dict(tuple(h.groupby("qseqid")))
     rows, chain_rows = [], []
     for acc, seq in zip(prot["uniprot_ac"], prot["sequence"]):
@@ -138,18 +147,19 @@ def score(species: str, hits: pd.DataFrame,
         for s, e in zip(d["qstart"], d["qend"]):
             covered[s - 1:e] = True
         chains = [c for u in d["sseqid"] for c in chains_of[u]]
-        best_id = dict(zip(d["sseqid"], d["pident"]))
-        for u in d["sseqid"].unique():
+        best = d.sort_values("pident", ascending=False).drop_duplicates("sseqid")
+        for u, pid, sc in zip(best["sseqid"], best["pident"], best["scov"]):
             for c in chains_of[u]:
                 pdb_id, _, ch = c.partition("_")
                 chain_rows.append({"uniprot_ac": acc, "pdb": pdb_id, "chain": ch,
-                                   "identity": float(best_id[u])})
+                                   "identity": float(pid), "chain_coverage": round(sc / 100, 4)})
         entries = sorted({c.split("_")[0] for c in chains})
         rows.append({"uniprot_ac": acc, "pdb_n_structures": len(entries),
                      "pdb_n_chains": len(chains), "pdb_coverage": round(float(covered.mean()), 4),
                      "pdb_best_identity": float(d["pident"].max()),
                      "pdb_ids": ";".join(entries)})
-    long = pd.DataFrame(chain_rows, columns=["uniprot_ac", "pdb", "chain", "identity"])
+    long = pd.DataFrame(chain_rows,
+                        columns=["uniprot_ac", "pdb", "chain", "identity", "chain_coverage"])
     return M.reindex(pd.DataFrame(rows), species), long.drop_duplicates()
 
 

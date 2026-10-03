@@ -214,6 +214,30 @@ Sa `gyrB` carries **novobiocin**; Sa `fabI` carries **triclosan** among 24; Kp `
 ClpP activator `KHS`; Ec `ftsZ` carries **none**, which is correct — it has no drug co-crystal of
 its own, while Sa `ftsZ` has 9.
 
+#### Trap: a fusion construct carries its partner's ligands
+
+A PDB chain counts as this protein when ≥ 95% identical over an alignment covering ≥ 50% **of the
+chain** (`MIN_SCOV`). That floor is deliberate — it admits domain constructs — but it also admits
+a **fusion**, in which this protein is merely the larger half. BioLiP lists every ligand touching
+that chain, so a ligand bound to the *other* half is attributed here.
+
+**Worked example: E. coli `malE`** (maltose-binding protein, 396 aa), a standard crystallisation
+chaperone. It reads 41 ligands, and they are not maltose — they are thyroid-receptor ligands,
+benzothiophene carboxylic acids and macrocycles bound to whatever MBP was fused to. The giveaway
+is `chain_coverage` in `evidence/pdb_chains_<sp>.tsv`: malE's ligand-bearing chains sit at a
+**median of 0.62, minimum 0.503** — right at the floor — while a genuine target like E. coli
+`fabI` sits at **0.989**.
+
+**Measured, and the obvious fix was rejected.** Only **3.5–5.0%** of ligand–chain rows come from
+chains below 0.9 coverage, and a `chain_coverage >= 0.9` floor would change just 5 / 9 / 4 proteins
+(Kp / Ec / Sa). It cleanly fixes malE (41 → 2 on Ec). But it also strips **S. aureus `gyrA`, 16 → 4**,
+whose fluoroquinolone complexes are solved as genuine GyrB–GyrA fusion constructs where the drug
+really does bind the GyrA part. So the floor trades one error for another and **is not applied**;
+`chain_coverage` ships instead, per chain, so the judgement can be made per protein.
+
+Read it before trusting a ligand count on any protein used as a crystallisation tag — MBP above
+all.
+
 ### `n_ligands_alphafill` — transplanted onto the model (MODELLED)
 
 AlphaFill (Hekkelman et al., *Nat Methods* 2023) superposes homologous PDB structures onto an

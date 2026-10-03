@@ -932,6 +932,14 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   A third, worth remembering project-wide: **`NA` is sodium's chemical-component code**, and
   pandas reads it as a missing value — it silently nulled 12% of the transplant rows once.
 
+  **A FUSION CONSTRUCT CARRIES ITS PARTNER'S LIGANDS.** A chain counts as this protein at ≥ 95%
+  identity over ≥ 50% **of the chain**, which also admits a fusion where this protein is the
+  larger half — Ec `malE` (MBP, a crystallisation chaperone) reads 41 ligands that are really the
+  fusion partners' (its chains sit at median `chain_coverage` 0.62 against fabI's 0.989). Only
+  3.5–5.0% of rows come from chains below 0.9, and a 0.9 floor fixes malE (41 → 2) but strips
+  Sa `gyrA` (16 → 4), whose fluoroquinolone complexes are genuine GyrB–GyrA fusions — so the floor
+  is **measured and NOT applied**; `chain_coverage` ships per chain instead.
+
   **DO NOT TRANSFER LIGANDS BY SEQUENCE — that is reinventing AlphaFill, and worse.** Until
   2026-10-03 this axis shipped `holo_identity` (DIAMOND vs BioLiP holo chains, a binding-site span
   test, the best hit's % identity). Measured on the same proteomes with the same drug-likeness
