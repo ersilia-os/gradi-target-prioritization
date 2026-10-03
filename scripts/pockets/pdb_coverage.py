@@ -1,7 +1,8 @@
 """How many experimental structures exist for this protein, and how much of it do they cover?
 
-    data/processed/pockets/evidence/pdb_<species>.tsv     one row per protein, COMPLETE
-    data/processed/pockets/scratch/pdb_seqres/            unique-sequence FASTA, DIAMOND db, hits
+    data/processed/pockets/evidence/pdb_<species>.tsv        one row per protein, COMPLETE
+    data/processed/pockets/evidence/pdb_chains_<species>.tsv LONG: one row per matched PDB chain
+    data/processed/pockets/scratch/pdb_seqres/               unique-sequence FASTA, DIAMOND db, hits
 
     uniprot_ac · pdb_n_structures · pdb_n_chains · pdb_coverage · pdb_best_identity · pdb_ids
 
@@ -28,6 +29,10 @@ domain is a structure, and `pdb_coverage` says how much it covers.
 tails missing from the electron density still count as covered. Observed-residue coverage would
 need the coordinates (SIFTS residue mappings) for every chain; SEQRES is the cheap, standard proxy
 and overstates coverage where constructs carry unresolved termini.
+
+`pdb_chains_<species>.tsv` (`uniprot_ac · pdb · chain · identity`) is what lets `holo.py` count
+the ligands bound to this protein's OWN structures with no alignment of its own: these chains ARE
+this protein, so their BioLiP ligand rows attach directly by `(pdb, chain)`.
 
 Run with the `gradi` env; DIAMOND from `gradi-ortho` (`GRADI_DIAMOND_BIN` overrides). ~5 min.
   python scripts/pockets/pdb_coverage.py
@@ -115,12 +120,14 @@ def run_diamond(species: str, threads: int) -> pd.DataFrame:
     return pd.read_csv(out, sep="\t", header=None, names=HIT_COLS)
 
 
-def score(species: str, hits: pd.DataFrame, chains_of: dict[str, list[str]]) -> pd.DataFrame:
+def score(species: str, hits: pd.DataFrame,
+          chains_of: dict[str, list[str]]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(per-protein summary, long table of every matched PDB chain)."""
     prot = P.load(species)[["uniprot_ac", "sequence"]]
     h = hits[(hits["pident"] >= MIN_PIDENT)
              & (100 * (hits["send"] - hits["sstart"] + 1) / hits["slen"] >= MIN_SCOV)]
     g = dict(tuple(h.groupby("qseqid")))
-    rows = []
+    rows, chain_rows = [], []
     for acc, seq in zip(prot["uniprot_ac"], prot["sequence"]):
         d = g.get(acc)
         if d is None:
@@ -131,12 +138,19 @@ def score(species: str, hits: pd.DataFrame, chains_of: dict[str, list[str]]) -> 
         for s, e in zip(d["qstart"], d["qend"]):
             covered[s - 1:e] = True
         chains = [c for u in d["sseqid"] for c in chains_of[u]]
+        best_id = dict(zip(d["sseqid"], d["pident"]))
+        for u in d["sseqid"].unique():
+            for c in chains_of[u]:
+                pdb_id, _, ch = c.partition("_")
+                chain_rows.append({"uniprot_ac": acc, "pdb": pdb_id, "chain": ch,
+                                   "identity": float(best_id[u])})
         entries = sorted({c.split("_")[0] for c in chains})
         rows.append({"uniprot_ac": acc, "pdb_n_structures": len(entries),
                      "pdb_n_chains": len(chains), "pdb_coverage": round(float(covered.mean()), 4),
                      "pdb_best_identity": float(d["pident"].max()),
                      "pdb_ids": ";".join(entries)})
-    return M.reindex(pd.DataFrame(rows), species)
+    long = pd.DataFrame(chain_rows, columns=["uniprot_ac", "pdb", "chain", "identity"])
+    return M.reindex(pd.DataFrame(rows), species), long.drop_duplicates()
 
 
 def main() -> None:
@@ -163,9 +177,10 @@ def main() -> None:
     summary = []
     for sp in args.species:
         hits = run_diamond(sp, args.threads)
-        out = score(sp, hits, chains_of)
+        out, chains = score(sp, hits, chains_of)
         path = EVIDENCE_DIR / f"pdb_{sp}.tsv"
         out.to_csv(path, sep="\t", index=False)
+        chains.to_csv(EVIDENCE_DIR / f"pdb_chains_{sp}.tsv", sep="\t", index=False)
         has = out["pdb_n_structures"] > 0
         summary.append({
             "species": sp, "n": len(out), "with_structure": int(has.sum()),
@@ -174,7 +189,8 @@ def main() -> None:
             "median_cov_when>0": float(out.loc[has, "pdb_coverage"].median()),
             "cov>=0.9": int((out["pdb_coverage"] >= 0.9).sum()),
         })
-        say(f"  [{sp}] {len(hits):,} raw hits -> {path.relative_to(REPO_ROOT)}")
+        say(f"  [{sp}] {len(hits):,} raw hits -> {path.relative_to(REPO_ROOT)} "
+            f"({len(chains):,} matched chains)")
 
     say("\n" + "-" * 92)
     say("SUMMARY -- proteins with an experimental structure of their own (>= 95% identity)")

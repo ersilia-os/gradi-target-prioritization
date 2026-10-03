@@ -2,8 +2,8 @@
 
     data/processed/pockets/pockets_<species>.tsv
 
-    uniprot_ac · p2rank_score · fpocket_score · p2rank_n_pockets · holo_identity ·
-    pdb_n_structures · pdb_coverage · af_plddt
+    uniprot_ac · p2rank_score · fpocket_score · n_ligands_pdb · n_ligands_alphafill ·
+    pdb_n_structures · af_plddt
 
 **It recomputes nothing.** `structures.py`, `predict.py`, `holo.py` and `pdb_coverage.py` did the
 work; this reduces
@@ -14,22 +14,38 @@ THE COLUMNS
 ------------
 * `p2rank_score` -- P2Rank's calibrated probability for the best ADMITTED pocket (0-1).
 * `fpocket_score` -- fpocket's druggability score for the best ADMITTED pocket (0-1).
-* `p2rank_n_pockets` -- admitted P2Rank pockets with probability >= 0.5. Counted with P2Rank, not
-  fpocket: fpocket finds at least one pocket on essentially every protein (v1: 5,697 of 5,727
-  Kp), so its count carries no signal. fpocket's raw counts stay in `evidence/pockets_<sp>.tsv`.
-* `holo_identity` -- % identity (0-100) to the closest bacterial PDB chain with a drug-like ligand
-  in the aligned binding site (`holo.py`). 0 = none clears the floors. Sequence-based, so it is
-  defined even for a protein with no AlphaFold model.
+* **No pocket COUNT -- removed 2026-10-03 on the owner's instruction, after measuring it.**
+  `p2rank_n_pockets` (pockets at probability >= 0.5) needed a cutoff the P2Rank authors never
+  recommend (PrankWeb lists every pocket; the papers evaluate by rank). Without one the count is
+  protein size: Spearman 0.84 with length, and AUROC against holo evidence WITHIN length deciles
+  0.43-0.49 -- no signal at all. A sweep found signal only from 0.3 to 0.5 and never above
+  `p2rank_score`'s, so the count added nothing. Every pocket stays in
+  `evidence/pocket_list_<sp>.tsv` for anyone who wants to count them.
+* `n_ligands_pdb` -- **MEASURED**: non-redundant drug-like ligands in this protein's OWN PDB
+  structures (`holo.py`; chains at >= 95% identity, joined to BioLiP with no alignment of our own).
+* `n_ligands_alphafill` -- **MODELLED**: non-redundant drug-like ligands AlphaFill transplanted
+  onto its AlphaFold model, from donors at ~30% median identity.
+  **The two are never summed**: they differ by an order of magnitude in reach and by a great deal
+  in strength of evidence. Non-redundant = distinct Bemis-Murcko generic scaffolds; the raw code
+  counts ship as `n_codes_*` in `evidence/ligand_counts_<sp>.tsv`.
+  They replaced `holo_identity` on 2026-10-03: that column reported the % identity of the closest
+  bacterial holo chain found by a DIAMOND search of our own -- a hand-rolled AlphaFill. See
+  `alphafill.py` for the measurement that retired it.
 * `pdb_n_structures` -- distinct PDB entries with a chain that IS this protein (>= 95% identity,
   >= 50% of the PDB chain aligned), ligand or not (`pdb_coverage.py`). For conserved
   enterobacterial proteins this includes other species' structures of a near-identical protein:
   Kp rpoB counts E. coli's 411 RNA polymerase entries. 0 = no structure.
-* `pdb_coverage` -- fraction (0-1) of this protein's residues covered by those chains. SEQRES, so
-  loops missing from the density still count as covered.
+  A partial structure IS counted: there is no query-coverage floor, so a one-domain construct
+  counts (Sa gyrB: 2 entries covering 36% of the protein). Measured: 1-6% of entry matches cover
+  < 50% of the protein. Chains aligned over < 30 aa are 15-62 matches per species, and only 3
+  proteins per species are matched through them alone -- genuinely tiny proteins with real
+  structures (Ec TnaC leader peptide in the ribosome, Sa phenol-soluble modulins).
+  How MUCH of the protein they cover (`pdb_coverage`) was dropped from this table on the owner's
+  instruction (2026-10-03); it stays per protein in `evidence/pdb_<sp>.tsv`.
 * `af_plddt` -- mean AlphaFold pLDDT: whether the pocket columns can be trusted at all.
-There is no `evidence` column: read it off the two columns that carry it. `af_plddt` is NA exactly
-when no model exists, and `holo_identity > 0` exactly when a drug-like bacterial co-crystal was
-found -- which is the whole of what `pdb+af` / `af_only` / `pdb_only` / `none` used to say. What
+There is no `evidence` column: read it off the columns that carry it. `af_plddt` is NA exactly
+when no model exists, and `n_ligands_pdb > 0` exactly when a drug-like ligand was seen on this
+protein -- which is the whole of what `pdb+af` / `af_only` / `pdb_only` / `none` used to say. What
 those labels ALSO said, and these columns cannot, is whether the model came from AlphaFold DB or
 from ESMFold (the 34 proteins AFDB does not cover -- see `esmfold.py`); that is `model_source` in
 `evidence/alphafold_<species>.tsv`. `af_plddt` on an ESMFold row is ESMFold's pLDDT, same 0-100
@@ -48,20 +64,25 @@ mistake (`legacy/HISTORY.md:199`). **So never `fillna(0)` these columns.**
 WHAT THIS SCRIPT CHECKS
 ------------------------
 1. **Completeness and order** -- every protein, canonical order, no NA in the pocket columns
-   where a model exists, no NA in `holo_identity`, `pdb_n_structures` or `pdb_coverage` anywhere.
-2. **Spot checks** -- antibacterial targets with a published drug co-crystal must show
-   `holo_identity >= 95` on E. coli (folA/methotrexate, gyrB, rpoB/rifampicin, fabI, murA, lpxC,
-   ampC, acrB, def), named genes because a broken join still yields a well-formed table.
+   where a model exists, no NA in the ligand counts or `pdb_n_structures` anywhere.
+2. **Spot checks -- NAMED LIGANDS, not counts.** A broken join still yields a well-formed table
+   of plausible counts, so the check is that specific molecules land on specific genes:
+   methotrexate and trimethoprim on E. coli `folA`, novobiocin on S. aureus `gyrB`, and E. coli
+   `ftsZ` carrying none -- a real protein with no drug co-crystal of its own.
 3. **Does the predicted pocket agree with the measurement?** AUROC of `p2rank_score` and
-   `fpocket_score` for separating proteins with their OWN drug-like co-crystal
-   (`holo_identity >= 95`) from those with no holo evidence at all, and again at family level
-   (`holo_identity > 0`, `*_fam`), which has more positives. The two columns are computed
-   with no shared input, so agreement is recovered, not built in. Reported plainly either way.
+   `fpocket_score` for separating proteins that HAVE a drug-like ligand in their own PDB
+   structures (`n_ligands_pdb > 0`) from those that do not. The two sides share no input -- one is
+   geometry on a predicted model, the other is what crystallographers actually found.
+   **And `*_len`: the family AUROC WITHIN length deciles** -- added because the raw AUROC is
+   confounded by size: big proteins are both crystallised more often and offer more surface for
+   pockets, and length ALONE scores 0.66-0.69 against holo evidence. Measured: P2Rank 0.54-0.58
+   within length (weak but real), fpocket 0.46-0.51 (nothing). Quote `*_len`, not the raw number.
 4. **Reproduces v1?** Proteins with any P2Rank pocket (before admission; AlphaFold DB models only,
    since v1 had no ESMFold) against v1's
    4,542 Kp / 3,589 Ec (`legacy/docs/ligandability_log.md`).
 
-Run with the `gradi` env, after structures.py -> predict.py -> holo.py -> pdb_coverage.py.
+Run with the `gradi` env, LAST: after structures.py -> predict.py -> pdb_coverage.py ->
+alphafill.py -> holo.py.
   python scripts/pockets/merge.py
   python scripts/pockets/merge.py --species saureus -q
 """
@@ -83,8 +104,8 @@ from src import proteomes as P  # noqa: E402
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
 TASK_DIR = REPO_ROOT / "data" / "processed" / "pockets"
 EVIDENCE_DIR = TASK_DIR / "evidence"
-COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "p2rank_n_pockets", "holo_identity",
-           "pdb_n_structures", "pdb_coverage", "af_plddt"]
+COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "n_ligands_pdb",
+           "n_ligands_alphafill", "pdb_n_structures", "af_plddt"]
 # `evidence` stays a WORKING column -- the completeness checks below read it -- but is not shipped
 # (owner's call, 2026-10-03). It is a function of two columns that ARE shipped:
 #     af_plddt.notna()      a model exists, so the pocket columns could be computed
@@ -96,7 +117,15 @@ P2RANK_POCKET = 0.5
 EXACT_HOLO = 95.0
 
 # E. coli targets with a drug co-crystal of their own in the PDB. Named genes, not a row count.
-SPOT_GENES_EC = ("folA", "gyrB", "rpoB", "fabI", "murA", "lpxC", "ampC", "acrB", "def")
+# NAMED LIGANDS on named genes. A broken join still produces plausible counts, so the check has
+# to be that specific molecules arrive: MTX/TOP = methotrexate and trimethoprim (DHFR), NOV =
+# novobiocin (gyrase B), TCL = triclosan (FabI), KHS = a ClpP activator. E. coli ftsZ is the
+# negative control -- a real protein with no drug co-crystal of its own.
+SPOT_LIGANDS = {
+    "ecoli": {"folA": {"MTX", "TOP"}, "ftsZ": set()},
+    "saureus": {"gyrB": {"NOV"}, "fabI": {"TCL"}},
+    "kpneumoniae": {"clpP": {"KHS"}},
+}
 V1_P2RANK_ANY = {"kpneumoniae": 4542, "ecoli": 3589}
 
 VERBOSE = True
@@ -105,6 +134,22 @@ VERBOSE = True
 def say(msg: str = "") -> None:
     if VERBOSE:
         print(msg, flush=True)
+
+
+def auroc_within_length(d: pd.DataFrame, col: str, label: str, bins: int = 10) -> float:
+    """AUROC of `col` for `label > 0` inside length deciles, weighted by positives.
+
+    Length alone separates ligand-bearing proteins from the rest at ~0.66-0.69, so a raw AUROC
+    mostly measures size; this asks whether the column adds anything once proteins of similar
+    length are compared. Quote this, not the raw number."""
+    d = d.assign(_bin=pd.qcut(d["seq_length"], bins, labels=False, duplicates="drop"))
+    vals, w = [], []
+    for _, g in d.groupby("_bin"):
+        pos, neg = g.loc[g[label] > 0, col], g.loc[g[label] == 0, col]
+        if len(pos) >= 5 and len(neg) >= 5:
+            vals.append(auroc(pos.to_numpy(), neg.to_numpy()))
+            w.append(len(pos))
+    return float(np.average(vals, weights=w)) if vals else float("nan")
 
 
 def auroc(pos: np.ndarray, neg: np.ndarray) -> float:
@@ -117,50 +162,48 @@ def auroc(pos: np.ndarray, neg: np.ndarray) -> float:
     return float((rp - len(pos) * (len(pos) + 1) / 2) / (len(pos) * len(neg)))
 
 
+def ligands_of(species: str, gene: str, prot: pd.DataFrame) -> set[str]:
+    """Ligand codes on this gene's own PDB structures, read from holo.py's long table."""
+    accs = set(prot.loc[prot["gene_name"] == gene, "uniprot_ac"])
+    long = pd.read_csv(EVIDENCE_DIR / f"ligands_pdb_{species}.tsv", sep="\t",
+                       keep_default_na=False, na_values=[""])
+    return set(long.loc[long["uniprot_ac"].isin(accs), "ligand"])
+
+
 def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    for name in (f"alphafold_{species}", f"pocket_list_{species}", f"holo_{species}",
+    for name in (f"alphafold_{species}", f"pocket_list_{species}", f"ligand_counts_{species}",
                  f"pdb_{species}"):
         if not (EVIDENCE_DIR / f"{name}.tsv").exists():
             sys.exit(f"FATAL missing evidence/{name}.tsv -- run structures.py, predict.py, "
-                     "holo.py, pdb_coverage.py first")
+                     "pdb_coverage.py, alphafill.py, holo.py first")
     af = pd.read_csv(EVIDENCE_DIR / f"alphafold_{species}.tsv", sep="\t")
     pk = pd.read_csv(EVIDENCE_DIR / f"pocket_list_{species}.tsv", sep="\t")
-    ho = pd.read_csv(EVIDENCE_DIR / f"holo_{species}.tsv", sep="\t")
+    lig = pd.read_csv(EVIDENCE_DIR / f"ligand_counts_{species}.tsv", sep="\t")
     pdb = pd.read_csv(EVIDENCE_DIR / f"pdb_{species}.tsv", sep="\t")
 
     adm = pk[pk["admitted"]]
     p2 = adm[adm["tool"] == "p2rank"].groupby("uniprot_ac")["score"]
     fp = adm[adm["tool"] == "fpocket"].groupby("uniprot_ac")["score"]
-    n2 = adm[(adm["tool"] == "p2rank") & (adm["score"] >= P2RANK_POCKET)].groupby("uniprot_ac").size()
 
-    d = af[["uniprot_ac", "af_status", "model_source", "af_plddt"]].copy()
+    d = af[["uniprot_ac", "af_status", "model_source", "af_plddt", "seq_length"]].copy()
     has_model = d["af_status"] == "model"
     d["p2rank_score"] = d["uniprot_ac"].map(p2.max())
     d["fpocket_score"] = d["uniprot_ac"].map(fp.max())
-    d["p2rank_n_pockets"] = d["uniprot_ac"].map(n2)
     # A model with nothing admitted is a measured 0; no model stays NA.
-    for c in ("p2rank_score", "fpocket_score", "p2rank_n_pockets"):
+    for c in ("p2rank_score", "fpocket_score"):
         d.loc[has_model, c] = d.loc[has_model, c].fillna(0)
         d.loc[~has_model, c] = np.nan
-    d["p2rank_n_pockets"] = d["p2rank_n_pockets"].astype("Int64")
-    d = d.merge(ho[["uniprot_ac", "holo_identity_bacterial"]], on="uniprot_ac", how="left")
-    d = d.rename(columns={"holo_identity_bacterial": "holo_identity"})
-    d = d.merge(pdb[["uniprot_ac", "pdb_n_structures", "pdb_coverage"]], on="uniprot_ac",
+    d = d.merge(lig[["uniprot_ac", "n_ligands_pdb", "n_ligands_alphafill"]], on="uniprot_ac",
                 how="left")
-    holo = d["holo_identity"] > 0
-    esm = d["model_source"].fillna("").str.startswith("esmfold")
-    d["evidence"] = np.select(
-        [has_model & ~esm & holo, has_model & ~esm & ~holo,
-         has_model & esm & holo, has_model & esm & ~holo, ~has_model & holo],
-        ["pdb+af", "af_only", "pdb+esmfold", "esmfold_only", "pdb_only"], default="none")
+    d = d.merge(pdb[["uniprot_ac", "pdb_n_structures"]], on="uniprot_ac", how="left")
 
-    out = M.reindex(d[COLUMNS + ["evidence"]], species)
+    out = M.reindex(d[COLUMNS + ["seq_length"]], species)   # seq_length: working only
     M.assert_canonical(out["uniprot_ac"], species)
-    for c in ("holo_identity", "pdb_n_structures", "pdb_coverage"):
+    for c in ("n_ligands_pdb", "n_ligands_alphafill", "pdb_n_structures"):
         if out[c].isna().any():
             sys.exit(f"FATAL {species}: {c} has NA -- every protein was searched")
-    out["pdb_n_structures"] = out["pdb_n_structures"].astype(int)
-    model_rows = out["evidence"].isin(["pdb+af", "af_only", "pdb+esmfold", "esmfold_only"])
+        out[c] = out[c].astype(int)
+    model_rows = out["af_plddt"].notna()
     if out.loc[model_rows, ["p2rank_score", "fpocket_score", "af_plddt"]].isna().any().any():
         sys.exit(f"FATAL {species}: a protein with a model has an NA pocket column")
     return out, pk
@@ -170,20 +213,18 @@ def checks(species: str, out: pd.DataFrame, pk: pd.DataFrame) -> tuple[dict, lis
     failed = []
     prot = P.load(species)[["uniprot_ac", "gene_name"]]
     d = out.merge(prot, on="uniprot_ac")
-    if species == "ecoli":
-        for g in SPOT_GENES_EC:
-            r = d[d["gene_name"] == g]
-            v = float(r["holo_identity"].iloc[0]) if len(r) else float("nan")
-            ok = v >= EXACT_HOLO
-            say(f"      {g:<5} holo {v:5.1f}  p2rank {float(r['p2rank_score'].iloc[0]):.3f}  "
-                f"fpocket {float(r['fpocket_score'].iloc[0]):.3f}" + ("" if ok else "   <-- FAIL"))
-            if not ok:
-                failed.append(f"{g} holo {v:.1f}")
+    for gene, want in SPOT_LIGANDS.get(species, {}).items():
+        got = ligands_of(species, gene, prot)
+        ok = (want <= got) if want else not got
+        say(f"      {gene:<5} own-PDB ligands {len(got):>3}  "
+            + (f"expect {sorted(want)}" if want else "expect none")
+            + ("" if ok else "   <-- FAIL"))
+        if not ok:
+            failed.append(f"{gene}: wanted {sorted(want) or 'none'}, got {len(got)}")
 
-    m = d[d["evidence"].isin(["pdb+af", "af_only", "pdb+esmfold", "esmfold_only"])]
-    pos = m[m["holo_identity"] >= EXACT_HOLO]
-    fam = m[m["holo_identity"] > 0]
-    neg = m[m["holo_identity"] == 0]
+    m = d[d["af_plddt"].notna()]
+    pos = m[m["n_ligands_pdb"] > 0]
+    neg = m[m["n_ligands_pdb"] == 0]
     # v1 only ever had AlphaFold DB models, so the reproduction check counts those alone.
     af_only = pk["model"].eq("alphafold_db_v6") if "model" in pk else True
     any_p2 = pk.loc[(pk["tool"] == "p2rank") & af_only, "uniprot_ac"].nunique()
@@ -193,15 +234,14 @@ def checks(species: str, out: pd.DataFrame, pk: pd.DataFrame) -> tuple[dict, lis
         "p2rank>=0.5": int((m["p2rank_score"] >= P2RANK_POCKET).sum()),
         "median_p2rank": float(m["p2rank_score"].median()),
         "median_fpocket": float(m["fpocket_score"].median()),
-        "holo>0": int((out["holo_identity"] > 0).sum()),
-        "holo>=95": int((out["holo_identity"] >= EXACT_HOLO).sum()),
+        "lig_pdb>0": int((out["n_ligands_pdb"] > 0).sum()),
+        "lig_af>0": int((out["n_ligands_alphafill"] > 0).sum()),
         "pdb>0": int((out["pdb_n_structures"] > 0).sum()),
-        "pdb_cov>=0.9": int((out["pdb_coverage"] >= 0.9).sum()),
         "auroc_p2rank": auroc(pos["p2rank_score"].to_numpy(), neg["p2rank_score"].to_numpy()),
         "auroc_fpocket": auroc(pos["fpocket_score"].to_numpy(), neg["fpocket_score"].to_numpy()),
-        "auroc_p2rank_fam": auroc(fam["p2rank_score"].to_numpy(), neg["p2rank_score"].to_numpy()),
-        "auroc_fpocket_fam": auroc(fam["fpocket_score"].to_numpy(),
-                                   neg["fpocket_score"].to_numpy()),
+        "auroc_length": auroc(pos["seq_length"].to_numpy(), neg["seq_length"].to_numpy()),
+        "auroc_p2rank_len": auroc_within_length(m, "p2rank_score", "n_ligands_pdb"),
+        "auroc_fpocket_len": auroc_within_length(m, "fpocket_score", "n_ligands_pdb"),
         "p2rank_any": any_p2, "v1_p2rank_any": V1_P2RANK_ANY.get(species),
     }
     return res, failed
@@ -217,7 +257,7 @@ def main() -> None:
 
     say("=" * 92)
     say("pockets/merge.py -- pockets_<species>.tsv, the structural ligandability deliverable")
-    say("  in : data/processed/pockets/evidence/{alphafold,pockets,holo,pdb}_<species>.tsv")
+    say("  in : evidence/{alphafold,pocket_list,ligand_counts,pdb}_<species>.tsv")
     say(f"  out: data/processed/pockets/pockets_<species>.tsv  ({len(COLUMNS)} columns, "
         "complete, canonical)")
     say("=" * 92)
@@ -229,8 +269,6 @@ def main() -> None:
         path = TASK_DIR / f"pockets_{sp}.tsv"
         out[COLUMNS].to_csv(path, sep="\t", index=False)   # `evidence` is working-only
         say(f"  wrote {path.relative_to(REPO_ROOT)}  ({len(out):,} rows, canonical)")
-        for k, v in out["evidence"].value_counts().items():
-            say(f"    {k:<9} {v:>6,}  {100 * v / len(out):5.1f}%")
         res, f = checks(sp, out, pk)
         rows.append(res)
         failed += [f"{sp}: {x}" for x in f]
@@ -238,8 +276,10 @@ def main() -> None:
     say("\n" + "-" * 92)
     say("SUMMARY")
     say(pd.DataFrame(rows).to_string(index=False, float_format=lambda x: f"{x:.3f}"))
-    say("\n  auroc_*: predicted pocket score, own drug-like co-crystal (holo >= 95) vs no holo "
-        "evidence; *_fam: any holo evidence (holo > 0) vs none. 0.5 = no agreement.")
+    say("\n  auroc_*: pocket score separating proteins WITH a drug-like ligand in their own PDB\n"
+        "  structures from those without. auroc_length: protein length ALONE as the score -- the\n"
+        "  confound. *_len: the same within length deciles, the number to quote. "
+        "0.5 = no agreement.")
     if failed:
         sys.exit("FATAL spot checks failed: " + "; ".join(failed))
 

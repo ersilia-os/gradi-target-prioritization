@@ -157,12 +157,16 @@ COLUMNS: dict[str, dict[str, str]] = {
                         "-- within length deciles it agrees with the holo column at 0.54-0.58, "
                         "fpocket not at all. A modest signal.",
         "fpocket_score": "best fpocket score, kept for comparison.",
-        "holo_identity": "MEASURED: % identity to the closest bacterial PDB chain holding a "
-                         "drug-like ligand in the aligned site. Matches the SITE, not the chain.",
+        "n_ligands_pdb": "MEASURED: non-redundant drug-like ligands seen bound to THIS "
+                         "protein's own PDB structures (>=95% identity chains). Non-redundant = "
+                         "distinct Bemis-Murcko generic scaffolds, the ChEMBL axis's definition.",
+        "n_ligands_alphafill": "MODELLED: non-redundant drug-like ligands AlphaFill transplanted "
+                               "onto the AlphaFold model, from ~30%-identity donors. NEVER add "
+                               "this to n_ligands_pdb -- different evidence, 10x the reach.",
         "pdb_n_structures": "distinct PDB entries with a chain that IS this protein (>=95% "
                             "identity, matched by SEQUENCE -- the accession route reached 30 of "
                             "5,728 Kp proteins). Ligand or not: this is structural COVERAGE, the "
-                            "question holo_identity does not ask.",
+                            "question the ligand counts do not ask.",
         "af_plddt": "mean pLDDT of the AlphaFold model. NA means NO MODEL -- and an NA in the "
                     "pocket columns is 'could not look', not 'looked and found nothing'. A "
                     "protein WITH a model and no admitted pocket gets 0. Never fillna(0).",
@@ -321,13 +325,13 @@ TABLES = [
          path="data/processed/pockets/pockets_<sp>.tsv",
          loader=pockets.load,
          question="Could a small molecule bind this fold at all?",
-         read_first="No evidence column: `af_plddt` is NA exactly when there is no model, and "
-                    "`holo_identity` > 0 exactly when a drug-like bacterial co-crystal was found, "
-                    "which is all the old labels said. Trust p2rank_score, not fpocket. "
-                    "`holo_identity` is the only MEASURED column "
-                    "here -- the other scores are predictions on AlphaFold models. Drug-likeness "
-                    "is built from published sources, not a denylist: QED >= 0.2 and Ro3 were "
-                    "measured and REJECTED because both delete antibiotics."),
+         read_first="Three kinds of column, never merged: p2rank/fpocket are PREDICTED on an "
+                    "AlphaFold model, n_ligands_pdb and pdb_n_structures are MEASURED, and "
+                    "n_ligands_alphafill is a third party's MODEL. Within length deciles the "
+                    "pocket scores barely track where ligands are really found (P2Rank 0.49-0.62, "
+                    "fpocket 0.44-0.52), so prefer the measured columns where they are non-zero. "
+                    "Drug-likeness is built from published sources, not a denylist: QED >= 0.2 "
+                    "and Ro3 were measured and REJECTED because both delete antibiotics."),
     dict(key="studiedness", axis="studiedness", title="studiedness_<sp>.tsv",
          path="data/processed/studiedness/studiedness_<sp>.tsv",
          loader=studiedness.load,

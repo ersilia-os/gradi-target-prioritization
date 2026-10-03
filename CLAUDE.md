@@ -301,8 +301,8 @@ scripts/
                   ligands.py  transfer_calibration.py             -> ligands_<sp>.tsv
   studiedness/    fetch.py  gene2pubmed.py  unknome.py
                   transfer.py  merge.py                           -> studiedness_<sp>.tsv
-  pockets/        structures.py  esmfold.py  predict.py  holo.py
-                  pdb_coverage.py  alphafill_check.py  merge.py   -> pockets_<sp>.tsv
+  pockets/        structures.py  esmfold.py  predict.py
+                  pdb_coverage.py  alphafill.py  holo.py  merge.py -> pockets_<sp>.tsv
   interactome/                              README.md only -- a real axis, no code yet
   plots/          10 scripts, ALL figures
   workers/        tabpfn_cv.py             transversal; every axis may call it
@@ -880,17 +880,24 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   species, 11.5% over ChEMBL's 287. **Not promoted**; if it ever is, columns go *beside* the ChEMBL
   ones, never merged.
 
-- **`pockets/structures.py`** → **`esmfold.py`** → **`predict.py`** → **`holo.py`** →
-  **`pdb_coverage.py`** → **`merge.py`** — **structural ligandability**: can a small molecule bind
-  this fold? Deliverable `pockets_<species>.tsv`, **8 columns**, complete and canonical for the
-  three bacteria: `p2rank_score` · `fpocket_score` · `p2rank_n_pockets` (predicted, on AlphaFold v6
-  models) · `holo_identity` (measured: % identity to the closest bacterial PDB chain with a
-  drug-like ligand in the aligned site) · `pdb_n_structures` · `pdb_coverage` (PDB entries that
-  ARE this protein, ligand or not, and the fraction of it they cover) · `af_plddt`.
+- **`pockets/structures.py`** → **`esmfold.py`** → **`predict.py`** → **`pdb_coverage.py`** →
+  **`alphafill.py`** → **`holo.py`** → **`merge.py`** — **structural ligandability**: can a small
+  molecule bind this fold? Deliverable `pockets_<species>.tsv`, **7 columns**, complete and
+  canonical for the three bacteria: `p2rank_score` · `fpocket_score` (predicted, on AlphaFold v6
+  models) · `n_ligands_pdb` (**measured**: drug-like ligands in this protein's OWN PDB structures)
+  · `n_ligands_alphafill` (**modelled**: drug-like ligands AlphaFill transplanted onto its model)
+  · `pdb_n_structures` (PDB entries that ARE this protein, ligand or not; partial structures
+  count; coverage is in `evidence/pdb_<sp>.tsv`) · `af_plddt`.
+
+  **NEVER SUM THE TWO LIGAND COUNTS** — a co-crystal of this protein (88 Kp / 308 Ec / 90 Sa
+  proteins) and a transplant from a ~30%-identity homolog (1,533 / 1,196 / 704) are different
+  evidence. Both are **non-redundant = distinct Bemis-Murcko generic scaffolds**, reusing
+  `scripts/ligands/chembl.py:_scaffold_chunk` rather than a second copy; raw code counts overstate
+  by 25–34% and ship as `n_codes_*`.
 
   **No `evidence` column** (owner's call, 2026-10-03): it was a function of two shipped columns —
-  `af_plddt` is NA exactly when no model exists, `holo_identity > 0` exactly when a drug-like
-  bacterial co-crystal was found — verified exactly reconstructible on all three species before
+  `af_plddt` is NA exactly when no model exists, `n_ligands_pdb > 0` exactly when a drug-like
+  ligand was seen on this protein — verified exactly reconstructible on all three species before
   removal. **An NA in the pocket columns is "could not look", NOT "looked and found nothing"**: a
   protein WITH a model and no admitted pocket gets 0, so never `fillna(0)` — that is the v1
   mistake. The one thing the labels added is the model's provenance (AlphaFold DB vs ESMFold),
@@ -919,17 +926,31 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   list, PDBe cofactor classes, a nucleotide SMARTS, and **ECMDB metabolites (owner's choice,
   2026-10-03)**; each is a flag in `evidence/ligand_classes.tsv`. **QED ≥ 0.2 and Ro3 "fragment"
   were measured and REJECTED: both delete antibiotics** (novobiocin 0.184, rifampicin 0.109, the
-  aminoglycosides; fosfomycin, D-cycloserine). Kp/Ec/Sa with bacterial holo evidence:
-  **608 / 559 / 307**.
+  aminoglycosides; fosfomycin, D-cycloserine). The vocabulary covers AlphaFill's codes too, with
+  `in_biolip` as a flag rather than a requirement. Two traps: an `[R1]` ring SMARTS misses
+  cyclic-di-GMP (use `[R]`), and BioLiP alone leaks detergents/cryoprotectants (hence PLINDER).
+  A third, worth remembering project-wide: **`NA` is sodium's chemical-component code**, and
+  pandas reads it as a missing value — it silently nulled 12% of the transplant rows once.
 
-  **Match the SITE, not the chain** — every BioLiP binding-site residue inside the alignment, PDB
-  chain ≥ 50% aligned, **no query-coverage floor**: E. coli GyrB/clorobiocin (1kzn) is a 186-aa
-  domain of an 804-aa protein, which `MIN_QCOV = 50` would reject. Two traps: an `[R1]` ring SMARTS
-  misses cyclic-di-GMP (use `[R]`), and BioLiP alone leaks detergents/cryoprotectants (hence PLINDER).
+  **DO NOT TRANSFER LIGANDS BY SEQUENCE — that is reinventing AlphaFill, and worse.** Until
+  2026-10-03 this axis shipped `holo_identity` (DIAMOND vs BioLiP holo chains, a binding-site span
+  test, the best hit's % identity). Measured on the same proteomes with the same drug-likeness
+  rule: **AlphaFill reaches 1,533 Kp / 1,196 Ec proteins, that route reached 184 / 172.** It was
+  also bimodal rather than continuous, and never checked the site was conserved. Deleted with it:
+  `alphafill_check.py`, whose "AlphaFill adds little" verdict came from imposing a 40% identity
+  floor **AlphaFill does not use** (its donors sit at ~30% median identity by design). AlphaFill
+  transplants are **not filtered on `local_rmsd`** — it publishes the metric, not a threshold —
+  and the ligand is **`analogue_id`, not `compound_id`** (ANP→ATP, ACO→CoA; 2.7% of transplants).
 
-  **Trust P2Rank, not fpocket** — measured against the holo column (no shared input): P2Rank AUROC
-  0.64–0.71, fpocket 0.53–0.59. **AlphaFill was measured and left out** (`alphafill_check.py`: +37
-  Kp / +21 Ec, mostly additives). `druggability()` is derived on the fly, never stored.
+  **Control for LENGTH before quoting any pocket-vs-PDB agreement** — length alone predicts a
+  measured ligand at AUROC 0.65–0.67 (big proteins are crystallised more and have more surface).
+  Within length deciles, against `n_ligands_pdb > 0`: **P2Rank 0.494 (Kp) / 0.561 (Ec) / 0.619
+  (Sa), fpocket 0.435 / 0.523 / 0.477** — so **on the anchor the pocket scores add nothing over
+  protein size**, and they are a soft prior at best. `merge.py` reports `*_len`; quote that, never
+  the raw AUROC. **No pocket count** (removed 2026-10-03): the P2Rank authors set no probability
+  cutoff, and without one the count is size (ρ 0.84 with length, no signal within length); a
+  0–0.7 sweep never beat `p2rank_score`. **No `druggability()` helper either** — no defensible
+  weighting exists across a weak prior, a sparse measurement and a third party's model.
 
 - **`essentiality/labels.py`** + **`essentiality/deg_proteomes.py`** — the training corpus, from
   **DEG**: 49 of 51 datasets, 173,048 labeled proteins, 20,194 essential (11.67%), 38 species, **each

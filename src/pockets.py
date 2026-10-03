@@ -1,56 +1,72 @@
 """Load the structural ligandability axis -- can a small molecule bind this protein's fold?
 
     data/processed/pockets/pockets_<species>.tsv        THE DELIVERABLE (complete, canonical)
-        uniprot_ac · p2rank_score · fpocket_score · p2rank_n_pockets · holo_identity ·
-        pdb_n_structures · pdb_coverage · af_plddt
+        uniprot_ac · p2rank_score · fpocket_score · n_ligands_pdb · n_ligands_alphafill ·
+        pdb_n_structures · af_plddt
 
-TWO KINDS OF COLUMN, NEVER MERGED
-----------------------------------
-* **Predicted, on the AlphaFold model**: `p2rank_score` (P2Rank 2.5.1 calibrated probability of
-  the best pocket), `fpocket_score` (fpocket 4.0 druggability of the best pocket) and
-  `p2rank_n_pockets` (P2Rank pockets at probability >= 0.5). Only pockets whose lining residues
-  average pLDDT >= 70 count -- the single place model confidence enters.
-* **Measured, in the PDB**: `holo_identity`, the % identity to the closest bacterial chain seen with
-  a drug-like ligand bound in the aligned binding site (BioLiP, filtered by PLINDER's artefact
-  list, PDBe cofactors, nucleotides and ECMDB metabolites -- see `scripts/pockets/holo.py`).
-  And `pdb_n_structures` / `pdb_coverage`: how many PDB entries have a chain that IS this protein
-  (>= 95% identity, ligand or not) and what fraction of its sequence they cover
-  (`scripts/pockets/pdb_coverage.py`). The 95% rule counts near-identical proteins of other
-  species, so a conserved enterobacterial protein inherits E. coli's structures.
+THREE KINDS OF COLUMN, NEVER MERGED
+-------------------------------------
+* **Predicted** on the AlphaFold model: `p2rank_score` (P2Rank 2.5.1 calibrated probability of the
+  best pocket) and `fpocket_score` (fpocket 4.0 druggability of the best pocket). Only pockets
+  whose lining residues average pLDDT >= 70 count -- the single place model confidence enters.
+* **Measured** in the PDB: `n_ligands_pdb`, drug-like ligands seen bound to **this protein's own**
+  structures, and `pdb_n_structures`, how many PDB entries are this protein at all (ligand or not;
+  partial structures count).
+* **Modelled** by a third party: `n_ligands_alphafill`, drug-like ligands AlphaFill transplanted
+  onto this protein's AlphaFold model by structural superposition, from donors at ~30% median
+  identity.
+
+**Never add the two ligand counts.** A co-crystal of this protein and a transplant from a remote
+homolog are not the same evidence, and they differ by an order of magnitude in reach (tens of
+proteins against ~1,500). There is deliberately no combined column.
+
+**Both counts are NON-REDUNDANT**: distinct Bemis-Murcko generic scaffolds, the ChEMBL axis's own
+definition (`scripts/ligands/chembl.py:_scaffold_chunk`, imported rather than restated). Counting
+raw chemical-component codes overstates by 25-34%; those raw counts ship as `n_codes_*` in
+`evidence/ligand_counts_<species>.tsv`.
 
 A ZERO AND AN NA ARE DIFFERENT CLAIMS
 ---------------------------------------
-With an AlphaFold model, 0 means the tools looked and found no admitted pocket. Without one the
-pocket columns and `af_plddt` are NA. `holo_identity`, `pdb_n_structures` and `pdb_coverage` are
-never NA: every protein was searched, and 0 means no drug-like holo structure in its bacterial family -- which on
-these proteomes is ~88% of proteins, a fact about the PDB, not about the proteins.
+With an AlphaFold model, a pocket score of 0 means the tools looked and found no admitted pocket.
+Without one the pocket scores and `af_plddt` are NA. The ligand counts and `pdb_n_structures` are
+never NA: every protein was searched, and 0 means nothing was found -- which for `n_ligands_pdb`
+is ~95% of each proteome, a fact about what crystallographers have done, not about the proteins.
+**Never `fillna(0)` the pocket scores**; that is the v1 mistake (`legacy/HISTORY.md:199`).
 
 HOW MUCH TO TRUST THE PREDICTED COLUMNS -- measured, see `scripts/pockets/merge.py`
 -----------------------------------------------------------------------------------------
-Predicted and measured columns share no input, so their agreement is a fair test. P2Rank separates
-proteins with any drug-like holo evidence from those with none at AUROC ~0.70 on Kp; fpocket's
-druggability manages ~0.58. **Prefer `p2rank_score`.** fpocket is kept because the owner asked for
-both and it is a different method (geometry vs a trained model), not because it earns its place on
-this test.
+Predicted and measured columns share no input, so their agreement is a fair test -- **but only
+once protein LENGTH is controlled**, because length alone separates ligand-bearing proteins from
+the rest at AUROC 0.65-0.67 (big proteins are crystallised more often and offer more surface).
+Within length deciles, against proteins that really do carry a drug-like ligand in their own PDB
+structures: **P2Rank 0.49 (Kp) / 0.56 (Ec) / 0.62 (Sa); fpocket 0.44 / 0.52 / 0.48.**
+So the pocket scores are a **weak and inconsistent** guide to where ligands are actually found --
+on K. pneumoniae, the anchor, P2Rank adds nothing over protein size. Treat them as a soft prior
+and prefer the measured columns wherever they are non-zero.
+
+**There is no `druggability()` helper.** One shipped briefly, averaging percentile ranks of
+`p2rank_score` and the old `holo_identity`. It was removed on 2026-10-03 with that column: the
+three kinds of evidence here are a weak prior, a sparse measurement and a third-party model, and
+no defensible weighting of them exists. Combine at prioritisation time, across axes, where the
+weighting is an explicit choice someone owns.
 
     from src import pockets as K
     df = K.load("kpneumoniae")
-    K.druggability(df)        # convenience 0-1, derived on the fly, NOT stored
+    K.load_ligands_pdb("kpneumoniae")          # which ligands, on which PDB chains
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TASK_DIR = REPO_ROOT / "data" / "processed" / "pockets"
 EVIDENCE_DIR = TASK_DIR / "evidence"
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
-COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "p2rank_n_pockets", "holo_identity",
-           "pdb_n_structures", "pdb_coverage", "af_plddt"]
+COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "n_ligands_pdb", "n_ligands_alphafill",
+           "pdb_n_structures", "af_plddt"]
 
 
 def _check(species: str) -> None:
@@ -60,37 +76,29 @@ def _check(species: str) -> None:
 
 
 def _read(path: Path, hint: str) -> pd.DataFrame:
+    """**`NA` is sodium's PDB chemical-component code.** pandas reads it as a missing value by
+    default, which silently nulled 12% of the transplant rows once; empty fields are still NaN."""
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run {hint} first")
-    return pd.read_csv(path, sep="\t", low_memory=False)
+    return pd.read_csv(path, sep="\t", keep_default_na=False, na_values=[""], low_memory=False)
 
 
 # ---------------------------------------------------------------- the deliverable
 
 def load(species: str) -> pd.DataFrame:
-    """One species, 8 columns, canonical row order (asserted).
+    """One species, 7 columns, canonical row order (asserted).
 
-    **No `evidence` column** (owner's call, 2026-10-03). It was a function of two columns that ARE
-    here, verified exactly reconstructible on all three species before removal:
-
-        af_plddt is NA        <=>  no model, so the pocket columns could not be computed
-        holo_identity > 0     <=>  a drug-like bacterial co-crystal was found for the family
-
-    which is the whole of what `pdb+af` / `af_only` / `pdb_only` / `none` said. **An NA in the
-    pocket columns is "could not look", not "looked and found nothing"** — a protein WITH a model
-    and no admitted pocket gets 0. Never `fillna(0)`; that is the v1 mistake
-    (`legacy/HISTORY.md:199`).
-
-    The one thing the labels added and these columns cannot is the model's provenance — AlphaFold
-    DB vs ESMFold for the proteins AFDB does not cover. That is `model_source` in
+    **No `evidence` column** (owner's call, 2026-10-03): it was a function of columns that ARE
+    here -- `af_plddt` is NA exactly when no model exists, and `n_ligands_pdb > 0` exactly when a
+    drug-like ligand was seen on this protein. The one thing the labels added and these columns
+    cannot is the model's provenance, AlphaFold DB vs ESMFold; that is `model_source` in
     `evidence/alphafold_<species>.tsv`, via `load_alphafold()`.
     """
     from src import matrices as M
 
     _check(species)
     d = _read(TASK_DIR / f"pockets_{species}.tsv", "scripts/pockets/merge.py")
-    M.assert_canonical(d["uniprot_ac"], species, "structure table")
-    d["p2rank_n_pockets"] = d["p2rank_n_pockets"].astype("Int64")
+    M.assert_canonical(d["uniprot_ac"], species, "pockets table")
     return d[COLUMNS]
 
 
@@ -98,26 +106,10 @@ def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
     return pd.concat([load(s).assign(species=s) for s in species], ignore_index=True)
 
 
-def druggability(df: pd.DataFrame) -> pd.Series:
-    """Convenience 0-1: mean of the within-table percentile ranks of `p2rank_score` and
-    `holo_identity`. **Derived on the fly and deliberately not stored** (the studiedness lesson:
-    a stored blend becomes the number people quote and stops being checked).
-
-    Why these two: they are the best-supported column of each kind -- P2Rank agrees with the PDB
-    better than fpocket does (AUROC ~0.70 vs ~0.58). Percentile ranks rather than raw values,
-    because the two are in different units and a raw average would weight by scale.
-    Where there is no model, only `holo_identity` contributes. Call it on ONE species at a time:
-    percentiles are relative to the table passed in.
-    """
-    p2 = df["p2rank_score"].rank(pct=True)
-    ho = df["holo_identity"].rank(pct=True)
-    return pd.concat([p2, ho], axis=1).mean(axis=1, skipna=True).rename("druggability")
-
-
 # ---------------------------------------------------------------- evidence
 
 def load_alphafold(species: str) -> pd.DataFrame:
-    """Per protein: model status, length, mean pLDDT, ordered/disordered fractions."""
+    """Per protein: model status, `model_source` (AlphaFold DB vs ESMFold), length, mean pLDDT."""
     _check(species)
     return _read(EVIDENCE_DIR / f"alphafold_{species}.tsv", "scripts/pockets/structures.py")
 
@@ -130,28 +122,49 @@ def load_pockets(species: str, admitted_only: bool = False) -> pd.DataFrame:
 
 
 def load_pdb(species: str) -> pd.DataFrame:
-    """Per protein: PDB entries / chains that are this protein, coverage, best identity, PDB ids."""
+    """Per protein: PDB entries that are this protein, coverage, best identity, PDB ids."""
     _check(species)
     return _read(EVIDENCE_DIR / f"pdb_{species}.tsv", "scripts/pockets/pdb_coverage.py")
 
 
-def load_holo(species: str) -> pd.DataFrame:
-    """Per protein: best bacterial / any-organism holo chain, ligands, the QED-filtered variant."""
+def load_pdb_chains(species: str) -> pd.DataFrame:
+    """LONG: every PDB chain that IS this protein (>= 95% identity), with its identity."""
     _check(species)
-    return _read(EVIDENCE_DIR / f"holo_{species}.tsv", "scripts/pockets/holo.py")
+    return _read(EVIDENCE_DIR / f"pdb_chains_{species}.tsv", "scripts/pockets/pdb_coverage.py")
+
+
+def load_ligands_pdb(species: str) -> pd.DataFrame:
+    """LONG: drug-like ligand x this protein's own PDB chain (code, scaffold, pdb, chain)."""
+    _check(species)
+    return _read(EVIDENCE_DIR / f"ligands_pdb_{species}.tsv", "scripts/pockets/holo.py")
+
+
+def load_ligands_alphafill(species: str) -> pd.DataFrame:
+    """LONG: drug-like AlphaFill transplant (code, scaffold, donor pdb, donor identity,
+    `local_rmsd`, clash count). **Unfiltered on RMSD** -- filter here for a stricter set."""
+    _check(species)
+    return _read(EVIDENCE_DIR / f"ligands_alphafill_{species}.tsv", "scripts/pockets/holo.py")
+
+
+def load_transplants(species: str) -> pd.DataFrame:
+    """LONG: EVERY AlphaFill transplant, before any drug-likeness filter."""
+    _check(species)
+    return _read(EVIDENCE_DIR / f"transplants_{species}.tsv", "scripts/pockets/alphafill.py")
+
+
+def load_ligand_counts(species: str) -> pd.DataFrame:
+    """Per protein: both scaffold counts, plus the raw code counts they collapse from."""
+    _check(species)
+    return _read(EVIDENCE_DIR / f"ligand_counts_{species}.tsv", "scripts/pockets/holo.py")
 
 
 def load_ligand_classes() -> pd.DataFrame:
-    """One row per BioLiP ligand code with every drug-likeness criterion as its own flag."""
+    """One row per ligand code with every drug-likeness criterion as its own flag, its
+    Bemis-Murcko generic scaffold, and `in_biolip` (false for codes only AlphaFill uses)."""
     return _read(EVIDENCE_DIR / "ligand_classes.tsv", "scripts/pockets/holo.py")
 
 
-def load_alphafill_comparison() -> pd.DataFrame:
-    """AlphaFill drug-like transplants vs the BioLiP route, Kp and Ec (a measurement)."""
-    return _read(EVIDENCE_DIR / "alphafill_comparison.tsv", "scripts/pockets/alphafill_check.py")
-
-
-def druglike(codes) -> np.ndarray:
-    """Boolean per chemical-component code under the shipped definition (unknown -> False)."""
+def druglike(codes) -> list[bool]:
+    """Per chemical-component code, under the shipped definition (unknown -> False)."""
     cl = load_ligand_classes().set_index("ligand")["druglike"]
-    return np.array([bool(cl.get(str(c).upper(), False)) for c in codes])
+    return [bool(cl.get(str(c).upper(), False)) for c in codes]
