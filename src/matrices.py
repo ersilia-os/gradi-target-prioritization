@@ -135,6 +135,8 @@ def audit(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
             # been caught by "N/N canonical". Added with the precedents table it now sits beside.
             ("ligands/chembl",              D / "ligands" / "evidence" / f"chembl_{sp}.tsv"),
             ("ligands/ligands",             D / "ligands"       / f"ligands_{sp}.tsv"),
+            # Structural ligandability: pockets on AlphaFold models + drug-like holo structures.
+            ("pockets/pockets",             D / "pockets"       / f"pockets_{sp}.tsv"),
         ]
         npzs = [
             ("embeddings/esmc",       D / "embeddings" / f"embeddings_{sp}.npz"),
