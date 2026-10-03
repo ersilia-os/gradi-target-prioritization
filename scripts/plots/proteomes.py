@@ -74,7 +74,7 @@ def tier_table(species: tuple[str, ...]) -> pd.DataFrame:
     """Per species, the share of the proteome in each fill tier."""
     rows = []
     for sp in species:
-        src = P.load(sp)["gene_name_source"].fillna("none").astype(str)
+        src = P.load_full(sp)["gene_name_source"].fillna("none").astype(str)
         n = len(src)
         row = {"species": sp, "n": n}
         for t in TIERS:
@@ -88,7 +88,7 @@ def id_table(species: tuple[str, ...]) -> pd.DataFrame:
     """Per species, coverage of each identifier column."""
     rows = []
     for sp in species:
-        d = P.load(sp)
+        d = P.load_full(sp)   # ID_COLS needs refseq + geneid, now in evidence/
         lt = P.load_locus_tags(sp)[["uniprot_ac", "locus_tag"]]
         m = d.merge(lt, on="uniprot_ac", how="left")
         rows.append({"species": sp, **{c: nonempty(m[c]) for c in ID_COLS}})

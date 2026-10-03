@@ -629,6 +629,12 @@ IDENTITY_OUT = [
     "uniprot_ac", "is_reviewed", "gene_name", "gene_name_source", "gene_synonyms",
     "protein_name", "sequence", "refseq", "geneid",
 ]
+# The DELIVERABLE is five of those (owner's call, 2026-10-03); the rest are provenance and ship in
+# `evidence/proteome_full_<sp>.tsv`. `sequence` stays in the deliverable deliberately -- the house
+# rule is "map by sequence, not by accession", so the column every external join needs belongs in
+# the table everything loads. `geneid` goes to evidence/ but is NOT idle: the literature axis keys
+# NCBI counts on it, through load_full().
+DELIVERABLE_OUT = ["uniprot_ac", "is_reviewed", "gene_name", "protein_name", "sequence"]
 LOCUS_OUT = ["uniprot_ac", "locus_tag", "locus_tag_all"]
 
 
@@ -811,9 +817,12 @@ def main() -> None:
             a["species"] = sp
         all_audit += audit
 
+        fp = EVIDENCE_DIR / f"proteome_full_{sp}.tsv"
+        ident.to_csv(fp, sep="\t", index=False)
         ip = OUT_DIR / f"proteome_{sp}.tsv"
-        ident.to_csv(ip, sep="\t", index=False)
-        say(f"    wrote {ip.name}  ({len(ident)} rows x {ident.shape[1]} cols)")
+        ident[DELIVERABLE_OUT].to_csv(ip, sep="\t", index=False)
+        say(f"    wrote {ip.name}  ({len(ident)} rows x {len(DELIVERABLE_OUT)} cols)"
+            f"  + evidence/{fp.name} ({ident.shape[1]} cols)")
 
         ann = _norm(anchor).reindex(
             columns=["uniprot_ac"] + [RENAME.get(c, c) for c in

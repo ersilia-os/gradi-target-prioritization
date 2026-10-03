@@ -121,7 +121,7 @@ def build_universe() -> tuple[set[str], dict[str, pd.DataFrame]]:
     universe: set[str] = set()
     for sp in SPECIES:
         lit = load_anchor_literature(sp)
-        prot = P.load(sp)[["uniprot_ac", "gene_name", "geneid"]]
+        prot = P.load_full(sp)[["uniprot_ac", "gene_name", "geneid"]]
         # The anchor stream and the stage-00 table are the same proteome; join to keep gene_name
         # for the spot checks, and prefer stage-00's geneid since that is the documented key.
         merged = prot.merge(lit.drop(columns=["geneid"]), on="uniprot_ac", how="left")

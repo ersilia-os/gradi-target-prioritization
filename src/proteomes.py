@@ -23,11 +23,45 @@ SCRATCH_DIR = PROTEOME_DIR / "scratch"
 SPECIES = ("kpneumoniae", "ecoli", "saureus", "human")
 
 
+DELIVERABLE_COLUMNS = ["uniprot_ac", "is_reviewed", "gene_name", "protein_name", "sequence"]
+
+
 def load(species: str) -> pd.DataFrame:
-    """One species table, 11 columns, keyed on `uniprot_ac`."""
+    """`proteome_<species>.tsv` — 5 columns, keyed on `uniprot_ac`. **This file defines THE ROW
+    ORDER** every other matrix in the project follows.
+
+        uniprot_ac  is_reviewed  gene_name  protein_name  sequence
+
+    **`sequence` stays here deliberately.** The project's standing rule is *map by sequence, not by
+    accession* — HS11286 is a dark TrEMBL proteome whose accessions ChEMBL, BindingDB and the PDB
+    never use — so the column every external join needs belongs in the table everything loads.
+
+    **`gene_name` is NOT a join key.** It is 63.4% on Kp and 44.6% on Sa; join on `locus_tag`
+    (`load_locus_tags()` / `with_locus_tags()`), which is 100% on Kp and 98.4% on Sa, and on
+    `uniprot_ac` for human, which has no locus tags at all.
+
+    The provenance columns — `gene_name_source`, `gene_synonyms`, `refseq`, `geneid` — moved to
+    `evidence/proteome_full_<species>.tsv` on 2026-10-03, via `load_full()`.
+    """
     if species not in SPECIES:
         raise ValueError(f"unknown species {species!r}; expected one of {SPECIES}")
     path = PROTEOME_DIR / f"proteome_{species}.tsv"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} -- run scripts/proteomes/download.py first")
+    return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+
+
+def load_full(species: str) -> pd.DataFrame:
+    """The 9-column table, in `evidence/` — the deliverable plus its provenance columns.
+
+    Adds `gene_name_source` (which of the three filling tiers supplied the symbol, so an inferred
+    name is never mistaken for a curated one), `gene_synonyms`, `refseq` and `geneid`. **`geneid`
+    is what the literature axis keys on** — `gene2pubmed.py` and `pubtator.py` both join NCBI
+    counts through it.
+    """
+    if species not in SPECIES:
+        raise ValueError(f"unknown species {species!r}; expected one of {SPECIES}")
+    path = EVIDENCE_DIR / f"proteome_full_{species}.tsv"
     if not path.exists():
         raise FileNotFoundError(f"{path} -- run scripts/proteomes/download.py first")
     return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
@@ -75,7 +109,7 @@ def id_bridge(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
     """
     rows = []
     for sp in species:
-        t = load(sp)
+        t = load_full(sp)   # needs refseq + geneid, which the deliverable no longer carries
         t = t.merge(load_locus_tags(sp), on="uniprot_ac", how="left").fillna("")
         for ns in ("locus_tag", "locus_tag_all", "refseq", "geneid", "gene_name"):
             for ac, val in zip(t["uniprot_ac"], t[ns]):

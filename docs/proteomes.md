@@ -16,6 +16,32 @@ downstream stage; nothing else is an analysis organism.
 Human **must** be fetched with `reviewed:true`; the unfiltered proteome is 147,506 TrEMBL-bloated
 entries.
 
+## The deliverable is five columns
+
+`proteome_<species>.tsv`, four tables, keyed on `uniprot_ac` — and **this file defines THE ROW
+ORDER** every other matrix in the project follows.
+
+| column | |
+|---|---|
+| `is_reviewed` | SwissProt-reviewed vs TrEMBL |
+| `gene_name` | the symbol — **not a join key**, 63.4% on Kp and 44.6% on Sa |
+| `protein_name` | UniProt's recommended or submitted name |
+| `sequence` | **the real join key to every external database** |
+
+**`sequence` stays here deliberately** (owner's call, 2026-10-03, when the table went from 9
+columns to 5). The project's standing rule is *map by sequence, not by accession* — HS11286 is a
+dark TrEMBL proteome whose accessions ChEMBL, BindingDB and the PDB never use — so the column every
+external join needs belongs in the table everything loads. 38 scripts read it.
+
+**The four provenance columns moved to `evidence/proteome_full_<species>.tsv`**, via `load_full()`:
+`gene_name_source` (which of the three filling tiers supplied the symbol, so an inferred name is
+never mistaken for a curated one), `gene_synonyms`, `refseq` and `geneid`.
+
+**`geneid` is not idle there.** The literature axis keys NCBI counts on it — `gene2pubmed.py` and
+`pubtator.py` both join through it, as does `id_bridge()`. Four scripts were repointed to
+`load_full()` rather than silently losing the column: those two, `studiedness/transfer.py` and
+`plots/proteomes.py`.
+
 ## Why these strains
 
 **HS11286** is the only *K. pneumoniae* proteome UniProt flags "Reference and representative", so it
