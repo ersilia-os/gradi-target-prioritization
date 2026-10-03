@@ -1,17 +1,33 @@
 # Stage 03 — localization
 
-`scripts/localization/predict.py` · worker `scripts/localization/workers/deeplocpro.py` · loader `src/localization.py`
+`scripts/localization/predict.py` → `scripts/localization/merge.py` · worker `scripts/localization/workers/deeplocpro.py` · loader `src/localization.py`
 
 One subcellular compartment per protein, plus a topology score, assigned **from sequence alone** —
 no accession lookup, no annotation transfer, no curated database. The same method for all three
 species, so the label means the same thing in each.
 
-Two predictors, two files, deliberately not merged:
+**One table, two predictors side by side** — `localization_<species>.tsv`:
 
-| file | columns | what it is |
+| column | from | what it is |
 |---|---|---|
-| `deeplocpro_<species>.tsv` | `uniprot_ac` · `localization` · `confidence` | the compartment call |
-| `tmbed_<species>.tsv` | `uniprot_ac` · `cytoplasmic_fraction` · `has_signal_peptide` | the topology score |
+| `localization` · `confidence` | DeepLocPro 1.0 | the compartment call |
+| `cytoplasmic_fraction` · `has_signal_peptide` | TMbed | the topology score |
+
+**No `evidence` column, unlike every other axis.** Both predictors cover 100% of every proteome by
+construction — DeepLocPro always returns a call and TMbed labels every residue — so the column was
+constant across all 13,020 proteins and carried no information. The check it would have encoded is
+not lost: `merge.py` derives per-row coverage and **exits non-zero if either track is silent for a
+single protein**, which is a broken run rather than a sparse one. Do not re-add it as a constant.
+
+**The two are never reduced to one call.** They answer different questions and neither derives
+from the other, so `merge.py` stacks the columns and arbitrates nothing — where they disagree,
+that disagreement is the information, and TMbed corroborating `extracellular` from outside
+DeepLocPro is the only cross-check this axis has. **Prefer `cytoplasmic_fraction` over
+`localization` where a choice is forced.**
+
+The per-predictor tables stay in `evidence/`, not because they are secondary but because the two
+tracks run and resume independently — TMbed alone is CPU-only hours — so `predict.py --only tmbed`
+must have somewhere to write. `merge.py` recomputes nothing and takes seconds.
 
 ## Why this axis exists, and why sequence only
 
@@ -197,9 +213,10 @@ This matches stages 01 and 02.
 
 ```
 data/processed/localization/
-    deeplocpro_<species>.tsv                  THE compartment call — 3 columns, keyed on uniprot_ac
-    tmbed_<species>.tsv                       THE topology score  — 3 columns, keyed on uniprot_ac
+    localization_<species>.tsv                THE DELIVERABLE — 5 columns, keyed on uniprot_ac
     evidence/
+        deeplocpro_<species>.tsv                 the compartment call, per-predictor record
+        tmbed_<species>.tsv                      the topology score, per-predictor record
         deeplocpro_probabilities_<species>.tsv   raw UN-REMAPPED 6-vector, margin, truncated
         deeplocpro_counts_<species>.tsv          per-compartment counts, all six, zeros included
         tmbed_topology_<species>.tsv             n_tm_helix, n_tm_strand, cyto_longest_segment, tmbed_length
@@ -212,8 +229,9 @@ data/processed/localization/
         smoke_*                                  --limit output
 ```
 
-**The split follows the directory contract's cite-or-delete test.** The four tables and the two
-manifests are all cited or checked: `deeplocpro_probabilities_<species>.tsv` is what keeps the
+**The split follows the directory contract's cite-or-delete test.** The six tables and the two
+manifests are all cited or checked — the two per-predictor tables because `merge.py` is built from
+them and the remap figure recomputes against them; `deeplocpro_probabilities_<species>.tsv` is what keeps the
 Gram-positive remap measurable (the `gram_remap.png` figure recomputes the raw argmax from it),
 `tmbed_topology_<species>.tsv` carries the strand count the β-barrel guard reads, and
 `tmbed_labels_<species>.tsv` is the raw string every future topology feature derives from — so
@@ -223,15 +241,11 @@ and deleted to reclaim space, so they are `scratch/`.
 No raw directory: both models' weights come from the `gradi-loc` install and the HF/torch caches,
 not from a fetch this stage performs.
 
-**Two files, not one.** They answer different questions and neither derives from the other, so
-merging them is a decision for whichever stage consumes them. `src.localization.load()` offers the
-join as a view rather than materialising a third file.
-
 | helper | returns |
 |---|---|
-| `load_deeplocpro(species)` | the compartment call |
-| `load_tmbed(species)` | the topology score |
-| `load(species)` | both, joined on `uniprot_ac` |
+| `load(species)` | **the deliverable** — both predictors, complete and canonical |
+| `load_deeplocpro(species)` | the compartment call alone, from `evidence/` |
+| `load_tmbed(species)` | the topology score alone, from `evidence/` |
 | `load_all(species=SPECIES)` | all species stacked, with a `species` column |
 | `load_probabilities(species)` | the raw un-remapped 6-vector, margin, truncated |
 | `load_topology(species)` | `n_tm_helix`, `n_tm_strand`, `cyto_longest_segment`, `tmbed_length` |

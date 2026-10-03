@@ -242,27 +242,60 @@ def _path(directory: Path, name: str) -> Path:
 
 
 def load_deeplocpro(species: str) -> pd.DataFrame:
-    """One species' compartment calls: uniprot_ac, localization, confidence."""
+    """One species' compartment calls: uniprot_ac, localization, confidence.
+
+    **Evidence, not the deliverable** -- `load()` is the table this axis ships. Kept as its own
+    file because the two predictors run and resume independently, so a `--only` run must still
+    have somewhere to write.
+    """
     _check(species)
-    return pd.read_csv(_path(LOCALIZATION_DIR, f"deeplocpro_{species}.tsv"), sep="\t",
+    return pd.read_csv(_path(EVIDENCE_DIR, f"deeplocpro_{species}.tsv"), sep="\t",
                        dtype={"uniprot_ac": str, "localization": str, "confidence": float})
 
 
 def load_tmbed(species: str) -> pd.DataFrame:
-    """One species' topology score: uniprot_ac, cytoplasmic_fraction, has_signal_peptide."""
+    """One species' topology score: uniprot_ac, cytoplasmic_fraction, has_signal_peptide.
+
+    **Evidence, not the deliverable** -- same contract as `load_deeplocpro`.
+    """
     _check(species)
-    return pd.read_csv(_path(LOCALIZATION_DIR, f"tmbed_{species}.tsv"), sep="\t",
+    return pd.read_csv(_path(EVIDENCE_DIR, f"tmbed_{species}.tsv"), sep="\t",
                        dtype={"uniprot_ac": str, "cytoplasmic_fraction": float,
                               "has_signal_peptide": bool})
 
 
 def load(species: str) -> pd.DataFrame:
-    """Both predictors joined on `uniprot_ac`.
+    """`localization_<species>.tsv` -- the axis's single deliverable, complete and canonical.
 
-    A convenience view, deliberately not a third file on disk: the two predictors are separate
-    deliverables and merging them is the caller's choice, not this stage's.
+        uniprot_ac  localization  confidence  cytoplasmic_fraction  has_signal_peptide
+
+    **No `evidence` column, unlike the other axes.** Both predictors cover 100% of every proteome
+    BY CONSTRUCTION, so the column was constant across all 13,020 proteins and said nothing;
+    `merge.py` still exits non-zero if either track is silent. Do not re-add it as a constant.
+
+    **Two predictors side by side, never reduced to one call.** DeepLocPro answers *which
+    compartment*, TMbed *how much of the chain faces the cytoplasm*; neither derives from the
+    other, and where they disagree the disagreement is the information -- TMbed corroborates
+    `extracellular`, DeepLocPro's weakest class, from outside that model. **Prefer
+    `cytoplasmic_fraction` over `localization` where a choice is forced.**
+
+    **100% coverage is a property of the method, not evidence.** DeepLocPro always returns a call
+    and has no `unknown` class, so a confident-looking label is not a measurement.
+
+    **The Gram-positive trap.** On *S. aureus* the model runs in `positive` mode, which does not
+    merely mask `periplasm` and `outer_membrane` -- it ADDS their probability mass into
+    `extracellular`. Sa therefore has four reachable classes, and the absence of those two labels
+    is STRUCTURAL, not missing data. `load_probabilities()` is the only place that moved mass can
+    be measured.
+
+    **E. coli K-12 is almost certainly in DeepLocPro's training set**, so any E. coli agreement
+    number is a sanity check rather than validation; Kp and Sa are the honest test sets.
+
+    No accessibility score is derived here -- that is a modelling decision for whichever stage
+    consumes this, and v1's `clp_accessibility` ladder was consumed by nothing.
     """
-    return load_deeplocpro(species).merge(load_tmbed(species), on="uniprot_ac", how="left")
+    _check(species)
+    return pd.read_csv(_path(LOCALIZATION_DIR, f"localization_{species}.tsv"), sep="\t")
 
 
 def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:

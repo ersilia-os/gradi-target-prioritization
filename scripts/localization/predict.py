@@ -84,11 +84,14 @@ prokaryote-only, and a eukaryotic call would need DeepLoc 2.x and a disjoint voc
 
 Output
 ------
-    data/processed/localization/deeplocpro_<species>.tsv
-        uniprot_ac  localization  confidence
+    evidence/deeplocpro_<species>.tsv     uniprot_ac  localization  confidence
+    evidence/tmbed_<species>.tsv          uniprot_ac  cytoplasmic_fraction  has_signal_peptide
 
-    data/processed/localization/tmbed_<species>.tsv
-        uniprot_ac  cytoplasmic_fraction  has_signal_peptide
+**Neither is the deliverable.** `scripts/localization/merge.py` stacks the two into
+`data/processed/localization/localization_<species>.tsv`, the axis's single table; these two are
+the per-predictor record it is built from. They stay separate ON DISK because the two tracks run
+independently and are separately resumable -- TMbed alone is CPU-only hours -- so merging inside
+this script would mean a `--only` run could not write a deliverable at all.
 
     evidence/deeplocpro_probabilities_<species>.tsv   raw un-remapped 6-vector, margin, truncated
     evidence/tmbed_topology_<species>.tsv             n_tm_helix, n_tm_strand, cyto_longest, length
@@ -98,9 +101,10 @@ Output
     scratch/tmbed_shards/<species>_<size>_<NNNN>.pred   shard cache (resumable)
     evidence/{deeplocpro,tmbed}_manifest.tsv
 
-Two files, not one. They answer different questions and neither derives from the other, so merging
-them is a decision for whichever stage consumes them -- `src.localization.load()` offers the join
-as a view rather than a third file. No accessibility score is computed here.
+Two predictors, one table. They answer different questions and neither derives from the other, so
+the merged table keeps both side by side and never reduces them to one call: `merge.py` stacks the
+columns, it does not arbitrate between them. No accessibility score is computed here -- that is a
+modelling decision for whichever stage consumes this.
 
 Run with the `gradi` env:
     python scripts/localization/predict.py                                 # both predictors, 3 species
@@ -330,7 +334,7 @@ def run_deeplocpro(species, df, python, device, refresh, limit) -> dict:
                  f"(min {sums.min():.4f}, max {sums.max():.4f}).")
 
     out_path = (SCRATCH_DIR / f"smoke_deeplocpro_{species}.tsv") if limit \
-        else (OUT_DIR / f"deeplocpro_{species}.tsv")
+        else (EVIDENCE_DIR / f"deeplocpro_{species}.tsv")
     if not limit:
         out = M.reindex(out, species)   # canonical row order -- see src/matrices.py
     out.to_csv(out_path, sep="\t", index=False)
@@ -435,7 +439,7 @@ def run_tmbed(species, df, tmbed, shard_size, threads, refresh, limit) -> dict:
     if not limit:
         full = M.reindex(full, species)   # canonical row order -- see src/matrices.py
     out_path = (SCRATCH_DIR / f"smoke_tmbed_{species}.tsv") if limit \
-        else (OUT_DIR / f"tmbed_{species}.tsv")
+        else (EVIDENCE_DIR / f"tmbed_{species}.tsv")
     full[TMBED_OUT_COLUMNS].to_csv(out_path, sep="\t", index=False)
     full[TMBED_ACCESSORY_COLUMNS].to_csv(
         (SCRATCH_DIR if pre else EVIDENCE_DIR) / f"{pre}tmbed_topology_{species}.tsv", sep="\t", index=False)
@@ -468,7 +472,7 @@ def marker_checks(species_list, limit) -> tuple[list[str], float | None]:
     hits, total, fails = 0, 0, []
     for sp in species_list:
         path = (SCRATCH_DIR / f"smoke_deeplocpro_{sp}.tsv") if limit \
-            else (OUT_DIR / f"deeplocpro_{sp}.tsv")
+            else (EVIDENCE_DIR / f"deeplocpro_{sp}.tsv")
         dlp = _read(path)
         if dlp is None:
             continue
@@ -547,8 +551,9 @@ def cross_check(species_list, limit) -> None:
     pre = "smoke_" if limit else ""
     for sp in species_list:
         dlp = _read((SCRATCH_DIR / f"smoke_deeplocpro_{sp}.tsv") if limit
-                    else (OUT_DIR / f"deeplocpro_{sp}.tsv"))
-        tm = _read((SCRATCH_DIR / f"smoke_tmbed_{sp}.tsv") if limit else (OUT_DIR / f"tmbed_{sp}.tsv"))
+                    else (EVIDENCE_DIR / f"deeplocpro_{sp}.tsv"))
+        tm = _read((SCRATCH_DIR / f"smoke_tmbed_{sp}.tsv") if limit
+                   else (EVIDENCE_DIR / f"tmbed_{sp}.tsv"))
         topo = _read((SCRATCH_DIR if pre else EVIDENCE_DIR) / f"{pre}tmbed_topology_{sp}.tsv")
         if dlp is None or tm is None or topo is None:
             continue
@@ -598,8 +603,9 @@ def main() -> None:
     say("STAGE 03 - localization from sequence")
     rule("=")
     say("  in       : data/processed/proteomes/proteome_<species>.tsv  (uniprot_ac + sequence)")
-    say(f"  out      : {OUT_DIR.relative_to(REPO_ROOT)}/"
-        "{deeplocpro,tmbed}_<species>.tsv  (+ evidence/ + scratch/)")
+    say(f"  out      : {EVIDENCE_DIR.relative_to(REPO_ROOT)}/"
+        "{deeplocpro,tmbed}_<species>.tsv  (+ scratch/)")
+    say("             then: python scripts/localization/merge.py  ->  localization_<species>.tsv")
     say("  method   : DeepLocPro 1.0 -> compartment  ·  TMbed -> topology, sequence only")
     say(f"  classes  : {', '.join(LOC.LOC_CLASSES)}")
     say(f"  species  : {', '.join(args.species)}")
