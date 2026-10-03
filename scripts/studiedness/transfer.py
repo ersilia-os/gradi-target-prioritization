@@ -171,7 +171,6 @@ G2P_COUNTS = OUT_DIR / "scratch" / "gene2pubmed_counts.tsv"
 # carried per donor and scored by the held-out control, and neither feeds donor selection or the
 # deliverable. Absent files degrade to zeros with a printed note, exactly like gene2pubmed.
 PT_GENEID_COUNTS = OUT_DIR / "scratch" / "pubtator_geneid_counts.tsv"
-PT_OWN_PMIDS = OUT_DIR / "scratch" / "pubtator_own_pmids.tsv"
 PT_SYMBOL_COUNTS = OUT_DIR / "scratch" / "pubtator_symbol_counts.tsv"
 DEFAULT_DIAMOND_DIR = Path.home() / "miniconda3" / "envs" / "gradi-ortho" / "bin"
 
@@ -354,46 +353,6 @@ def load_swissprot(counts: dict[str, int],
 EXACT_PIDENT = 95.0
 
 
-def pubtator_own_pmids() -> dict[str, set]:
-    """PubTator PMID sets per GeneID, for `n_papers_pubtator_own`. Written by pubtator.py."""
-    if not PT_OWN_PMIDS.exists():
-        say("  NOTE pubtator own-PMID sets absent -- n_papers_pubtator_own will be empty. "
-            "Run scripts/studiedness/pubtator.py --route own-pmids")
-        return {}
-    out: dict[str, set] = {}
-    for line in PT_OWN_PMIDS.read_text().splitlines()[1:]:
-        g, _, p = line.partition("\t")
-        out[g] = set(p.split(";")) if p else set()
-    say(f"  pubtator own   PMID sets for {len(out):,} GeneIDs")
-    return out
-
-
-def exact_own_geneids(species: str, hits: pd.DataFrame, sp_meta: pd.DataFrame,
-                      prot: pd.DataFrame) -> dict[str, set]:
-    """GeneIDs that name THIS protein -- its own, plus the same three `exact` routes.
-
-    The PubTator twin of `exact_own_pmids`. Same rule, different key: literature is reached
-    through NCBI GeneIDs rather than UniProt accessions, so the union is taken over the GeneIDs
-    of every entry that names this protein.
-    """
-    gid_of = dict(zip(sp_meta["donor_ac"], sp_meta["geneid"]))
-    bino = dict(zip(sp_meta["donor_ac"], sp_meta["donor_binomial"]))
-    want = ANCHOR_BINOMIAL[species]
-    out: dict[str, set] = {}
-    for a, cell in zip(prot["uniprot_ac"], prot["geneid"]):
-        got = set(split_ids(cell))
-        if got:
-            out[a] = got
-    h = hits[hits["qseqid"].isin(set(prot["uniprot_ac"]))]
-    h = h[(h["qcovhsp"] >= S.COVERAGE_FLOOR) & (h["scovhsp"] >= S.COVERAGE_FLOOR)]
-    same = h[(h["pident"] >= EXACT_PIDENT) & h["donor_ac"].map(lambda a: bino.get(a) == want)]
-    ident = h[(h["pident"] >= 100) & (h["qcovhsp"] >= 100) & (h["scovhsp"] >= 100)]
-    for frame in (same, ident):
-        for q, d in zip(frame["qseqid"], frame["donor_ac"]):
-            out.setdefault(q, set()).update(split_ids(gid_of.get(d, "")))
-    return out
-
-
 def exact_own_pmids(species: str, hits: pd.DataFrame, sp_meta: pd.DataFrame,
                     self_pmids: dict[str, set]) -> dict[str, set]:
     """PMIDs naming THIS protein, by the ligands axis's `exact` rule.
@@ -443,9 +402,7 @@ def own_exact(species: str, hits: pd.DataFrame, sp_meta: pd.DataFrame,
 
 
 def own_signals(species: str, counts: dict[str, int],
-                exact: dict[str, set] | None = None,
-                pt_gids: dict[str, set] | None = None,
-                pt_pmids: dict[str, set] | None = None) -> pd.DataFrame:
+                exact: dict[str, set] | None = None) -> pd.DataFrame:
     """This accession's own curation -- a measurement of darkness on Kp and Sa."""
     path = LIT_DIR / f"anchor_{species}.tsv.gz"
     if not path.exists():
@@ -475,21 +432,8 @@ def own_signals(species: str, counts: dict[str, int],
     else:
         df["n_papers_uniprot_own"] = df["n_pubs_uniprot"]
     df = df.drop(columns=["_self"])
-    # The PubTator twin of n_papers_uniprot_own: same `exact` rule, same union-of-PMIDs, but
-    # reached through NCBI GeneIDs. **Expect it to be near-empty on Kp and Sa** -- PubTator's
-    # gene vocabulary barely covers those proteomes' own GeneIDs (Kp 1.9%, Sa 14.8%, Ec 91.5%).
-    # That emptiness is a second, independent measurement of darkness, not a defect, which is
-    # the same reason n_papers_uniprot_own is kept despite being flat on Kp.
-    if pt_gids is not None and pt_pmids is not None:
-        df["n_papers_pubtator_own"] = [
-            len(set().union(*(pt_pmids.get(g, set()) for g in pt_gids.get(a, ()))) )
-            if pt_gids.get(a) else 0
-            for a in df["uniprot_ac"]]
-    else:
-        df["n_papers_pubtator_own"] = 0
     return df[["uniprot_ac", "gene_name", "reviewed", "annotation_score", "protein_existence",
-               "n_pubs_uniprot", "n_pubs_gene2pubmed", "n_papers_uniprot_own",
-               "n_papers_pubtator_own"]]
+               "n_pubs_uniprot", "n_pubs_gene2pubmed", "n_papers_uniprot_own"]]
 
 
 # ---------------------------------------------------------------- DIAMOND
@@ -911,7 +855,6 @@ def main() -> None:
     rule()
     counts = gene2pubmed_counts()
     pt_geneid, pt_symbol = pubtator_counts()
-    pt_pmids = pubtator_own_pmids()
     sp_meta = load_swissprot(counts, pt_geneid, pt_symbol)
     top = sp_meta.loc[sp_meta["donor_n_pubs_uniprot"].idxmax()]
     say(f"  THE NUMBER  n_papers_uniprot_prokaryotic = the donor's curated reference count. No scaling, no "
@@ -954,8 +897,7 @@ def main() -> None:
     for sp in args.species:
         own = own_signals(sp, counts,
                           own_exact(sp, hits, sp_meta,
-                                    set(P.load_full(sp)["uniprot_ac"])),
-                          exact_own_geneids(sp, hits, sp_meta, P.load_full(sp)), pt_pmids)
+                                    set(P.load_full(sp)["uniprot_ac"])))
         if args.limit:
             own = own.head(args.limit)
         sp_hits = hits[hits.qseqid.isin(set(own["uniprot_ac"]))]
@@ -1123,8 +1065,7 @@ def main() -> None:
     excl = ecoli_taxids(sp_meta)
     own_by_sp = {sp: own_signals(sp, counts,
                                  own_exact(sp, hits, sp_meta,
-                                           set(P.load_full(sp)["uniprot_ac"])),
-                                 exact_own_geneids(sp, hits, sp_meta, P.load_full(sp)), pt_pmids)
+                                           set(P.load_full(sp)["uniprot_ac"])))
                  for sp in args.species}
     sweep = []
     for floor in FLOOR_SWEEP:
@@ -1160,9 +1101,7 @@ def main() -> None:
         rule()
         ec_own = own_signals("ecoli", counts,
                              own_exact("ecoli", hits, sp_meta,
-                                       set(P.load_full("ecoli")["uniprot_ac"])),
-                             exact_own_geneids("ecoli", hits, sp_meta,
-                                               P.load_full("ecoli")), pt_pmids)
+                                       set(P.load_full("ecoli")["uniprot_ac"])))
         both = {}
         for scope in SCOPES:
             both[scope] = run_control(hits, sp_meta, ec_own, scope=scope)

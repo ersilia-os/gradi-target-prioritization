@@ -99,11 +99,6 @@ SCRATCH_DIR = OUT_DIR / "scratch"
 LIT_DIR = REPO_ROOT / "data" / "source" / "uniprot" / "literature"
 BULK = REPO_ROOT / "data" / "source" / "ncbi" / "pubtator" / "gene2pubtator3.gz"
 GENEID_COUNTS = SCRATCH_DIR / "pubtator_geneid_counts.tsv"
-# PMID SETS, not counts, for the small set of GeneIDs the `own` column needs. Counts cannot be
-# unioned -- two strain entries cite overlapping papers -- and `n_papers_uniprot_own` already
-# established that union beats max (Sa 965 against 776). Kept to the few thousand GeneIDs that
-# can name an anchor protein, so one pass costs seconds and a few MB.
-GENEID_PMIDS = SCRATCH_DIR / "pubtator_own_pmids.tsv"
 SYMBOL_COUNTS = SCRATCH_DIR / "pubtator_symbol_counts.tsv"
 SPECIES_COUNTS = SCRATCH_DIR / "pubtator_species_counts.tsv"
 TAXDUMP = REPO_ROOT / "data" / "source" / "ncbi" / "taxonomy" / "taxdump.tar.gz"
@@ -263,47 +258,6 @@ def human_symbols() -> set[str]:
                              usecols=["Gene Names (primary)", "Organism"], chunksize=100_000):
         hit = chunk[chunk["Organism"].str.startswith("Homo sapiens")]
         out |= {g.strip().lower() for g in hit["Gene Names (primary)"] if g.strip()}
-    return out
-
-
-def stream_geneid_pmids(wanted: set[str], refresh: bool) -> dict[str, set]:
-    """PMID SETS for a small set of GeneIDs -- what `n_papers_pubtator_own` is built from.
-
-    Separate from `stream_geneid_counts` on purpose: that one reduces 273,002 GeneIDs to counts,
-    which is all the donor column needs. The `own` column must UNION across the GeneIDs that name
-    the same protein (its own, plus same-species >=95% and identical-sequence matches), and counts
-    cannot be unioned without double-counting shared papers.
-    """
-    if GENEID_PMIDS.exists() and not refresh:
-        out: dict[str, set] = {}
-        for line in GENEID_PMIDS.read_text().splitlines()[1:]:
-            g, p = line.split("\t")
-            out[g] = set(p.split(";")) if p else set()
-        say(f"  cached {GENEID_PMIDS.relative_to(REPO_ROOT)}: {len(out):,} GeneIDs")
-        return out
-    if not BULK.exists():
-        sys.exit(f"FATAL missing {BULK.relative_to(REPO_ROOT)} -- see its SOURCE.md")
-    out = {}
-    rows = 0
-    t0 = time.time()
-    with gzip.open(BULK, "rt", errors="replace") as fh:
-        for line in fh:
-            rows += 1
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 4 or parts[1] != "Gene":
-                continue
-            for gid in parts[2].split(";"):
-                gid = gid.strip()
-                if gid in wanted:
-                    out.setdefault(gid, set()).add(parts[0])
-    say(f"  streamed {rows:,} rows in {time.time() - t0:.0f}s -> PMID sets for {len(out):,} "
-        f"of {len(wanted):,} wanted GeneIDs")
-    SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
-    with GENEID_PMIDS.open("w") as fh:
-        fh.write("geneid\tpmids\n")
-        for g in sorted(out):
-            fh.write(f"{g}\t{';'.join(sorted(out[g]))}\n")
-    say(f"  wrote {GENEID_PMIDS.relative_to(REPO_ROOT)}")
     return out
 
 

@@ -1218,19 +1218,22 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   Details: `docs/essentiality.md`.
 
 - **`studiedness/fetch.py`** + **`gene2pubmed.py`** + **`pubtator.py`** + **`unknome.py`** +
-  **`transfer.py`** + **`merge.py`** → `studiedness_<species>.tsv`: **four counts on a 2×2 grid, {uniprot, pubtator} × {own,
-  prokaryotic}** — `n_papers_uniprot_own` · `n_papers_pubtator_own` ·
+  **`transfer.py`** + **`merge.py`** → `studiedness_<species>.tsv`: **three counts** — `n_papers_uniprot_own` ·
   **`n_papers_uniprot_prokaryotic`** (the ranking) · `n_papers_pubtator_prokaryotic`.
   **The names say SOURCE and DONOR SCOPE and claim nothing more — "family" was dropped
   2026-10-03 because neither `_prokaryotic` column aggregates a family**: each reads ONE donor,
   and not the same one (the two donors agree on 84.5% of Kp, differ on 15.5%). **`_prokaryotic`
   names the DONOR POOL, not a species search** — for 99.8% of Kp the donor is another organism,
-  usually E. coli K-12. **`n_papers_pubtator_own` is near-empty on Kp (124) and Sa (427) against
-  Ec (4,028) and that is the finding**, not a defect: PubTator's gene vocabulary barely covers
-  those proteomes. **Do not rank Kp or Sa on either `own` column.** Wanted in both directions — an uncharacterised
-  target is a risk, but it is also the novelty the collaboration is looking for
-  (`src.studiedness.novelty()` reads it the other way). Run in that order; DIAMOND from
-  `gradi-ortho`.
+  usually E. coli K-12.
+
+  **REJECTED, built and removed the same day: `n_papers_pubtator_own`** — 98% empty on Kp, 85% on
+  Sa; **a zero-filled column reads as noise, not as evidence.** The free-text rebuild
+  (`<gene_name> AND @SPECIES_<taxid>`) was measured at **22/24 non-zero on a Kp sample against
+  2/24** and rejected anyway: co-occurrence not identity, caps at gene-name coverage (Kp 63.4%),
+  ~8,000 API calls, and it would imply the same definition as an exact curated count.
+  **`n_papers_pubtator_prokaryotic` STAYS** — it is 41% empty against the curated column's 34%,
+  **84% of that emptiness is shared** (proteins with no donor at all), and it is the **best
+  predictor on the held-out control, 0.3722 against 0.3398**. Do not confuse the two.
 
   **THREE COUNTS, THREE DEFINITIONS, NEVER a `max()` ACROSS THEM** — that is what killed the 0-1
   composite on 2026-09-22. **Rank on `n_papers_uniprot_prokaryotic`.**

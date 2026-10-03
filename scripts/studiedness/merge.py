@@ -115,17 +115,6 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     # `no_hit` (nothing in SwissProt resembles this protein -- the strongest novelty claim the
     # axis makes) and `below_floor` (a too-distant curated relative) both read 0 here.
     out = tr[["uniprot_ac", "n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"]].copy()
-    # The 2x2 grid: {uniprot, pubtator} x {own, prokaryotic}. `n_papers_pubtator_own` comes from
-    # own_<species>.tsv rather than the transfer table, because it is a property of the anchor
-    # protein, not of any donor.
-    ownp = EVIDENCE_DIR / f"own_{species}.tsv"
-    if ownp.exists():
-        o = pd.read_csv(ownp, sep="\t", dtype=str, keep_default_na=False)
-        if "n_papers_pubtator_own" in o.columns:
-            out = out.merge(o[["uniprot_ac", "n_papers_pubtator_own"]], on="uniprot_ac",
-                            how="left")
-            out["n_papers_pubtator_own"] = pd.to_numeric(
-                out["n_papers_pubtator_own"], errors="coerce").fillna(0).astype(int)
     out = add_pubtator(out, tr, species)
     if out[["n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"]].isna().any().any():
         n = int(out[["n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"]].isna().any(axis=1).sum())
@@ -138,10 +127,14 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     # Canonical row order by construction, not by hope. reindex() refuses to invent a missing
     # protein, so an incomplete axis fails here rather than shipping a NaN row.
-    order = [c for c in ("uniprot_ac", "n_papers_uniprot_own", "n_papers_pubtator_own",
+    order = [c for c in ("uniprot_ac", "n_papers_uniprot_own",
                          "n_papers_uniprot_prokaryotic", "n_papers_pubtator_prokaryotic")
              if c in out.columns]
     out = out[order]
+    # NULLABLE INTEGER, not float. pandas needs float to hold the blanks, which writes `14.0`
+    # for a paper count and makes the column read as noisy. Int64 keeps blanks blank.
+    if "n_papers_pubtator_prokaryotic" in out.columns:
+        out["n_papers_pubtator_prokaryotic"] = out["n_papers_pubtator_prokaryotic"].astype("Int64")
     out = M.reindex(out, species)
     M.assert_canonical(out["uniprot_ac"], species)
     return out, tr

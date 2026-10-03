@@ -245,7 +245,11 @@ def load(species: str) -> pd.DataFrame:
                                         Sa by design — it is the measurement of darkness.
         n_papers_uniprot_prokaryotic    curated references on the best-studied prokaryotic
                                         SwissProt homolog. **THE SHIPPED RANKING — rank on this.**
-        n_papers_pubtator_prokaryotic   PubTator3 TEXT-MINED papers on that donor's gene symbol.
+        n_papers_pubtator_prokaryotic   PubTator3 TEXT-MINED papers on a prokaryotic homolog,
+                                        keyed on NCBI GeneID (NOT a gene symbol -- the symbol
+                                        routes were measured and rejected). ITS OWN DONOR,
+                                        chosen by PubTator count, which differs from the curated
+                                        column's donor on 15.5% of Kp proteins.
 
     **The pubtator/own cell was measured and dropped** (2026-10-03). Text mining does not rescue a
     dark anchor: `n_papers_pubtator_own` was median 0 on Kp with only **2.2%** of proteins above
@@ -295,6 +299,11 @@ def load(species: str) -> pd.DataFrame:
     for c in ("n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"):
         if c in df.columns:
             df[c] = df[c].astype(int)
+    # NULLABLE INTEGER, not float. The column carries blanks (no in-scope donor had a GeneID),
+    # which forces float and prints a paper count as `14.0`. Int64 keeps the blanks AND the
+    # integer semantics -- a count of papers is never fractional.
+    if "n_papers_pubtator_prokaryotic" in df.columns:
+        df["n_papers_pubtator_prokaryotic"] = df["n_papers_pubtator_prokaryotic"].astype("Int64")
     return df
 
 

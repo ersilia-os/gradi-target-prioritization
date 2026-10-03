@@ -5,25 +5,19 @@ also the novelty the GraDi collaboration is looking for. `src.studiedness.novelt
 number read the other way.
 
 **Deliverable:** `data/processed/studiedness/studiedness_<species>.tsv`, complete and canonical for
-the three bacteria. **Four counts on a 2×2 grid — {uniprot, pubtator} × {own, prokaryotic}:**
+the three bacteria — **three counts**:
 
-| | **own** — this protein | **prokaryotic** — best-studied prokaryotic homolog |
-|---|---|---|
-| **uniprot** (curated) | `n_papers_uniprot_own` | **`n_papers_uniprot_prokaryotic`** ← the ranking |
-| **pubtator** (text-mined) | `n_papers_pubtator_own` | `n_papers_pubtator_prokaryotic` |
+| column | what it counts |
+|---|---|
+| `n_papers_uniprot_own` | curated PubMed refs naming **this protein**, by the ligands axis's `exact` rule — §6 |
+| **`n_papers_uniprot_prokaryotic`** | curated refs on the best-studied prokaryotic homolog — **the ranking** |
+| `n_papers_pubtator_prokaryotic` | PubTator3 **text-mined** papers on a prokaryotic homolog, keyed on NCBI GeneID — §3c |
 
-**Rank on `n_papers_uniprot_prokaryotic`.** The four counts are four DEFINITIONS and are never
+**Rank on `n_papers_uniprot_prokaryotic`.** The three counts are three DEFINITIONS and are never
 summed or `max()`-ed together — that is what killed the 0–1 composite on 2026-09-22.
 
-- **`_own`** = papers naming THIS protein, by the ligands axis's `exact` rule — the union of PMIDs
-  over accession + identical sequence + same species ≥95% (§6). Both `own` columns use the same
-  rule, so they are directly comparable; on E. coli, where both are populated, they agree at
-  **rho 0.663**.
-- **`_prokaryotic`** = papers on ONE donor protein, chosen from non-eukaryotic organisms. **The
-  suffix names the DONOR POOL, not a species search** — for 99.8% of Kp proteins the donor is a
-  different organism, usually *E. coli* K-12.
-- **`uniprot` vs `pubtator`** = curated references against text-mined mentions. PubTator is keyed
-  on **NCBI GeneID**, which already names one gene in one organism (§3c).
+**`_prokaryotic` names the DONOR POOL, not a species search.** For 99.8% of Kp proteins the donor
+is a different organism, usually *E. coli* K-12.
 
 **NEITHER `_prokaryotic` COLUMN IS A "FAMILY" COUNT, WHICH IS WHY THE NAMES DROPPED THE WORD**
 (2026-10-03). Each reads **one** donor, not an aggregate — and not the same one: the two donors
@@ -31,12 +25,24 @@ agree on 84.5% of Kp proteins and differ on 15.5%, because `n_papers_uniprot_pro
 the donor with most CURATED papers while `n_papers_pubtator_prokaryotic` takes the donor with most
 PUBTATOR papers (§3c).
 
-**`n_papers_pubtator_own` IS NEAR-EMPTY ON Kp AND Sa, AND THAT IS THE FINDING** — 124 of 5,728 Kp
-and 427 of 2,889 Sa proteins have any PubTator papers under their own GeneID, against 4,028 of
-4,403 on E. coli. PubTator's gene vocabulary barely covers those proteomes. It is an independent
-second measurement of the darkness this axis exists to quantify, which is also why
-`n_papers_uniprot_own` is kept despite being flat on Kp. **Do not rank Kp or Sa on either `own`
-column.**
+### REJECTED — `n_papers_pubtator_own` (built 2026-10-03, removed the same day)
+
+The fourth cell of the grid was built and dropped. **Do not rebuild it.**
+
+**Via NCBI GeneID** — same `exact` rule and union-of-PMIDs as its UniProt twin — it is **98% empty
+on Kp and 85% on Sa**, useful only on E. coli (91% populated). PubTator's gene vocabulary barely
+covers those proteomes' own GeneIDs.
+
+**Via free text** (`<gene_name> AND @SPECIES_<anchor taxid>`) it would be far denser — measured on
+a random 24-protein Kp sample, **22/24 non-zero against the GeneID route's 2/24**, with plausible
+values (`bla` 3,065, `fyuA` 481, `dnaB` 90, `murC` 43). **Rejected anyway, for four reasons**: it
+is co-occurrence rather than identity, carrying the same `tam` / `nimR` contamination as §3c
+documents for the donor column; it caps at gene-name coverage (Kp 63.4%); it costs ~8,000 API
+calls; and it would sit beside an exact curated count under a name implying the same definition.
+
+**A zero-filled column in the deliverable reads as noise, not as evidence** — which is the whole
+reason it went. The darkness it would have measured is already stated, more honestly, by
+`n_papers_uniprot_own` being flat on Kp (§1).
 
 **`evidence` IS NOT IN THIS TABLE** (project owner, 2026-10-03). It ships in
 `evidence/transfer_<species>.tsv` and `src.studiedness.load_transfer()`. The consequence is real

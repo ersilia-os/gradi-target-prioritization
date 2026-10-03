@@ -186,12 +186,6 @@ COLUMNS: dict[str, dict[str, str]] = {
         "n_papers_uniprot_own": "curated SwissProt references on THIS accession. A paper count, nothing "
                         "scaled. Near-dead on Kp -- 5,710 of 5,728 carry exactly one id, the genome "
                         "paper -- and that IS the measurement of darkness. Do not rank Kp or Sa on it.",
-        "n_papers_pubtator_own": "PubTator3 TEXT-MINED papers on THIS protein's own gene symbol -- "
-                                 "the own-scope counterpart of the column below. Median 0 on Kp "
-                                 "against a curated median of 1, so it does not rescue the dark "
-                                 "anchor either; the four columns are a 2x2 of SOURCE (uniprot "
-                                 "curated vs pubtator text-mined) x SCOPE (own vs prokaryotic "
-                                 "homolog). NEVER sum or max across them.",
         "n_papers_uniprot_prokaryotic": "references on the best-cited prokaryotic SwissProt homolog. RANK ON "
                            "THIS. Beside `_own` it makes `dark in Klebsiella, famous in E. coli` "
                            "readable off one row.",
