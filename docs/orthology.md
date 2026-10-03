@@ -15,6 +15,98 @@ orthologs**, and **how similar are they**. All four proteomes in one run — 33,
 
 **5,064 orthogroups**, ~410 of them spanning all four species. 10 min end to end.
 
+## The 26-species panel, and the two columns it is for
+
+`--panel full` adds tier C — 26 curated bacterial comparators, pinned in
+`src/proteome_registry.tsv` — to the OrthoFinder run. **30 proteomes, 140,396 proteins, 47 min.**
+The comparators inform the orthogroups and nothing else: no tables of their own, and pairwise
+DIAMOND stays on the four anchors (16 searches, not 900).
+
+Two columns in `orthology_<species>.tsv`:
+
+| column | meaning |
+|---|---|
+| `has_human_ortholog` | union of OrthoFinder and RBH, unchanged definition |
+| `n_bacterial_orthologs` | how many of the **28** bacterial proteomes share this protein's orthogroup |
+| `bacterial_panel_size` | 28 — so 12-of-28 cannot be misread as 12-of-3 |
+
+`n_bacterial_orthologs` counts **species, not proteins**: a paralog pair does not make a protein
+more conserved. It is **orthogroup-based rather than the union** used by `has_human_ortholog` —
+RBH against 26 comparators would cost 156 further DIAMOND searches (~5 h) for a second opinion on
+the same question.
+
+**Validated against biology**, which is the check that matters for a conservation column:
+
+| | ftsZ | gyrB | dnaA | secA | rpoB | clpP | lacZ |
+|---|---|---|---|---|---|---|---|
+| Kp | 28 | 28 | 28 | 28 | 27 | 16 | 5 |
+| Ec | 28 | 28 | 28 | 28 | 27 | 16 | 8 |
+| Sa | 28 | 28 | 28 | — | 27 | 7 | — |
+
+Core essential genes sit at the panel maximum; a metabolic gene like `lacZ` does not. **S. aureus's
+median is 5 against Kp/Ec's 15–16** — correct, not a defect: it is the only Gram-positive in a
+mostly Gram-negative panel.
+
+### Widening the panel moves two things at once, and human goes DOWN
+
+Written to `evidence/panel_expansion.tsv` every run, because a shipped column shifting silently is
+the thing to avoid:
+
+| | in_orthogroup | has_human_ortholog |
+|---|---|---|
+| Kp | 4,322 → **5,289** (+967) | 1,184 → **951** (−233) |
+| Ec | 3,646 → **4,247** (+601) | 980 → **838** (−142) |
+| Sa | 1,754 → **2,262** (+508) | 700 → **624** (−76) |
+| human | 16,282 → 16,507 (+225) | — |
+
+The coverage gain is the point: **+2,301 anchor proteins gained an orthogroup**, the unassigned set
+falling 7,432 → 5,131.
+
+**The human drop was predicted to be a regression, and that prediction was wrong.** "Recall rises
+with panel size" is a **bacteria↔bacteria** statistic (v1's 55.5% Kp↔Ec at 25 species vs 44.8% at
+4); this panel adds 26 bacteria and **no eukaryotes**. Better resolution on the bacterial side lets
+OrthoFinder separate orthologs from out-paralogs, so marginal bacteria↔human calls are withdrawn.
+
+Refinement rather than breakage, measured:
+
+| human identity | Kp survive | Ec | Sa |
+|---|---|---|---|
+| ≥ 60% | **13/13** | 11/12 | **3/3** |
+| ≥ 50% | 56/60 | 57/59 | **23/23** |
+| ≥ 40% | 195/224 | 184/206 | 118/128 |
+
+The losses concentrate at 40–50%, where ortholog-vs-paralog is genuinely ambiguous — median
+identity 33.5% among the kept against 28.8% among the dropped.
+
+### The run that justifies keeping both methods
+
+Kp `clpP` → human mitochondrial CLPP at 56.3% identity is documented here as an ortholog by *both*
+methods. After the expansion OrthoFinder calls it **`of=0`**, and only RBH still finds it — so
+`has_human_ortholog` stays `True` solely because the axis takes the union. At ≥50% identity RBH
+rescues **9 Kp proteins** OrthoFinder misses (9 Ec, 4 Sa). Had either method been adopted alone,
+this panel change would have silently dropped real human liabilities.
+
+## Coverage: there is no "not in the database" failure here
+
+The axis cannot lose a protein to a lookup miss, because OrthoFinder runs **de novo on our own
+FASTAs**. Verified: `orthology_<sp>.tsv` has exactly one row per proteome protein with `searched`
+true — 5,728 / 4,403 / 2,889 / 20,416, **100%**. Compare the lookup routes on the same proteins:
+OrthoDB reaches 92.7% of Kp, eggNOG 91.5%.
+
+A protein with **no orthogroup is a measured singleton, not a gap**. Before the expansion, of Kp's
+1,406 such proteins only **214 (15.2%)** had any cross-species DIAMOND neighbour at all; the other
+85% genuinely had no detectable homolog among three bacteria. Those ~15% are most of what the wider
+panel recovered.
+
+**A trap in the loaders, found twice.** `orthodb_og_domain.notna()` used to report 5,728 of 5,728
+on Kp — but 416 of those are the empty string, so the real coverage is 5,312 (92.7%). `pd.NA`
+written to TSV returns as `""`, and under `string` dtype that is a valid non-null value. The same
+defect was fixed in `src/ligandability._coerce_precedents` for `exact_target`, so it is a property
+of this repo's TSV round-trips. Both loaders now map empty to `pd.NA`. Relatedly,
+`src/orthology._read` coerced numerics from a hand-kept column list, so `n_bacterial_orthologs`
+came back as **text** and `<= panel_size` raised `TypeError`; the rule is now the `n_` prefix, so a
+new count column cannot be forgotten.
+
 ## Why this stage exists in this shape
 
 v1 built orthology twice and its retrospective records the outcome as **trap 1**, its headline

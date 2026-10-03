@@ -136,12 +136,29 @@ def orthofinder_version() -> str:
 # ---------------------------------------------------------------- inputs
 
 
-def write_fastas(species: tuple[str, ...]) -> dict[str, int]:
-    """One FASTA per species, headers as bare `uniprot_ac`.
+def comparator_panel() -> list[str]:
+    """Tier-C labels from the registry -- the 26-species bacterial comparator panel.
 
-    Written from the `sequence` column of `proteome_<species>.tsv` (100% populated in all four)
-    rather than from `data/raw/`, so the FASTA can never drift from the table the rest of the
-    pipeline joins on. The file stem becomes OrthoFinder's species name.
+    Read from `src/proteome_registry.tsv` rather than listed here, so the panel has exactly one
+    definition and adding a species is a registry edit. Every row is already pinned to an explicit
+    proteome id.
+    """
+    reg = pd.read_csv(REPO_ROOT / "src" / "proteome_registry.tsv", sep="\t")
+    return sorted(reg.loc[reg["tier"] == "C", "label"].astype(str))
+
+
+def write_fastas(species: tuple[str, ...], comparators: tuple[str, ...] = ()) -> dict[str, int]:
+    """One FASTA per proteome, headers as bare accessions. Anchors first, then comparators.
+
+    Anchors are written from the `sequence` column of `proteome_<species>.tsv` (100% populated in
+    all four) rather than from `data/raw/`, so the FASTA can never drift from the table the rest of
+    the pipeline joins on. The file stem becomes OrthoFinder's species name.
+
+    **Comparators come from `data/source/uniprot/proteomes/<label>.fasta`** and have no
+    `proteome_<label>.tsv` -- they are not analysis subjects, they are there to give OrthoFinder
+    enough phylogenetic spread to form orthogroups. Their UniProt headers (`>sp|ACC|NAME ...`) are
+    reduced to the bare accession, matching the anchors' convention, because OrthoFinder splits
+    on whitespace and the descriptions would otherwise end up in the gene ids.
     """
     FASTA_DIR.mkdir(parents=True, exist_ok=True)
     counts = {}
@@ -152,10 +169,34 @@ def write_fastas(species: tuple[str, ...]) -> dict[str, int]:
             for ac, seq in zip(df["uniprot_ac"], df["sequence"]):
                 fh.write(f">{ac}\n{seq}\n")
         counts[sp] = len(df)
+
+    # `download.py` writes UniProt fetches to `<RAW_DIR>/uniprot/`; the tier-A files one level up
+    # are stale from an earlier layout. Both are checked so neither convention silently misses.
+    roots = [REPO_ROOT / "data" / "source" / "uniprot" / "proteomes" / "uniprot",
+             REPO_ROOT / "data" / "source" / "uniprot" / "proteomes"]
+    for label in comparators:
+        fa = next((r / f"{label}.fasta" for r in roots if (r / f"{label}.fasta").exists()), None)
+        if fa is None:
+            sys.exit(f"FAILED: {label}.fasta not found under "
+                     f"{roots[0].relative_to(REPO_ROOT)} -- fetch the panel first:\n"
+                     "    python scripts/proteomes/download.py --tier C")
+        n = 0
+        with (FASTA_DIR / f"{label}.faa").open("w") as fh:
+            for line in fa.read_text().splitlines():
+                if line.startswith(">"):
+                    # >sp|ACC|NAME desc  ->  >ACC
+                    parts = line[1:].split("|")
+                    fh.write(f">{parts[1] if len(parts) > 2 else line[1:].split()[0]}\n")
+                    n += 1
+                else:
+                    fh.write(line + "\n")
+        counts[label] = n
+
     # OrthoFinder takes a DIRECTORY and treats every file in it as a proteome, so a stale FASTA from
     # an earlier --species subset would silently join the run.
+    keep = set(species) | set(comparators)
     for stale in FASTA_DIR.glob("*.faa"):
-        if stale.stem not in species:
+        if stale.stem not in keep:
             stale.unlink()
     return counts
 
@@ -233,6 +274,31 @@ def parse_orthogroups(results: Path, species: tuple[str, ...]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def panel_membership(results: Path, bacterial: tuple[str, ...]) -> dict[str, int]:
+    """orthogroup -> how many BACTERIAL proteomes in the run have a member in it.
+
+    This is what makes `n_bacterial_orthologs` a conservation measure: a group containing members
+    from 27 of the 28 bacteria is a core gene, one containing only its own species is specific to
+    it. Counted over SPECIES, not over proteins -- a paralog pair does not make a protein more
+    conserved, and the approved reading of the column is "how many species have an ortholog".
+
+    Only `Orthogroups.tsv` matters here: an UNASSIGNED protein is in no group, so its count is 0 by
+    construction and nothing needs to be read for it.
+    """
+    assigned = pd.read_csv(results / "Orthogroups" / "Orthogroups.tsv", sep="\t",
+                           dtype=str, keep_default_na=False)
+    present = [c for c in bacterial if c in assigned.columns]
+    missing = [c for c in bacterial if c not in assigned.columns]
+    if missing:
+        sys.exit(f"FAILED: {len(missing)} bacterial proteomes are absent from Orthogroups.tsv "
+                 f"({missing[:3]}...). The OrthoFinder run did not include the panel; re-run with "
+                 "--panel full --refresh rather than reporting a count over a partial panel.")
+    counts = {}
+    for _, r in assigned.iterrows():
+        counts[r["Orthogroup"]] = sum(1 for c in present if str(r[c]).strip())
+    return counts
+
+
 def parse_orthologues(results: Path) -> pd.DataFrame:
     """OrthoFinder's pairwise orthologs, expanded to ordered (query, target) pairs.
 
@@ -306,7 +372,12 @@ def main() -> None:
     global VERBOSE
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--species", nargs="+", default=list(O.SPECIES), choices=list(O.SPECIES))
+    ap.add_argument("--species", nargs="+", default=list(O.SPECIES), choices=list(O.SPECIES),
+                    help="the ANCHORS to produce tables for (default: all four)")
+    ap.add_argument("--panel", choices=["anchors", "full"], default="anchors",
+                    help="`full` adds the 26-species tier-C comparator panel to the OrthoFinder "
+                         "run. They inform the orthogroups and get no tables of their own; "
+                         "pairwise DIAMOND stays on the anchors. Default keeps prior behaviour.")
     ap.add_argument("--top-k", type=int, default=O.TOP_K,
                     help="nearest neighbours kept per target species (default: 5)")
     ap.add_argument("--evalue", type=float, default=O.EVALUE)
@@ -320,13 +391,17 @@ def main() -> None:
     args = ap.parse_args()
     VERBOSE = not args.quiet
     species = tuple(s for s in O.SPECIES if s in args.species)
+    comparators = tuple(comparator_panel()) if args.panel == "full" else ()
 
     rule("=")
     say("STAGE 05 - orthology: ortholog matrix + nearest-neighbour matrix")
     rule("=")
     say("  in       : data/processed/proteomes/proteome_<species>.tsv  (the `sequence` column)")
     say(f"  out      : {OUT_DIR.relative_to(REPO_ROOT)}/  (+ evidence/ + scratch/)")
-    say(f"  species  : {', '.join(species)}")
+    say(f"  anchors  : {', '.join(species)}")
+    if comparators:
+        say(f"  panel    : + {len(comparators)} tier-C comparators (orthogroups only, no tables, "
+            "no pairwise DIAMOND)")
     say(f"  discrete : OrthoFinder 3, de novo, all species jointly  (+ DIAMOND RBH)")
     say(f"  continuous: DIAMOND --{args.sensitivity} -e {args.evalue}, "
         f"top {args.top_k} per target species")
@@ -338,8 +413,10 @@ def main() -> None:
         say("  --dry-run: nothing run, nothing written.")
         for sp in species:
             say(f"    {sp:<14} {expected[sp]:>6} proteins")
-        say(f"    {'':<14} {sum(expected.values()):>6} total, "
-            f"{len(species) ** 2} DIAMOND searches")
+        for label in comparators:
+            say(f"    {label[:34]:<36} comparator")
+        say(f"    {'':<14} {sum(expected.values()):>6} anchor proteins, "
+            f"{len(comparators)} comparators, {len(species) ** 2} DIAMOND searches")
         return
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -350,9 +427,13 @@ def main() -> None:
     rule()
     say("INPUTS")
     rule()
-    counts = write_fastas(species)
+    counts = write_fastas(species, comparators)
     for sp in species:
         say(f"  {sp:<14} {counts[sp]:>6} proteins -> {(FASTA_DIR / f'{sp}.faa').name}")
+    if comparators:
+        say(f"  + {len(comparators)} comparators, {sum(counts[c] for c in comparators):,} proteins "
+            f"(orthogroups only)")
+        say(f"  = {sum(counts.values()):,} proteins over {len(counts)} proteomes")
     say()
 
     rule()
@@ -402,9 +483,34 @@ def main() -> None:
     rbh = build_rbh(hits, species)
     ortho = build_orthologs(of_pairs, rbh, og)
     rows = annotate_neighbors(rows, of_pairs, rbh)
-    dense = build_dense(og, ortho, rows, species, expected)
+    # The bacterial panel for the conservation count: every bacterial proteome in the RUN, which
+    # is the comparators plus the bacterial anchors. Human is excluded -- it is the liability
+    # scope and has its own column.
+    bacterial = tuple([s for s in species if s != "human"] + list(comparators))
+    panel = panel_membership(results, bacterial) if comparators else None
+    dense = build_dense(og, ortho, rows, species, expected, panel, len(bacterial) - 1)
+
+    # BEFORE write_outputs -- it reads the tables the write is about to replace.
+    delta = panel_delta(dense, species)
 
     write_outputs(rows, ortho, dense, og, species)
+
+    if delta is not None:
+        delta["panel_size"] = len(counts)
+        delta["built_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        delta.to_csv(EVIDENCE_DIR / "panel_expansion.tsv", sep="\t", index=False)
+        rule()
+        say("PANEL CHANGE -- what moved in the already-shipped columns")
+        rule()
+        for _, r in delta.iterrows():
+            say(f"  {r['species']:<13} in_orthogroup {r.get('in_orthogroup_before', 0):>6,} -> "
+                f"{r.get('in_orthogroup_after', 0):>6,} ({r.get('in_orthogroup_delta', 0):+,})   "
+                f"has_human {r.get('has_human_ortholog_before', 0):>5,} -> "
+                f"{r.get('has_human_ortholog_after', 0):>5,} "
+                f"({r.get('has_human_ortholog_delta', 0):+,})   "
+                f"changed OG {r.get('changed_orthogroup', 0):>6,}")
+        say("  recall RISES with panel size, so a NEGATIVE delta is a regression, not an update.")
+        say(f"  wrote {(EVIDENCE_DIR / 'panel_expansion.tsv').relative_to(REPO_ROOT)}")
     fails = report(rows, ortho, dense, og, of_pairs, rbh, species, expected, counts, hits,
                    args, time.time() - t_start)
     if fails:
@@ -487,8 +593,44 @@ def annotate_neighbors(nb: pd.DataFrame, of_pairs: pd.DataFrame, rbh: set) -> pd
     return nb
 
 
+def panel_delta(dense: dict, species: tuple[str, ...]) -> pd.DataFrame | None:
+    """Before/after on the columns a panel change MOVES, measured rather than assumed.
+
+    OrthoFinder's recall rises with the number of species in the run -- v1's much-cited 55.5%
+    Kp<->Ec came from a 25-species run, where four species give 44.8% -- so widening the panel
+    changes `in_orthogroup` and `has_human_ortholog` on tables that are already shipped and
+    already read by other axes. A silent shift in a shipped column is the thing to avoid here; a
+    measured one is a finding, and the direction matters: UNDER-detecting human homology makes a
+    target look more selective than it is.
+
+    Reads whatever is currently on disk BEFORE the new tables overwrite it. Returns None on a
+    first run, when there is nothing to compare against.
+    """
+    rows = []
+    for sp in species:
+        old_path = OUT_DIR / f"orthology_{sp}.tsv"
+        if not old_path.exists():
+            continue
+        old = pd.read_csv(old_path, sep="\t")
+        new = dense[sp]
+        r = {"species": sp, "n": len(new)}
+        for col in ("in_orthogroup", "has_human_ortholog"):
+            if col in old.columns and col in new.columns:
+                r[f"{col}_before"] = int(old[col].astype(bool).sum())
+                r[f"{col}_after"] = int(new[col].astype(bool).sum())
+                r[f"{col}_delta"] = r[f"{col}_after"] - r[f"{col}_before"]
+        if "orthogroup" in old.columns:
+            m = old[["uniprot_ac", "orthogroup"]].merge(
+                new[["uniprot_ac", "orthogroup"]], on="uniprot_ac", suffixes=("_old", "_new"))
+            r["changed_orthogroup"] = int((m.orthogroup_old.fillna("")
+                                           != m.orthogroup_new.fillna("")).sum())
+        rows.append(r)
+    return pd.DataFrame(rows) if rows else None
+
+
 def build_dense(og: pd.DataFrame, ortho: pd.DataFrame, nb: pd.DataFrame,
-                species: tuple[str, ...], expected: dict) -> dict[str, pd.DataFrame]:
+                species: tuple[str, ...], expected: dict,
+                panel: dict[str, int] | None = None, panel_size: int = 0) -> dict[str, pd.DataFrame]:
     """One row per protein, per species. The table where a zero is readable."""
     size = og[og.orthogroup != ""].groupby("orthogroup").size()
     # Three counts per target species, not one. The two methods are never merged into a single
@@ -530,6 +672,15 @@ def build_dense(og: pd.DataFrame, ortho: pd.DataFrame, nb: pd.DataFrame,
                 best.bitscore.get(k, np.nan) for k in key]
         if "human" in species:
             base["has_human_ortholog"] = base["n_orthologs_human"] > 0
+        if panel is not None and sp != "human":
+            # How many OTHER bacterial proteomes share this protein's orthogroup. The protein's own
+            # species is always one of the members, so subtract it; a protein in no orthogroup is a
+            # measured 0, which is why `.fillna(0)` is correct here and nowhere near a lookup table.
+            n = base.orthogroup.map(panel).fillna(0).astype(int) - 1
+            base["n_bacterial_orthologs"] = n.clip(lower=0)
+            # Ships beside the count so the number stays interpretable when the panel changes --
+            # 12 of 28 and 12 of 3 are different claims, and only this column tells them apart.
+            base["bacterial_panel_size"] = panel_size
         out[sp] = base
     return out
 

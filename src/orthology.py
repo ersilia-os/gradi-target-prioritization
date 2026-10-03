@@ -221,8 +221,14 @@ def _read(path: Path) -> pd.DataFrame:
     for col in df.columns:
         if col.startswith(("is_", "same_", "in_", "has_", "searched")):
             df[col] = df[col].map(lambda v: _BOOL.get(v, bool(v)))
-        elif col in ("rank", "orthogroup_size", "n_paralogs", "orthodb_n_levels",
-                     "orthodb_n_candidate_ogs", "level") or col.startswith("n_orthologs_"):
+        elif (col in ("rank", "orthogroup_size", "orthodb_n_levels", "orthodb_n_candidate_ogs",
+                      "level", "bacterial_panel_size")
+              or col.startswith("n_")):
+            # `n_` prefix, not a hand-kept list. The list was the bug: `n_bacterial_orthologs` was
+            # added to the writer and came back as TEXT, so `<= panel_size` raised TypeError --
+            # the same shape as the `best_pchembl` string-dtype trap in the ligands axis. Any new
+            # count column is now numeric automatically; a writer and a loader that must be edited
+            # in lockstep will eventually not be.
             df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
         elif col in ("orthodb_confidence", "orthodb_match_pident"):
             # Float, not str: `orthodb_confidence > 0.9` is the documented way to filter these rows,
@@ -316,9 +322,22 @@ def load_orthodb(species: str) -> pd.DataFrame:
     `no_group` -- **a measured zero.**
 
     Unlike OrthoFinder's `orthogroup`, these ids do not depend on which species were in our run.
+
+    **EMPTY STRING IS NOT A VALUE, and `notna()` alone will lie to you here.** `orthodb_og_domain`
+    reads 5,728 non-null on Kp, but 416 of those are `""` -- a protein with no group -- so the real
+    coverage is 5,312 (92.7%, the documented figure) and not 100%. `pd.NA` written to TSV returns
+    as an empty string, and under `string` dtype that is a perfectly valid non-null entry. The same
+    defect was found and fixed in `src/ligandability._coerce_precedents` for `exact_target`, so it
+    is a property of this repo's TSV round-trips rather than a one-off. The group columns are
+    nulled here; `orthodb_verdict` is the column to filter on in any case, since it says WHY a
+    group is absent.
     """
     _check(species)
-    return _read(_path(ORTHOLOGY_DIR, f"orthodb_{species}.tsv"))
+    d = _read(_path(ORTHOLOGY_DIR, f"orthodb_{species}.tsv"))
+    for c in ("orthodb_og_domain", "orthodb_og_narrow", "orthodb_og_name"):
+        if c in d.columns:
+            d[c] = d[c].astype("string").replace("", pd.NA)
+    return d
 
 
 def load_orthodb_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:

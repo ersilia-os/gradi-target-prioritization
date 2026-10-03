@@ -113,9 +113,17 @@ seed noise; needs a paired test between the two framings before anyone acts on i
 **One row per protein, always.** A protein with no annotation is an **all-zero row carrying an
 `evidence` label**, never a missing row. Standing instruction from the project owner.
 
-**"Matrix" means a real feature matrix** — rows = proteins, one column per vocabulary term, binary
-0/1 (or graded where the source is graded), plus one `evidence` column saying where the row came
-from. A long-form table with `;`-packed term lists is the SOURCE, not the deliverable.
+**The invariant is one row per protein, complete, in canonical order.** The SHAPE a vocabulary axis
+ships in is a per-axis choice, not a project rule — narrowed 2026-10-03, when function moved to
+`;`-packed term columns. What does not change: the row set, the row order, and that a protein with
+nothing known is a present row, not a missing one.
+
+**When an axis ships packed, the term matrix stays beside it in `evidence/`**, because a packed
+list **cannot express a structural zero**: it cannot tell a term that is merely unannotated from one
+the organism cannot reach. 8 GO-slim terms are eukaryote/plant concepts, *S. aureus* has 19
+unreachable because it is Gram-positive, COG `Y` is nuclear structure — all of which are **kept
+columns** in the matrix and simply absent in the packed column. The two forms must be **provably
+interchangeable**, asserted in both directions, not merely both present.
 
 **AND IN THE SAME ORDER.** Every matrix has the same rows in the same order: the order
 `data/processed/proteomes/proteome_<species>.tsv` is written in. Not cosmetic — once it holds, any
@@ -135,12 +143,12 @@ as one it measured as unknown. Fill it where the rows are built, and say what th
 3. **A zero means "not annotated", not "absent"** — for 26.3% of Kp that means nothing is known. Say so in the loader docstring; downstream must never read it as a measured negative.
 4. **Verify with a ROUND-TRIP, not a shape check.** Reconstructing the term lists from the matrix must reproduce the source columns exactly. Shape checks pass on wrong matrices.
 
-Status, from `python -m src.matrices`: **60/60 canonical** (2026-10-03, after `pockets/structure` joined the audit). A new representation of the same
+Status, from `python -m src.matrices`: **60/60 canonical** (2026-10-03, after function's packed `function/function` joined its two matrices in the audit). A new representation of the same
 proteins (e.g.
 `proteomelm_<species>_orthodb.npz`) goes **into the audit list, not beside it** — an unaudited matrix
-is exactly the silent misalignment this rule exists to catch. Localization has two complete canonical
-tables but `deeplocpro_` is still single-label categorical and needs one-hot over the 6-class union
-before it is a matrix in this sense.
+is exactly the silent misalignment this rule exists to catch. Localization now ships ONE complete canonical table,
+`localization_<sp>.tsv`; its `localization` column is still single-label categorical and would need
+one-hot over the 6-class union before it is a matrix in this sense.
 
 ## External models: never reuse an embedding you have not proven identical
 
@@ -276,8 +284,8 @@ scripts/
   embeddings/     esmc.py  prott5.py  proteomelm.py  projection.py -> <model>_<sp>.npz
                   orthodb_group_check.py  workers/prott5.py
   function/       cog.py  eggnog.py  goslim.py  matrix.py  deepgo.py
-                                                                  -> goslim_matrix_/cog_matrix_<sp>.tsv
-  localization/   predict.py  workers/deeplocpro.py               -> deeplocpro_/tmbed_<sp>.tsv
+                                                                  -> function_<sp>.tsv
+  localization/   predict.py  merge.py  workers/deeplocpro.py     -> localization_<sp>.tsv
   orthology/      orthofinder.py  orthodb.py                      -> orthologs/neighbors/orthodb_<sp>
   degradability/  predict.py  enrichment.py  regressor.py
                   head_comparison.py  workers/lazyqsar_cv.py      -> degradability_<sp>.tsv
@@ -447,12 +455,25 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   the structure, which is why the guard is trustworthiness and not a checksum. `coords_for` drops
   missing accessions rather than zero-filling: **(0, 0) is a real position**, in the dense centre.
 
-- **`localization/predict.py`** → `deeplocpro_<species>.tsv` (compartment + confidence) and
-  `tmbed_<species>.tsv` (`cytoplasmic_fraction`, `has_signal_peptide`), **from sequence alone**, two
-  predictors deliberately not merged. Env **`gradi-loc`** across a process boundary
-  (`localization/workers/deeplocpro.py`, `GRADI_LOC_BIN`); the two tracks run **sequentially, never
-  concurrently**. DeepLocPro always returns a call, so **100% coverage is a property of the method**
-  and there is no `unknown` class.
+- **`localization/predict.py`** + **`localization/merge.py`** → **`localization_<species>.tsv`**,
+  5 columns, **from sequence alone**: `localization` + `confidence` (DeepLocPro 1.0) and
+  `cytoplasmic_fraction` + `has_signal_peptide` (TMbed). Env **`gradi-loc`** across a
+  process boundary (`localization/workers/deeplocpro.py`, `GRADI_LOC_BIN`); the two tracks run
+  **sequentially, never concurrently**. DeepLocPro always returns a call, so **100% coverage is a
+  property of the method** and there is no `unknown` class.
+
+  **ONE table, two predictors side by side — and `merge.py` arbitrates NOTHING.** They answer
+  different questions and neither derives from the other, so where they disagree the disagreement
+  is the information; TMbed corroborating `extracellular` from outside DeepLocPro is the only
+  cross-check this axis has. **The two per-predictor tables live in `evidence/`**, not because they
+  are secondary but because the tracks run and resume independently — TMbed alone is CPU-only hours
+  — so `--only tmbed` must have somewhere to write. `merge.py` recomputes nothing, seconds, `gradi`.
+
+  **NO `evidence` COLUMN HERE, and that is deliberate** (owner's call, 2026-10-03): both predictors
+  cover 100% of every proteome **by construction**, so it was constant across all 13,020 proteins
+  and said nothing. The axis-wide rule assumes an axis that can fail to annotate a protein; this one
+  cannot. The check survives — `merge.py` **exits non-zero if either track is silent for a single
+  protein**, which is a broken run, not a sparse one. **Do not re-add it as a constant.**
 
   **The Gram-positive trap — read before comparing *S. aureus*.** `positive` mode does not merely
   mask the two Gram-negative-only classes, it **adds their probability mass into `Extracellular`**.
@@ -505,21 +526,41 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   `eggnog` tier derives from its `gos` column, so deleting it makes the stage non-regenerable. Needs
   `goatools`.
 
-- **`function/matrix.py`** → `goslim_matrix_<species>.tsv` (n × 99) and `cog_matrix_<species>.tsv`
-  (n × 28), the stage deliverable. **Recomputes nothing** — it reshapes; seconds, no database. Built
-  from the `*_all` columns so **multi-label is preserved**, and verified by **round-trip**:
-  rebuilding the `;`-joined lists reproduces the source columns exactly for all 13,020 proteins.
+- **`function/matrix.py`** → **`function_<species>.tsv`**, 4 columns: `uniprot_ac` ·
+  `cog_categories` · `goslim_terms` · `goslim_evidence`, both term columns `;`-joined in vocabulary
+  order (owner's call, 2026-10-03 — it was two wide matrices). **Recomputes nothing** — it reshapes;
+  seconds, no database.
 
-  **Always-zero columns are kept and are information**, and **a zero means NOT ANNOTATED** — 1,506 Kp
-  proteins (26.3%) are all-zero because nothing is known, which `evidence` separates from a real
-  negative. **The COG vocabulary is VENDORED** at `data/source/cdd/cog_func_category.tsv`: a matrix
-  whose schema depends on a pip install is not reproducible. Details: `docs/function.md`.
+  **The matrices still ship, in `evidence/`** (n × 99 and n × 28) **and are still audited**, because
+  they are what carries the **structural zeros the packed form cannot express** — 8 GO terms are
+  eukaryote/plant, Sa has 19 unreachable as a Gram-positive, COG `Y` is nuclear structure. The stage
+  asserts **BOTH directions**: the matrices round-trip to the long-form source, AND the packed
+  columns re-expand to the matrices exactly. Use `load_goslim_matrix()` / `load_cog_matrix()` for a
+  feature matrix or to tell "impossible" from "unknown".
 
-- **`degradability/predict.py`** → `degradability_<species>.tsv`: is this protein a substrate of
-  activated partnerless ClpP? A binary **TabPFN-3.5** classifier on ESM-C embeddings, trained on the
-  two *S. aureus* activator screens and applied to the rest of Sa and all of Ec/Kp. `<act>_hit` is
-  the measured 1/0 (empty where unmeasured); `<act>_prob` is the **seed-averaged out-of-fold**
-  probability for every protein, so it is one comparable scale across all 13,020.
+  **An EMPTY list means NOT ANNOTATED** — 1,506 Kp proteins (26.3%) carry no GO term because nothing
+  is known, which `goslim_evidence` separates from a real negative. **COG has no evidence column
+  because it would restate emptiness**: `cogclassifier` vs `none` is 1:1 with non-empty vs empty on
+  all three species — measured, not assumed. Built from the `*_all` columns so **multi-label is
+  preserved** (max 11 slim terms on Kp). **The COG vocabulary is VENDORED** at
+  `data/source/cdd/cog_func_category.tsv`: a schema that depends on a pip install is not
+  reproducible. Details: `docs/function.md`.
+
+- **`degradability/predict.py`** → `degradability_<species>.tsv`, **4 columns**: `uniprot_ac` ·
+  `adep4_prob` · `onc212_prob` · `nn_similarity`. Is this protein a substrate of activated
+  partnerless ClpP? A binary **TabPFN-3.5** classifier on ESM-C embeddings, trained on the two
+  *S. aureus* activator screens and applied to the rest of Sa and all of Ec/Kp. `<act>_prob` is the
+  **seed-averaged out-of-fold** probability for every protein, so it is one comparable scale across
+  all 13,020.
+
+  **THE MEASURED CALLS ARE NOT COLUMNS** (owner's call, 2026-10-03). `<act>_hit`/`<act>_source` were
+  dropped: `_hit` was empty for **10,131 of 13,020** proteins and `_source` read `predicted` for all
+  but 1,871. **Nothing was lost, and it was CHECKED, not assumed** — both are exactly reconstructible
+  from `evidence/labels_saureus.tsv`, verified per species and per activator before the tables were
+  rewritten. That file is strictly richer: it carries the continuous log2FC (a measured −0.51
+  explains a `0` in a way the bit cannot) and the grouping cluster. **`src.degradability.measured()`
+  and `with_measured()` put the calls back**, and **`hits()` is unchanged in behaviour** — a
+  measurement still beats the model, it just reads the labels instead of a column.
 
   **This overturns v1's "needs new data, not new features"**: cluster-grouped CV over 5 seeds gives
   **ADEP4 0.8738 ± 0.0029 (PR 0.6103)** against a properly-estimated length baseline of 0.776, and
@@ -593,11 +634,48 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   that accounts for each proteome exactly. A *sparse* matrix cannot express a zero at all — that is
   what the dense table is for.
 
+  **`--panel full` runs the 26-species tier-C comparator panel alongside the anchors** — 30
+  proteomes, **140,396 proteins, 47 min**. The comparators inform the orthogroups and get no tables
+  and no pairwise DIAMOND (16 searches, not 900); they exist so the conservation count means
+  something. Default is `anchors`, the prior behaviour.
+
+  **The two columns the panel is for**, in `orthology_<species>.tsv`:
+  **`has_human_ortholog`** (union of both methods) and **`n_bacterial_orthologs`** — how many of
+  the 28 bacterial proteomes share this protein's orthogroup, counted over SPECIES not proteins,
+  with `bacterial_panel_size` beside it so 12-of-28 cannot be misread as 12-of-3. Validated against
+  biology: `ftsZ`/`gyrB`/`dnaA`/`secA` **28**, `rpoB` 27, `clpP` 16, `lacZ` 5–8. **Sa's median is 5
+  against Kp/Ec's 15–16** — correct, it is the lone Gram-positive in a mostly Gram-negative panel,
+  not a defect. It is **orthogroup-based, not the union**: RBH to 26 comparators would need 156
+  more DIAMOND searches (~5 h) for a second opinion on the same question.
+
   **OrthoFinder's recall depends on panel size; RBH's does not — know this before quoting a number.**
   v1's much-cited 55.5% came from a 25-species run; at four species OrthoFinder gives 44.8%, *not a
   defect*, and RBH is the like-for-like comparison that passes (3,074 vs v1's 3,003).
   **`--very-sensitive`, and the error direction is the reason**: under-detecting human homology makes
   a target look *more selective than it is*. Identity and coverage are columns, never filters.
+
+  **WIDENING THE PANEL MOVES BOTH DIRECTIONS AT ONCE, and the human one goes DOWN.** Measured in
+  `evidence/panel_expansion.tsv`, written every run:
+
+  | | in_orthogroup | has_human_ortholog |
+  |---|---|---|
+  | Kp | 4,322 → **5,289** (+967) | 1,184 → **951** (−233) |
+  | Ec | 3,646 → **4,247** (+601) | 980 → **838** (−142) |
+  | Sa | 1,754 → **2,262** (+508) | 700 → **624** (−76) |
+
+  **An earlier version of this plan asserted a human drop would be a regression. That was wrong**,
+  and the reason is worth keeping: "recall rises with panel size" is a **bacteria↔bacteria**
+  statistic, and the panel adds 26 bacteria and **zero eukaryotes**. More bacterial resolution lets
+  OrthoFinder separate orthologs from out-paralogs on the bacterial side, so marginal
+  bacteria↔human calls are withdrawn. The evidence that it is refinement, not breakage: **at ≥60%
+  identity 13/13 Kp, 3/3 Sa and 11/12 Ec human relationships survive**, at ≥50% it is 56/60, 23/23,
+  57/59 — the losses sit at 40–50%, where ortholog-vs-paralog is genuinely ambiguous (median
+  identity of the kept 33.5% vs 28.8% for the dropped).
+
+  **This run is also the clearest argument for keeping both methods.** Kp `clpP` → human CLPP
+  (56.3%) is documented as an ortholog by *both*; OrthoFinder now calls it **`of=0`** and only RBH
+  still finds it. At ≥50% identity RBH rescues 9 Kp proteins OrthoFinder misses. The union holds
+  where the single methods would not.
 
   **Two traps.** **OrthoFinder exits 0 when its dependency check fails** — no `diamond` on `PATH`
   gives an ERROR block, an empty `Results_` dir and a *success* return code, so `ensure_diamond()`
@@ -846,6 +924,63 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   **`--seeds 1` is deliberate here** against the axis-wide 5: the folds are FIXED, one taxon each, so
   there is no partition randomness to average.
 
+- **`essentiality/proteomelm_ess.py`** → `proteomelm_ess_<species>.tsv`: the **paper's own
+  essentiality head**, deferred for months as "weights unreleased" and released to us by Cyril
+  Malbranke on 2026-10-01. `proteomelm_ess` is p(essential), 0–1, never null; `proteomelm_ess_rank`
+  is within-proteome; `proteomelm_ess_evidence` is the column to read first. **Apache-2.0** — a far
+  easier licence than TabPFN's, so this one can ship.
+
+  **THE SCORE MEANS SOMETHING DIFFERENT IN EACH ANCHOR**, from the authors' own `genomes.tsv`
+  (staged at `data/source/proteomelm/ess_genomes.tsv`): **ecoli `held_out`** (their Fig. 5B genome,
+  290 E / 3,969 NE), **saureus `in_training`** (taxid 93061 — our exact 2,889-protein proteome is in
+  their cross-validation set, so that column is closer to RECALL), **kpneumoniae `unseen_species`**
+  (no *K. pneumoniae* in their 89 genomes; the only *Klebsiella* is *K. michiganensis*,
+  positives-only). Comparable WITHIN a species, never across — the rule `ogee_ess` already carries.
+
+  **It must NOT be fed our own `proteomelm_<species>.npz`.** Same backbone, same layer 8, but ours
+  are **z-scored genome-wide** and **window** sequences above 4,096 aa, while the head takes **raw**
+  `hidden_states[8]` with sequences **truncated** at 4,096. The worker recomputes ESM-C and the
+  backbone pass end to end. (The difference that turned out NOT to exist: their `group_embeds=x` is
+  our `self` mode, because the model does `if group_embeds is None: group_embeds =
+  inputs_embeds.clone()` — checked rather than assumed.)
+
+  **Env `gradi-plm-ess`**, across a process boundary (`essentiality/workers/proteomelm_ess.py`,
+  `GRADI_PLM_ESS_BIN`). The head ships only in the authors' git build, which pulls **torch 2.14**
+  against `gradi`'s 2.12 — the collision that breaks stage 01's ESM-C. ~7–12 min per proteome on MPS.
+
+  **CLASS 0 IS ESSENTIAL** (`id2label: {0: essential}`), so an off-by-one yields a confident,
+  well-formed, exactly inverted column. The stage runs a ribosome-vs-dispensables polarity control
+  and **exits non-zero** below 0.80: measured **Kp 0.9370 · Ec 0.9717 · Sa 0.9918**.
+
+  **Measured on labels the authors never saw** (`evidence/proteomelm_ess_validation.tsv`). **We
+  reproduce their headline**: they report 0.952 held-out on E. coli, we measure **0.9726** against
+  Keio on our exact anchor — which is what validates the whole chain. Kp, scoring each screen
+  **strain itself** so no identifier mapping is involved (100% key overlap on all three):
+  **ATCC 43816 0.9473 / AUPR 0.748 · ECL8 0.8323 / 0.643 · RH201207 0.8201 / 0.597**.
+
+  **But our own pipeline still wins on Kp**, and that is the result to keep: assay-matched
+  Goodall→Kp reaches **0.9597 / 0.8845 / 0.8903** on the identical three endpoints, beating this
+  head on **3 of 3, on both AUROC and AUPR**. ProteomeLM-Ess beats only the assay-MISmatched Keio
+  transfer, and only on RH201207 (0.820 vs 0.810) — the same "transfer is better when the ASSAY
+  matches" finding again. So it ships as an independent fifth opinion, not as a replacement.
+
+  **It is genuinely independent**, which is why it is worth a column: ρ 0.44 with `geptop_ess`, 0.37
+  with `ogee_ess`, 0.32 with `screens_ess_mean` on Kp, and top-500 shortlists overlap only ~335/500.
+  Contrast degradability's two activator columns at ρ 0.89, which are one opinion wearing two hats.
+
+  **The base-rate effect reproduces here, from outside this project**: across eight screens in two
+  species the AUROC falls near-monotonically as the screen's base rate rises (Ec 0.048 → 0.980 down
+  to 0.103 → 0.645; Kp 0.076 → 0.947 down to 0.106 → 0.832). That is independent confirmation of the
+  `corr(base_rate, AUROC) = −0.643` this axis measured on OGEE, from a different model on different
+  labels. **Their training set has the same flaw we documented**: 37 of their 82 cross-validation
+  genomes have ZERO negatives — the positives-only RB-TnSeq artifact.
+
+  **A finding for the collaboration**: the consortium's own panel sits at the **97.1st percentile
+  (median)** of this score on Kp — `lpxL` 99.9, `lptG` 99.8, GyrA/GyrB 99.4–99.8, `lnt`, `lolC`,
+  `secA`, `yidC`, `lptD`, `lptB` all above 98.5. Beside studiedness (80th percentile — not novel)
+  and degradability (OR 0.21–0.82, trending depleted), the panel is **the right biology and the
+  wrong chemistry for a degrader**. Details: `docs/essentiality.md`.
+
 - **`essentiality/screens.py`** + **`predict.py`** + **`summary.py`** — published screens as
   independent endpoints, **TEN training sets, one per SOURCE**, conditions aggregated within a source
   (owner's rule). Three filters define the set, each on instruction: *both classes required*, *no
@@ -865,6 +1000,11 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   the bar at 0.50 separation and would have failed the gold standard: **Keio reaches only 0.774**,
   and its misses are genuinely dispensable in *E. coli*.
 
+  **TEN training sets, NINE screen endpoints.** `ogee_corpus` is the tenth and feeds `ogee_ess`
+  instead, so `screens_ess_mean` is the mean of **9** model probabilities, not 10 — and they are **not 9
+  independent votes**: all nine read the same ProtT5 embedding, so a high value is one correlated
+  opinion, not a consensus count.
+
   **Features: ProtT5, measured not assumed** — on Keio, paired over identical folds, ProtT5 −
   ProteomeLM is **+0.0330 PR [5/5 seeds] but −0.0002 AUROC [2/5, a tie]**: AUROC alone would have
   called the winner a coin flip.
@@ -883,14 +1023,57 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   overlap is a real information channel. The first is the honest generalisation measure; the second
   is the operationally relevant one for Kp. Catalogue: `docs/essentiality_screens.md`.
 
-- **`essentiality/merge.py`** + **`registry.py`** → `essentiality_<species>.tsv`, one column per
-  evidence source, plus `deg_<species>.tsv`. Joined **by sequence, not accession**.
+- **`essentiality/merge.py`** + **`registry.py`** → `essentiality_<species>.tsv`, **4 columns —
+  `uniprot_ac` + THREE PREDICTORS (`geptop_ess`, `proteomelm_ess`, `screens_ess_mean`) AND NO VERDICT**
+  — plus `deg_<species>.tsv` for the measurement. Joined **by sequence, not accession**.
+
+  **`essentiality`/`essentiality_source` were dropped** (owner's call, 2026-10-03), so **which
+  column to rank on is now an explicit choice**. Two reasons, both measured: the merge **MIXED
+  UNITS** — a measured call pinned to 1.0/0.0 against a continuous prediction, so every measured
+  essential outranked every prediction by construction — and on **Kp, the anchor, it was a verbatim
+  copy of `screens_ess_mean` for all 5,728 rows**. Rebuild it with
+  `np.where(deg_essential_any.notna(), deg_essential_any, screens_ess_mean)`.
+
+  **`geptop_evidence` and `geptop_in_reference_set` moved to `geptop_<species>.tsv`**, where they
+  were byte-identical duplicates. **This matters**: a `geptop_ess` of 0 still has TWO meanings —
+  `orthologs_none_essential` (58.5% of Kp, a confident NON-essential call) vs `no_orthologs` (7.8%)
+  — so read `geptop_evidence` from the per-source file before reading a zero. **Every dropped column
+  was verified byte-identical or exactly derivable before the tables were rewritten.**
+
+  **`ogee_ess` is NOT in the summary** (owner's call, 2026-10-03); `ogee_<species>.tsv` and the OGEE
+  scripts are untouched. **The obvious reason is WRONG and was measured**: it does not duplicate
+  `proteomelm_ess` — those two run **rho 0.33–0.64** sharing only **296–384 of their top 500**, i.e.
+  genuinely different opinions. It is redundant with **`screens_ess_mean`** (rho **0.488 / 0.550 /
+  0.365** against ProteomeLM's 0.321 / 0.316 / 0.127), which both drives the merge and validates
+  better — **AUROC 0.89–0.96** on the measured Kp screens against OGEE's leave-species-out
+  **0.529–0.940** and a Kp top-decile cut of 0.471 where Ec reads 0.861.
+
+  **`deg_ess` and `essentiality_rule` are NOT in the summary either** (same call). `deg_ess`
+  was a **byte-identical duplicate** of the column in `deg_<species>.tsv` — checked per species
+  before the rewrite — and that file is RICHER, carrying `deg_essential_any` and `deg_essential_all`
+  side by side where the summary held only whichever `--rule` picked. **Nothing about `essentiality`
+  changed**: the measurement is still inside it wherever `essentiality_source == "measured"` (Ec
+  4,253 · Sa 2,678). `essentiality_rule` carried **nothing** — a 1:1 function of
+  `essentiality_source`; the rule is a property of the RUN and is in
+  `evidence/essentiality_merge_manifest.tsv` beside BOTH counts, which is what keeps the 3.4× spread
+  visible.
 
   **Two screens of the same strain disagree, and the column records it rather than hiding it**: on
   E. coli 490 of 695 essential calls rest on ONE screen, so `--rule any` gives 695 and `--rule all`
   gives 205 — a **3.4× spread from one choice**. **`geptop_ess` and `deg_ess` are comparable for
   RANKING, not as VALUES** — a predicted 1.0 means ~70% where a measured 1.0 means it *is* essential,
   so the convenience column `essentiality` **mixes units**. **Rank within a species, never across.**
+
+  **`essentiality`'s FALLBACK is `screens_ess_mean`, not `geptop_ess` — changed 2026-10-03.** Measured
+  on K. pneumoniae, the only anchor where every predictor is honest: the screens-trained transfer
+  models reach **AUROC 0.89–0.96** on the three measured Kp screens against Geptop's validated
+  0.59–0.81, and `geptop_ess` left **3,799 of 5,728 Kp proteins (66.3%) tied at exactly 0** — i.e.
+  two-thirds of the anchor unranked in the headline column, on an axis consumed by ranking. After
+  the change, Kp ties at 0 are **0**. `essentiality_source` now reads `predicted_screens_ess_mean`.
+  **Do NOT re-derive this from an E. coli comparison**: `geptop_ess` is **53.2% self-derived on
+  E. coli and 58.3% on S. aureus** (both are Geptop reference genomes), so it looks like the best
+  predictor there — AUPR 0.977 against Keio — and that number is circular. Only the fallback
+  changed; `geptop_ess` keeps its column and its file.
 
   **This axis ships TWO tables at the task root, deliberately** — the second, `geptop_<species>.tsv`,
   reads like evidence but the project owner chose it as a deliverable; do not demote it in a tidy-up.
@@ -935,7 +1118,8 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
 
 - **`studiedness/fetch.py`** + **`gene2pubmed.py`** + **`unknome.py`** + **`transfer.py`** +
   **`merge.py`** → `studiedness_<species>.tsv`: `uniprot_ac · n_papers_own · n_papers_family ·
-  evidence`. Wanted in both directions — an uncharacterised target is a risk, but it is also the
+  evidence · n_papers_family_pubtator · pubtator_ambiguous`. **Rank on `n_papers_family`** —
+  the PubTator3 column is a third definition shipped beside it, never merged. Wanted in both directions — an uncharacterised target is a risk, but it is also the
   novelty the collaboration is looking for (`src.studiedness.novelty()` reads it the other way). Run
   in that order; DIAMOND from `gradi-ortho`.
 
@@ -985,6 +1169,31 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   approximates a lookup DIAMOND does exactly and auditably, and mean-reversion would hide the novel
   proteins the axis exists to surface.
 
+  **`studiedness/pubtator.py`** → `evidence/pubtator_<sp>.tsv` + `pubtator_route_comparison.tsv`:
+  PubTator3 text-mined counts by **TWO ROUTES THAT ARE NOT THE SAME DATASET FOR BACTERIA**.
+  PubTator3 normalises bacterial mentions to **species-agnostic gene SYMBOLS, not strain
+  GeneIDs** — clpP reads 6 by GeneID and 3,130 by symbol. **The bulk file is GeneID-only**, so
+  route B must use the API (5,076 donor symbols, ~50 min, cached and resumable). Route A reaches
+  **1.8% of Kp** against route B's **97.9% of scored Kp**; the ceiling is that only 51.2% of
+  SwissProt carries a GeneID at all.
+
+  **On the held-out control, identical folds, the TEXT-MINED SYMBOL COUNT BEATS THE CURATED ONE**
+  — 0.4054 vs 0.3428 on the common subset (n=556), 0.44 vs 0.30 over all 2,207 with a symbol —
+  while **gene2pubmed LOSES** (0.2636). **Shipped as a THIRD DELIVERABLE COLUMN** `n_papers_family_pubtator` (rank agreement with the
+  curated count rho 0.77 — correlated, not redundant) but **NOT as the ranking**: the control is
+  E. coli-only and E. coli
+  symbols are the ones that entered human nomenclature, and the count **cannot be donor-scoped**.
+  **The homonym trap is real but bounded and is NOT the advantage** — `crp` reads 345,630 (human
+  C-reactive protein), but homonyms are 3.8% of donors, score *worse*, and excluding them moves
+  the result by 0.0004; they inflate **426×** against 1.9×. **`pubtator_ambiguous` covers a SECOND artifact the
+  homonym list misses** — symbols too short to disambiguate, single-letter donors inflating
+  **191×** against 0.5× for normal 4-character ones; found only by ranking the shipped column.
+  **An empty is not a zero**: empty means the donor has no usable symbol, 0 means no donor. **Three definitions, three columns, never a `max()` across them.**
+  **Two traps**: `gene2pubtator3.gz` is **PMID-sorted**, so a head sample looks human-centric —
+  that is how the untested rejection happened — and **the bulk and the `search/` API disagree**
+  (ftsZ 13 vs 2), the bulk being the complete annotation set. A 756 MB download **truncated at
+  88 MB while curl exited 0**; verify against `Content-Length`.
+
   **`studiedness/confounds.py`** → `evidence/confounds.tsv`: the axis measured against every
   other axis, fitting nothing. **Read `rho` beside `scored_rho`** (scored tiers only) — every
   degradability correlation **collapses to ~0 under it** (−0.15 → +0.008), so it was the
@@ -999,6 +1208,29 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
 
   **A finding for the collaboration: the consortium's own panel is NOT novel** — `src/interest.py`
   sits at the 80th percentile (median) on Kp. Details: `docs/studiedness.md`.
+
+- **`plots/tables_overview.py`** → `output/plots/overview/{tables.json,tables.html}`: a browsable
+  map of every deliverable table the project ships, one card per axis, built from the files on
+  disk. `gradi`, seconds, no database. Markup in `scripts/plots/tables_overview.html` beside it;
+  the page is self-contained and publishes as an Artifact unchanged. It is not a stylia figure,
+  so the one-at-a-time rule does not apply to it.
+
+  **The column meanings are HAND-WRITTEN in `COLUMNS`** — transcribed from this file and
+  `docs/<task>.md`, because there is no machine-readable source and deriving them from the data
+  would be the plausible-wrong this project avoids. **The stage exits non-zero when a column on
+  disk has no description, or a description names a column that is gone** — both directions, and
+  that reconciliation is the only thing keeping the page honest as the tables change.
+
+  **Empty strings count as EMPTY, whatever the dtype.** Several loaders read with
+  `keep_default_na=False`, so an absent value arrives as `""`; counting those as filled made
+  Kp `gene_name` read 100% coverage on a page whose whole subject is coverage.
+
+  **The sample rows are ONE FIXED PROTEIN SET per species, used in every card** — the first N rows
+  are an arbitrary slice, and a fixed set makes the canonical row order visible: the accessions
+  are identical card to card. Resolution is by gene symbol, so **an unresolved symbol is NAMED on
+  the page, not dropped**; on Sa that separates the structural absence of LPS/Lpt from the naming
+  gap, which is the same distinction `src/interest.py` warns about.
+
 ## Legacy
 
 **`legacy/` holds the complete v1 pipeline, frozen. Do not extend it.** Start at
@@ -1036,6 +1268,7 @@ an unrelated `ersilia` env. Use `~/miniconda3/envs/gradi/bin/python`.
 | **`gradi-loc`** (3.11) | DeepLocPro + TMbed | **`fair-esm` claims the same top-level `esm` package as EvolutionaryScale's ESM-C.** Pins `setuptools<81` and `transformers==4.44.2` |
 | **`gradi-tabpfn`** (3.11) | `tabpfn==9.0.0` + `tabpfn-client==0.6.0` | torch 2.14 against gradi's 2.12. Needs `TABPFN_TOKEN` |
 | **`gradi-lazyqsar`** (3.11) | lazy-qsar 3.4.4, for the degradability head comparison only | pins `numpy==2.1.3` / `scikit-learn==1.6.1`. **Rejected as an estimator**; kept so the comparison is reproducible |
+| **`gradi-plm-ess`** (3.11) | ProteomeLM-Ess, the authors' **git** build (`proteomelm @ git+https://github.com/Bitbol-Lab/ProteomeLM` plus `httpx`, which `esm` needs and the install misses) | pulls **torch 2.14** against gradi's 2.12. The model code is numerically equivalent to gradi's installed build for our use — the split is about pip, not the model |
 | **`gradi-pockets`** (osx-64, Rosetta) | `fpocket` 4.0 + `openjdk=17` for P2Rank 2.5.1 (tarball in `tmp/tools/p2rank_2.5.1`) | no arm64 build. `pockets/predict.py` runs in `gradi` and calls it across a process boundary (`FPOCKET_BIN`, `P2RANK_DIR`, `POCKETS_JAVA_HOME`) |
 | **`gradi-pymol`** | `pymol-open-source` | ray-traced structure cartoons |
 
