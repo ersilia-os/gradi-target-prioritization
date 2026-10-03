@@ -87,13 +87,8 @@ COLUMNS: dict[str, dict[str, str]] = {
                        "which is why external databases are reached by sequence, not accession.",
         "gene_name": "gene symbol. Kp 63.4% / Sa 44.6% after three labelled filling tiers, from "
                      "18.4% / 28.2% raw. NEVER the join key -- use locus_tag.",
-        "gene_name_source": "which tier supplied the symbol, so an inferred name is never mistaken "
-                            "for a curated one.",
-        "gene_synonyms": "other symbols the same gene is published under.",
         "protein_name": "UniProt's recommended or submitted protein name.",
         "sequence": "the amino-acid sequence. The real join key to every external database.",
-        "refseq": "RefSeq protein accession, provenance only.",
-        "geneid": "NCBI GeneID, provenance only.",
     },
     "projection": AC | {
         "tsne_x": "openTSNE coordinate over the 1,152-d ESM-C space (multiscale, cosine, PCA-50, "
@@ -156,21 +151,18 @@ COLUMNS: dict[str, dict[str, str]] = {
                                    "`pchembl_value` renamed, not a new quantity.",
     },
     "pockets": AC | {
-        "p2rank_score": "best P2Rank pocket score on the AlphaFold v6 model. TRUST THIS over "
-                        "fpocket -- against the holo column, AUROC 0.64-0.71 vs 0.53-0.59.",
+        "p2rank_score": "best P2Rank score among ADMITTED pockets -- admitted means the lining "
+                        "residues average pLDDT >= 70, the one place model confidence enters "
+                        "(v1 applied it twice). On the AlphaFold v6 model. Prefer it to fpocket "
+                        "-- within length deciles it agrees with the holo column at 0.54-0.58, "
+                        "fpocket not at all. A modest signal.",
         "fpocket_score": "best fpocket score, kept for comparison.",
-        "p2rank_n_pockets": "pockets admitted. A pocket counts only if its residues average "
-                            "pLDDT >= 70 -- confidence enters ONCE, here, and nowhere else.",
         "holo_identity": "MEASURED: % identity to the closest bacterial PDB chain holding a "
                          "drug-like ligand in the aligned site. Matches the SITE, not the chain.",
         "pdb_n_structures": "distinct PDB entries with a chain that IS this protein (>=95% "
                             "identity, matched by SEQUENCE -- the accession route reached 30 of "
                             "5,728 Kp proteins). Ligand or not: this is structural COVERAGE, the "
                             "question holo_identity does not ask.",
-        "pdb_coverage": "fraction of this protein's residues covered by the union of those chains. "
-                        "Of the DEPOSITED sequence (SEQRES), not of resolved residues, so "
-                        "disordered loops still count -- it overstates where constructs carry "
-                        "unresolved termini.",
         "af_plddt": "mean pLDDT of the AlphaFold model. NA means NO MODEL -- and an NA in the "
                     "pocket columns is 'could not look', not 'looked and found nothing'. A "
                     "protein WITH a model and no admitted pocket gets 0. Never fillna(0).",
@@ -190,9 +182,6 @@ COLUMNS: dict[str, dict[str, str]] = {
         "n_papers_family": "references on the best-cited prokaryotic SwissProt homolog. RANK ON "
                            "THIS. Beside `_own` it makes `dark in Klebsiella, famous in E. coli` "
                            "readable off one row.",
-        "evidence": "five tiers: swissprot_direct (>=95%) > _close (>=60%) > _homolog (>=40%), then "
-                    "`below_floor` and `no_hit`. TWO of them score 0 meaning different things -- "
-                    "`no_hit` is the strongest novelty claim the axis makes.",
         "n_papers_family_pubtator": "PubTator3 TEXT-MINED papers on the donor's gene SYMBOL. A "
                                     "third definition, NEVER summed with the other two. It "
                                     "transfers measurably better (0.4054 vs 0.3428 on a held-out "
@@ -200,11 +189,6 @@ COLUMNS: dict[str, dict[str, str]] = {
                                     "E. coli-only, and E. coli symbols are exactly the ones that "
                                     "entered human nomenclature. EMPTY means a donor exists with "
                                     "no symbol to look up -- not a measured zero.",
-        "pubtator_ambiguous": "the lookup is probably measuring a DIFFERENT protein -- a symbol "
-                              "that collides with a human gene (`crp` returns 345,630 papers for "
-                              "C-reactive protein, not the cAMP receptor protein). 3.8% of donors, "
-                              "and they score WORSE than average, so it flags an artifact rather "
-                              "than explaining the column.",
     },
 }
 
@@ -222,7 +206,11 @@ TABLES = [
          read_first="This file defines THE ROW ORDER. Every other matrix in the project has the "
                     "same rows in the same order, which is what lets any two axes stack with no "
                     "join at all. Human exists here too (20,416 reviewed entries).",
-         also="evidence/ holds the naming audits and xrefs; src/proteome_registry.tsv drives it."),
+         also="The provenance columns -- gene_name_source, gene_synonyms, refseq, geneid -- moved "
+              "to evidence/proteome_full_<sp>.tsv via load_full(). geneid is NOT idle there: the "
+              "literature axis keys NCBI counts on it. `sequence` stays HERE deliberately, because "
+              "the house rule is map by sequence, not by accession. evidence/ also holds the "
+              "naming audits, the locus tags and the xrefs; src/proteome_registry.tsv drives it."),
     dict(key="projection", axis="embeddings", title="projection_<sp>.tsv",
          path="data/processed/embeddings/projection_<sp>.tsv",
          loader=projections.load,
@@ -347,7 +335,11 @@ TABLES = [
          read_first="Wanted in BOTH directions -- an uncharacterised target is a risk and also the "
                     "novelty the collaboration is looking for. THE NUMBER IS A PAPER COUNT, nothing "
                     "scaled. A zero is an answer, not a gap; never impute it.",
-         also="The unpriced confound is essentiality: rho 0.38-0.50 with geptop_ess, and alone "
+         also="`evidence` is NOT here -- it ships in load_transfer(), so a 0 in n_papers_family is "
+              "ambiguous in this table between `no_hit` (nothing among 575,748 curated entries "
+              "resembles the protein -- the strongest novelty claim the axis makes) and "
+              "`below_floor`. Read it there before calling a 0 novelty. The unpriced confound is "
+              "essentiality: rho 0.38-0.50 with geptop_ess, and alone "
               "among the axes it survives stratification -- stacking the two double-counts."),
 ]
 
