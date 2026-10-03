@@ -127,18 +127,47 @@ MERGE_SPECIES = ("kpneumoniae", "ecoli", "saureus")
 
 
 def load(species: str) -> pd.DataFrame:
-    """`essentiality_<species>.tsv` — the stage-07 deliverable, two headline columns per protein.
+    """`essentiality_<species>.tsv` — **three predictors side by side, and no verdict.**
 
-        geptop_ess   continuous 0–1, ALWAYS present. Geptop 2.0's orthology+phylogeny score.
-        deg_ess      0 / 0.5 / 1 / NaN. Fraction of DEG screens ON THIS EXACT STRAIN that called the
-                     protein essential. **NaN means unmeasured — which is all 5,728 of K. pneumoniae.**
+        geptop_ess       continuous 0–1, ALWAYS present. Geptop 2.0's orthology+phylogeny score.
+        proteomelm_ess   the ProteomeLM authors' own essentiality head.
+        screens_ess_mean     mean probability over the nine published-screen models.
+
+    **There is deliberately no merged column** (owner's call, 2026-10-03). `essentiality` and
+    `essentiality_source` were dropped because the merge MIXED UNITS — a measured call pinned to
+    1.0/0.0 against a continuous prediction, so every measured essential outranked every prediction
+    by construction — and because on K. pneumoniae, the anchor, `essentiality` was a verbatim copy
+    of `screens_ess_mean` for all 5,728 rows. **Choosing what to rank on is now explicit.** To rebuild
+    the old column: `np.where(deg_essential_any.notna(), deg_essential_any, screens_ess_mean)`, with
+    `deg_essential_any` from `load_deg()`.
+
+    **`geptop_evidence` and `geptop_in_reference_set` moved out too** — they were byte-identical
+    duplicates of columns in `geptop_<species>.tsv`, via `load_geptop()`. That matters for one
+    reason worth repeating: **a `geptop_ess` of 0 has two meanings**, a confident non-essential call
+    (`orthologs_none_essential`, 58.5% of Kp) and no orthology evidence at all (`no_orthologs`,
+    7.8%). Read `geptop_evidence` from the per-source file before treating a zero as either.
+
+    **The MEASURED column is NOT here — it is `deg_ess` in `deg_<species>.tsv`**, via `load_deg()`
+    (owner's call, 2026-10-03). It used to be duplicated into this table byte-identically; the
+    per-source file is richer, carrying `deg_essential_any` and `deg_essential_all` side by side
+    where this one could only hold whichever `--rule` chose. The measurement is still *inside*
+    `essentiality` wherever `essentiality_source == "measured"`.
+
+    **`ogee_ess` is not here either** — it ships in `ogee_<species>.tsv`, via `load_ogee()`. Not
+    because it duplicates `proteomelm_ess` (measured: rho 0.33–0.64, 296–384 of the top 500 shared
+    — they are genuinely different opinions) but because it is the column most redundant with
+    `screens_ess_mean`, which drives the merge and validates better on K. pneumoniae.
+
+    **`essentiality_rule` is gone too**, because it was a 1:1 function of `essentiality_source`.
+    Which rule a run used is a property of the run and lives in
+    `evidence/essentiality_merge_manifest.tsv`, beside both counts.
 
     **`deg_ess` is three-valued only incidentally.** Each species happens to have exactly two
     screens today, so the fraction can only be 0, 0.5 or 1; a third screen would make it quarters.
     Read it as "fraction of screens agreeing", never as a fixed scale. The 0.5 bucket matters: on
     E. coli **490 of 695 essential calls rest on one screen only**, against 205 where both agree.
 
-    Three things to hold when combining them:
+    Three things to hold when combining the columns:
 
     1. **`geptop_ess` is not a probability at the extremes.** Measured against out-of-set labels
        (*R. solanacearum*): scores of 0.70–1.00 are only ~70% essential, and a score of exactly 0 is
@@ -247,6 +276,37 @@ def load_ogee(species: str) -> pd.DataFrame:
     if species not in MERGE_SPECIES:
         raise ValueError(f"unknown species {species!r}; expected one of {MERGE_SPECIES}")
     return pd.read_csv(_path(f"ogee_{species}.tsv"), sep="\t")
+
+
+def load_proteomelm_ess(species: str) -> pd.DataFrame:
+    """ProteomeLM-Ess essentiality PREDICTION for one anchor proteome: the paper's own head.
+
+    `proteomelm_ess` is p(essential) in 0-1 and is NEVER null -- the head scores every protein from
+    sequence plus proteome context, so there is no coverage gap to encode. `proteomelm_ess_rank` is
+    1 = most essential, WITHIN this proteome only.
+
+    **Read `proteomelm_ess_evidence` before comparing anything.** The authors' own `genomes.tsv`
+    (staged at `data/source/proteomelm/ess_genomes.tsv`) puts our three anchors in three different
+    relationships to their training set, so the column means something different in each:
+
+        ecoli        `held_out`        their Fig. 5B held-out genome -- out-of-sample, and the
+                                       reported AUROC 0.952 is on this exact proteome
+        saureus      `in_training`     taxid 93061 is in their cross-validation set, and it is our
+                                       exact 2,889-protein proteome. Closer to RECALL than to
+                                       prediction; do not quote it as out-of-sample performance.
+        kpneumoniae  `unseen_species`  no K. pneumoniae anywhere in their 89 genomes. A genuine
+                                       out-of-distribution prediction -- and it is the anchor.
+
+    So the column is comparable WITHIN a species and not across one, exactly as `ogee_ess` is, and
+    for the same reason.
+
+    Not to be confused with `src/proteomelm.py`, which loads the EMBEDDINGS. The matrices there are
+    z-scored and window long sequences; this head takes raw `hidden_states[8]` with sequences
+    truncated at 4,096, so the two are not interchangeable inputs -- see the stage docstring.
+    """
+    if species not in MERGE_SPECIES:
+        raise ValueError(f"unknown species {species!r}; expected one of {MERGE_SPECIES}")
+    return pd.read_csv(_path(f"proteomelm_ess_{species}.tsv"), sep="\t")
 
 
 def load_screens(species: str) -> pd.DataFrame:

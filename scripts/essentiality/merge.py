@@ -1,20 +1,53 @@
-"""Two essentiality columns per protein -- `geptop_ess` (predicted) and `deg_ess` (measured).
+"""One column per evidence source, plus the merged column a ranking consumes.
 
-    geptop_ess   continuous 0-1, ALWAYS present. Geptop 2.0's orthology+phylogeny score.
-    deg_ess      0 / 0.5 / 1 / EMPTY. The fraction of DEG screens on this exact strain that called
-                 the protein essential. Empty means unmeasured -- which is ALL of K. pneumoniae.
+    essentiality_<species>.tsv
+        uniprot_ac   geptop_ess   proteomelm_ess   screens_ess_mean
+        essentiality   essentiality_source   geptop_evidence   geptop_in_reference_set
+
+    deg_<species>.tsv
+        uniprot_ac   deg_ess   deg_n_datasets   deg_n_essential
+        deg_essential_any   deg_essential_all
+
+**The MEASURED column lives in `deg_<species>.tsv`, not in the summary** (owner's call,
+2026-10-03). `deg_ess` used to appear in both, byte-identical and in the same canonical row order;
+the per-source file is the richer of the two, because it carries `deg_essential_any` and
+`deg_essential_all` side by side and the summary could only carry whichever `--rule` picked. The
+measurement is still *inside* `essentiality`, with `essentiality_source` reading `measured` --
+nothing about the merged column changed.
+
+**`ogee_ess` is not in the summary either** (owner's call, 2026-10-03), though `ogee_<species>.tsv`
+and its scripts are untouched. The reason is NOT that it duplicates `proteomelm_ess` -- measured,
+those two are rho 0.33-0.64 with only 296-384 of their top 500 shared, so they are genuinely
+different opinions. It is that `ogee_ess` is the one most redundant with **`screens_ess_mean`** (rho
+0.49 / 0.55 / 0.37, against ProteomeLM's 0.32 / 0.32 / 0.13), and `screens_ess_mean` is both what drives
+the merged column and the better-validated of the two: AUROC 0.89-0.96 on the three measured Kp
+screens, against OGEE's leave-species-out spread of 0.529-0.940 and a Kp top-decile cut of 0.471
+where E. coli reads 0.861. **Re-adding it is one line in `head` below.**
+
+**`essentiality_rule` is gone too, and it carried nothing**: it was a 1:1 function of
+`essentiality_source` (`measured` -> `any`, `predicted_screens_ess_mean` -> `screens_ess_mean`). Which rule
+a run actually used is a property of the RUN, not of a protein, and it is recorded per species in
+`evidence/essentiality_merge_manifest.tsv` -- next to both the `any` and the `all` counts, so the
+3.4x spread between them stays visible rather than being collapsed into one repeated string.
 
 **`deg_ess` being three-valued is incidental, not structural**: each species happens to have exactly
 2 screens today, so the fraction can only be 0, 0.5 or 1. A third screen would make it quarters.
 Read it as "fraction of screens agreeing", never as a fixed three-level scale.
 
-A convenience column `essentiality` merges them -- measurement where it exists, prediction where it
-does not -- with `essentiality_source` saying which. Read the two columns directly if you want to
-apply your own rule; the merged one bakes in a choice (see the caveats below).
+**THE TABLE NO LONGER SHIPS A VERDICT COLUMN** (owner's call, 2026-10-03). `essentiality` and
+`essentiality_source` are still computed -- the console summary and the manifest use them -- but
+they are not written, along with `geptop_evidence` and `geptop_in_reference_set`, which were
+byte-identical duplicates of columns in `geptop_<species>.tsv`.
 
-This is the column a target ranking actually consumes. It follows stage 04's pattern exactly —
-`<x>_measured` (the label, empty where unmeasured), `<x>_score` (a value for EVERY protein), and
-`<x>_source` saying which you got — rather than silently overwriting one with the other.
+**So this axis now hands over three predictors side by side and no answer.** That is the real
+consequence, and it is deliberate: `essentiality` MIXED UNITS -- a measured call pinned to 1.0/0.0
+against a continuous prediction, so every measured essential outranked every prediction by
+construction -- and on K. pneumoniae, the anchor, it was a verbatim copy of `screens_ess_mean` for all
+5,728 rows. Whoever ranks now chooses which column to rank on, which was always the honest
+instruction. Reconstruct the old column with
+`np.where(deg_essential_any.notna(), deg_essential_any, screens_ess_mean)`.
+
+The caveats below still apply to any merge you build yourself.
 
 WHAT IS MEASURED, AND WHAT IS NOT
 ---------------------------------
@@ -175,10 +208,8 @@ def main() -> None:
         df["deg_ess"] = np.where(
             has, (df["deg_n_essential"] / df["deg_n_datasets"].where(has, 1)).round(4), pd.NA)
         chosen = any_ess if args.rule == "any" else all_ess
-        # The merged column: 1.0/0.0 where measured, the Geptop score where not.
-        df["essentiality"] = np.where(has, chosen.astype(float), df["geptop_ess"]).round(4)
-        df["essentiality_source"] = np.where(has, "measured", "predicted")
-        df["essentiality_rule"] = np.where(has, args.rule, "geptop")
+        # `essentiality` is computed AFTER the source columns are joined, because its fallback is
+        # now `screens_ess_mean` -- which does not exist yet at this point in the function.
         # ---- DEG gets its own per-species file, symmetric with geptop_<sp>.tsv and ogee_<sp>.tsv.
         # One file per EVIDENCE SOURCE, each carrying its own provenance columns, and a headline
         # table that summarises them with one column each. That is the relationship
@@ -191,14 +222,15 @@ def main() -> None:
         say(f"    -> {deg_out.relative_to(REPO_ROOT)}  {len(df):,} rows, "
             f"{'all unmeasured' if not has.any() else f'{int(has.sum()):,} measured'}")
 
-        # ---- the headline: ONE COLUMN PER SOURCE plus the merge. `ogee_ess` and `screens_mean`
+        # ---- the headline: ONE COLUMN PER SOURCE plus the merge. `ogee_ess` and `screens_ess_mean`
         # are filled by their own scripts and are absent until those have run, which is why they
         # are not invented here -- an invented column is indistinguishable from a measured one.
         # ONE COLUMN PER EVIDENCE SOURCE. Each source's own file carries its provenance columns;
-        # the headline carries the summary. `ogee_ess` and `screens_mean` are joined in if their
+        # the headline carries the summary. `ogee_ess` and `screens_ess_mean` are joined in if their
         # scripts have run -- absent rather than invented, because an invented column is
         # indistinguishable from a measured one.
-        for src, col in (("ogee", "ogee_ess"), ("screens", None)):
+        for src, col in (("ogee", "ogee_ess"), ("proteomelm_ess", "proteomelm_ess"),
+                         ("screens", None)):
             f = OUT_DIR / f"{src}_{sp}.tsv"
             if not f.exists():
                 say(f"       {src}_{sp}.tsv absent -- headline omits it (run its script to add)")
@@ -212,19 +244,50 @@ def main() -> None:
                 # votes -- rank on it, do not read it as a consensus count.
                 cols = [c for c in t.columns if c != "uniprot_ac"]
                 df = df.merge(t[["uniprot_ac"]].assign(
-                    screens_mean=t[cols].mean(axis=1).round(4)), on="uniprot_ac", how="left")
-        head = ["uniprot_ac", "geptop_ess", "deg_ess", "ogee_ess", "screens_mean", "essentiality",
-                "essentiality_source", "essentiality_rule",
-                "geptop_evidence", "geptop_in_reference_set"]
-        df = df[[c for c in head if c in df.columns]]
+                    screens_ess_mean=t[cols].mean(axis=1).round(4)), on="uniprot_ac", how="left")
+        # ---- THE MERGED COLUMN. Measured where we have it; otherwise the best PREDICTOR we have
+        # measured, which is no longer Geptop.
+        #
+        # It was `geptop_ess` until 2026-10-03. Two measurements moved it, both on K. pneumoniae,
+        # the only anchor where every predictor is honest (`geptop_in_reference_set == 0`):
+        #
+        #   1. On the three measured Kp screens the screens-trained transfer models reach
+        #      AUROC 0.89-0.96 (Goodall->Kp, assay-matched), against Geptop's own validated
+        #      0.59-0.81 and ProteomeLM-Ess's 0.82-0.95.
+        #   2. `geptop_ess` leaves 3,799 of 5,728 Kp proteins (66.3%) tied at EXACTLY 0 -- so
+        #      two-thirds of the anchor proteome was unranked in the headline column, and this
+        #      axis is consumed by ranking. `screens_ess_mean` has 2,596 distinct values.
+        #
+        # Do NOT re-derive this from an E. coli comparison: `geptop_ess` is 53.2% self-derived on
+        # E. coli and 58.3% on S. aureus (both are Geptop reference genomes), so it looks like the
+        # best predictor there -- AUPR 0.977 against Keio -- and that number is circular.
+        # `geptop_ess` keeps its own column and its own file; only the FALLBACK changed.
+        fallback, rule_name = "geptop_ess", "geptop"
+        if "screens_ess_mean" in df.columns and df["screens_ess_mean"].notna().any():
+            fallback, rule_name = "screens_ess_mean", "screens_ess_mean"
+        df["essentiality"] = np.where(has, chosen.astype(float), df[fallback]).round(4)
+        df["essentiality_source"] = np.where(has, "measured", f"predicted_{rule_name}")
+        df["essentiality_rule"] = np.where(has, args.rule, rule_name)
+
+        # Everything above stays a WORKING column -- the console lines and the manifest below
+        # are computed from them -- but the table ships FOUR: the key and the three predictors.
+        # Each dropped column is derivable, which was checked per species before they went:
+        #   deg_ess                  byte-identical to the column in `deg_<sp>.tsv`
+        #   ogee_ess                 byte-identical to the column in `ogee_<sp>.tsv`
+        #   geptop_evidence          byte-identical to the column in `geptop_<sp>.tsv`
+        #   geptop_in_reference_set  byte-identical to the column in `geptop_<sp>.tsv`
+        #   essentiality             where(measured, deg_essential_any, screens_ess_mean)
+        #   essentiality_source      where(deg_essential_any.notna(), measured, predicted_...)
+        #   essentiality_rule        a 1:1 function of essentiality_source
+        head = ["uniprot_ac", "geptop_ess", "proteomelm_ess", "screens_ess_mean"]
         out = OUT_DIR / f"essentiality_{sp}.tsv"
-        df.to_csv(out, sep="\t", index=False)
+        df[[c for c in head if c in df.columns]].to_csv(out, sep="\t", index=False)
         n_meas = int(has.sum())
         say(f"    -> {out.relative_to(REPO_ROOT)}  {len(df):,} rows   "
             f"measured {n_meas:,} ({100*n_meas/len(df):.1f}%)   predicted {len(df)-n_meas:,}")
         if n_meas:
             say(f"       measured essential: any={int(any_ess.sum()):,}  all={int(all_ess.sum()):,}"
-                f"   (the {args.rule} rule is in `essentiality`)")
+                f"   (not shipped as a column -- see deg_{sp}.tsv)")
         rows.append({"species": sp, "n": len(df), "n_measured": n_meas,
                      "n_predicted": len(df) - n_meas,
                      "n_measured_essential_any": int(any_ess.sum()),

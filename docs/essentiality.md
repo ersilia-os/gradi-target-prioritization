@@ -396,6 +396,179 @@ Provenance: `data/source/ogee/SOURCE.md`. Evidence: `evidence/ogee_leave_species
 
 ---
 
+## ProteomeLM-Ess — the paper's own head, `proteomelm_ess.py`
+
+`scripts/essentiality/proteomelm_ess.py` · worker `scripts/essentiality/workers/proteomelm_ess.py`
+· loader `src.essentiality.load_proteomelm_ess` · output `proteomelm_ess_<species>.tsv`
+
+The fifth evidence source, and the one this axis deferred longest. ProteomeLM-Ess is the
+essentiality head from Malbranke, Zalaffi & Bitbol (PNAS 2026) — a two-layer classifier
+(1152 → 2048, ReLU, dropout 0.5 → 2) on `hidden_states[8]` of a **frozen** ProteomeLM-L. The
+weights were missing from the repository; Cyril Malbranke released them on **2026-10-01** after we
+asked, along with a Colab notebook and an OGEE v3 mirror (this project had already recorded that
+server as dead). **Licence Apache-2.0**, materially easier than TabPFN's non-commercial weights.
+
+| column | |
+|---|---|
+| `proteomelm_ess` | p(essential), 0–1, **never null** — the head scores every protein |
+| `proteomelm_ess_rank` | 1 = most essential, **within this proteome only** |
+| `proteomelm_ess_evidence` | `held_out` \| `in_training` \| `unseen_species` — read this first |
+
+### The score means something different in each anchor
+
+From the authors' own `genomes.tsv` (in their HF dataset repo, not ours), staged here as
+`data/source/proteomelm/ess_genomes.tsv`:
+
+| anchor | taxid | their role | their labels |
+|---|---|---|---|
+| *E. coli* K-12 | 83333 | **held out** (their Fig. 5B) | 290 E / 3,969 NE |
+| *S. aureus* NCTC 8325 | 93061 | **cross-validation** — i.e. trained on | 395 E / 2,484 NE |
+| *K. pneumoniae* HS11286 | — | **absent entirely** | — |
+
+Their file contains 2,889 proteins for taxid 93061 — our *exact* S. aureus proteome. So the Sa
+column is closer to **recall** than to prediction. The only *Klebsiella* anywhere in their 89
+genomes is **K. michiganensis M5al, 378 E / 0 NE**, so our anchor is a genuine out-of-distribution
+prediction. **Comparable WITHIN a species, never across** — the rule `ogee_ess` already carries.
+
+### Why it does not reuse `proteomelm_<species>.npz`
+
+Same backbone, same layer 8, and our matrices were built with the tool's own code path — and they
+are still the wrong input. Read off the authors' `essentiality.py`:
+
+| | ours (`embeddings/proteomelm.py`) | what the head was fitted on |
+|---|---|---|
+| normalisation | **z-scored genome-wide** | **raw** `hidden_states[8]` |
+| long sequences | **windowed** above 4,096 aa | **truncated** at the first 4,096 |
+| dtype | float32 | backbone in bfloat16 |
+
+So the worker recomputes ESM-C and the backbone pass end to end. This is CLAUDE.md's *External
+models* rule doing its job: feeding our npz would have returned plausible, well-formed, subtly
+wrong numbers.
+
+**The difference that turned out not to exist.** Their code passes `group_embeds=x` where ours
+passes `None`, which looked like a third discrepancy — but `modeling_proteomelm.py` does
+`if group_embeds is None: group_embeds = inputs_embeds.clone()`, so the two are the same input.
+Checked rather than assumed, because a real mismatch there would have been invisible.
+
+### Environment — and why the split is about pip, not the model
+
+The head ships only in the authors' **git** build, which pulls **torch 2.14** against `gradi`'s
+2.12 — the collision that breaks stage 01's ESM-C. It therefore lives in **`gradi-plm-ess`**,
+reached across a process boundary (`GRADI_PLM_ESS_BIN` overrides).
+
+The model code itself is *not* the reason. Diffed before splitting: the installed `gradi` build and
+upstream `main` differ only in a `polarize()` helper that is **never called**, and in upstream
+adding support for pre-expanded 3D/4D attention masks — a branch a standard 2D mask never takes.
+For this stage the two backbones are numerically identical.
+
+`pip install "proteomelm @ git+…"` **misses `httpx`**, which `esm.sdk` imports; install it too or
+the worker dies with `ModuleNotFoundError` before loading anything.
+
+### The polarity control, and why it exists
+
+**`id2label: {0: essential}`** — `p_essential` is the softmax of class **0**. An off-by-one there
+produces a confident, well-formed, exactly inverted column, and nothing in its distribution says
+so. The stage scores the ribosome against the textbook dispensables, reusing `summary.py`'s own
+panels by spec-load rather than restating them, and **exits non-zero below 0.80**:
+
+| species | role | ribosome median | dispensable median | AUROC |
+|---|---|---|---|---|
+| kpneumoniae | unseen_species | 0.9306 | 0.1093 | 0.9370 |
+| ecoli | held_out | 0.9892 | 0.2704 | 0.9717 |
+| saureus | in_training | 0.9920 | 0.0124 | 0.9918 |
+
+The floor is 0.80, **not 1.0** — a continuous score cannot put every ribosomal protein in the top
+decile, and demanding it would fail a working model. Same mistake `summary.py` already records.
+
+### Validation — measured on labels the authors never saw
+
+`evidence/proteomelm_ess_validation.tsv`. For K. pneumoniae each **screen strain is scored
+itself**, so there is no identifier mapping at all: key overlap is 4,930/4,930, 4,809/4,809 and
+4,981/4,981. Transferring the labels onto HS11286 instead would have decimated the join, which is
+the route this axis already rejected.
+
+| species | role | endpoint | base | AUROC | AUPR |
+|---|---|---|---|---|---|
+| ecoli | held_out | core essential | 0.048 | 0.9798 | 0.699 |
+| ecoli | held_out | Keio knockout | 0.068 | **0.9726** | 0.767 |
+| ecoli | held_out | `deg_ess` measured | 0.055 | 0.9673 | 0.734 |
+| ecoli | held_out | Goodall TraDIS | 0.087 | 0.9276 | 0.754 |
+| ecoli | held_out | Choe Tn-seq | 0.103 | 0.6448 | 0.431 |
+| saureus | in_training | `deg_ess` measured | 0.096 | 0.9598 | 0.844 |
+| kpneumoniae | unseen | ATCC 43816 | 0.076 | 0.9473 | 0.748 |
+| kpneumoniae | unseen | ECL8 | 0.106 | 0.8323 | 0.643 |
+| kpneumoniae | unseen | RH201207 | 0.095 | 0.8201 | 0.597 |
+
+**We reproduce their headline.** They report 0.952 held out on E. coli K-12; we measure **0.9726**
+against Keio on our exact anchor. That is what validates the chain — env, worker, polarity,
+canonical order — and it is the run that could have silently shipped an inverted column.
+
+### Our own pipeline still wins on K. pneumoniae
+
+The comparison that decides whether this replaces anything, on **identical endpoints**:
+
+| Kp endpoint | ProteomeLM-Ess | Goodall→Kp (ours, assay-matched) | Keio→Kp (ours, mismatched) |
+|---|---|---|---|
+| ATCC 43816 | 0.9473 / 0.748 | **0.9597 / 0.825** | 0.9435 / 0.816 |
+| ECL8 | 0.8323 / 0.643 | **0.8845 / 0.695** | 0.8412 / 0.664 |
+| RH201207 | 0.8201 / 0.597 | **0.8903 / 0.670** | 0.8103 / 0.620 |
+
+**3 of 3, on both metrics.** ProteomeLM-Ess beats only the assay-*mismatched* Keio transfer, and
+only on RH201207 — which is the axis's existing *transfer is better when the assay matches* finding
+appearing again (all three Kp screens are TraDIS, as Goodall is). So it ships as an independent
+fifth opinion, **not** as a replacement.
+
+### It is independent, which is why it earns a column
+
+On Kp: ρ **0.44** with `geptop_ess`, **0.37** with `ogee_ess`, **0.32** with `screens_ess_mean`, and
+top-500 shortlists overlap only ~335/500. Contrast degradability's two activator columns at ρ 0.89,
+which that axis correctly describes as one opinion wearing two hats. It is also the most finely
+ranked column on the axis — **5,663 distinct values over 5,728 Kp proteins**, no ties.
+
+### The base-rate effect reproduces, from outside this project
+
+Across eight screens in two species the AUROC falls near-monotonically as the screen's base rate
+rises: E. coli 0.048 → 0.980, 0.068 → 0.973, 0.087 → 0.928, 0.103 → 0.645; Kp 0.076 → 0.947,
+0.095 → 0.820, 0.106 → 0.832. That is independent confirmation of the `corr(base_rate, AUROC) =
+−0.643` this axis measured on OGEE — different model, different labels, same effect. A screen
+calling many genes essential is measuring fitness defect, and is correspondingly harder to predict.
+
+Choe's 0.645 is the extreme and has two candidate explanations this evidence cannot separate: the
+base-rate effect, or the LB-only condition making it a different quantity. It is **not** a broken
+screen — `summary.py` gives it a ribosome separation of 0.906.
+
+**Their training set carries the flaw we documented from the other side**: **37 of their 82
+cross-validation genomes have zero negatives** (e.g. *P. fluorescens* 396 E / 0 NE), the
+positives-only RB-TnSeq artifact behind this project's own OGEE filtering.
+
+### A finding for the collaboration
+
+The consortium panel in `src/interest.py` sits at the **97.1st percentile (median)** of this score
+on Kp, over 43 matched members — `lpxL` 99.9, `lptG` 99.8, GyrA/GyrB 99.4–99.8, with `lnt`, `lolC`,
+`secA`, `yidC`, `lptD`, `lptB` all above 98.5. Read beside studiedness (80th percentile, so **not**
+novel) and degradability (OR 0.21–0.82, trending depleted), the panel is **the right biology and
+the wrong chemistry for a degrader**. This head never saw *Klebsiella*, and the panel was written
+down from prose long before — so the three axes agree independently.
+
+### Running it
+
+```bash
+P=~/miniconda3/envs/gradi/bin/python
+$P scripts/essentiality/proteomelm_ess.py --device mps                        # the three anchors
+$P scripts/essentiality/proteomelm_ess.py --device mps --validate             # + measured screens
+$P scripts/essentiality/proteomelm_ess.py --device mps --validate-strains     # + the 3 Kp strains
+```
+
+`--species` · `--device {cpu,mps,cuda}` · `--refresh` · `--dry-run` · `-q`. About 7–12 min per
+proteome on MPS (CPU is several times slower). The raw worker TSVs and FASTAs cache in `scratch/`,
+so a re-run re-reads rather than re-scores.
+
+**`--limit`-style smoke testing is meaningless here**, for the same reason `embeddings/proteomelm.py`
+is not shardable: the model reads the whole proteome as context, so scoring a 20-protein slice is
+out of distribution (measured: every value collapses below 0.06). Score a whole proteome or nothing.
+
+---
+
 ## The layout — four tiers, restructured 2026-09-21
 
 The axis used to keep its clean training sets among forty-odd audit tables and had no
@@ -491,28 +664,90 @@ live there, and the directory contract's own test settles it: *would you cite or
 ### The merged column, and the units it mixes
 
 
-Two headline columns per protein, written by `scripts/essentiality/merge.py`:
+`essentiality_<species>.tsv`, written by `scripts/essentiality/merge.py` — **9 columns, one per
+prediction source plus the merged column**:
 
 | column | domain | meaning |
 |---|---|---|
 | **`geptop_ess`** | 0–1 continuous, **never null** | Geptop 2.0 orthology+phylogeny score |
-| **`deg_ess`** | 0 / 0.5 / 1 / **null** | fraction of DEG screens on this exact strain calling it essential; **null = unmeasured** |
+| **`proteomelm_ess`** | 0–1, never null | the ProteomeLM authors' own head |
+| **`screens_ess_mean`** | 0–1 | mean over the ten published-screen models |
+| **`essentiality` / `essentiality_source`** | 0–1 + label | the merged column, and where its value came from |
+| `geptop_evidence`, `geptop_in_reference_set` | | why the Geptop score is what it is |
 
-| species | `geptop_ess` | `deg_ess` |
+### What is not here: the verdict column, and four others
+
+**`essentiality` and `essentiality_source` are gone** (owner's call, 2026-10-03), so the axis now
+hands over **three predictors side by side and no answer**. Two measured reasons:
+
+- The merge **mixed units** — a measured call pinned to 1.0/0.0 against a continuous prediction, so
+  every measured essential outranked every prediction by construction, which is a ranking artifact
+  rather than a finding.
+- On **K. pneumoniae**, the anchor and the species the project exists to rank, `essentiality` was a
+  **verbatim copy of `screens_ess_mean` for all 5,728 rows** — every row read
+  `predicted_screens_ess_mean`, because Kp has no measurement anywhere.
+
+Rebuild it if you want it: `np.where(deg_essential_any.notna(), deg_essential_any, screens_ess_mean)`.
+
+**`geptop_evidence` and `geptop_in_reference_set` moved to `geptop_<species>.tsv`**, where they
+were byte-identical. Keep reading them: **a `geptop_ess` of 0 has two meanings** —
+`orthologs_none_essential` (58.5% of Kp, a confident NON-essential call, evidence not absence) and
+`no_orthologs` (7.8%, no evidence at all). The score alone cannot tell them apart.
+
+### Three more that are not here: `deg_ess`, `ogee_ess`, `essentiality_rule`
+
+All dropped on the project owner's instruction, **2026-10-03**. Each still ships in its own
+per-source file; only the summary got narrower.
+
+**`ogee_ess` lives in `ogee_<species>.tsv`**, and the OGEE scripts are untouched. The reason is
+worth recording, because the obvious one is wrong: it is **not** that OGEE duplicates
+`proteomelm_ess`. Measured on the shipped tables, those two run **rho 0.33–0.64** and share only
+**296–384 of their top 500** — on K. pneumoniae they disagree about 164 of the top 500, so they are
+genuinely different opinions.
+
+What `ogee_ess` *is* redundant with is **`screens_ess_mean`**:
+
+| | vs `screens_ess_mean` | | |
+|---|---|---|---|
+| | Kp | Ec | Sa |
+| `ogee_ess` | **0.488** | **0.550** | 0.365 |
+| `proteomelm_ess` | 0.321 | 0.316 | 0.127 |
+
+And `screens_ess_mean` is both what drives the merged column and the better-validated of the two —
+AUROC **0.89–0.96** on the three measured K. pneumoniae screens, against OGEE's leave-species-out
+spread of **0.529–0.940** and a Kp top-decile cut of **0.471** where E. coli reads 0.861. So the
+column that went is the one carrying least that the table did not already have.
+
+Re-adding it is one line in `head` in `merge.py`.
+
+**`deg_ess` ships in `deg_<species>.tsv`**, which is where every other evidence source already
+lives. It used to appear in both files, **byte-identical and in the same canonical row order** —
+checked per species before the tables were rewritten, not assumed. The per-source file is the
+richer of the two: it carries `deg_essential_any` and `deg_essential_all` *side by side*, where
+the summary could only ever hold whichever `--rule` picked. Since `any` gives 695 E. coli
+essentials and `all` gives 205 — a **3.4× spread from one choice** — keeping both visible is the
+point.
+
+**Nothing about the merged column changed.** The measurement is still inside `essentiality`
+wherever `essentiality_source == "measured"`: 4,253 E. coli and 2,678 *S. aureus* rows.
+
+**`essentiality_rule` carried no information at all** — it was a 1:1 function of
+`essentiality_source` (`measured` → `any`, `predicted_screens_ess_mean` → `screens_ess_mean`), verified
+before removal. Which rule a run used is a property of the **run**, not of a protein; it is
+recorded per species in `evidence/essentiality_merge_manifest.tsv`, next to both the `any` and
+`all` counts.
+
+| species | `geptop_ess` | `deg_ess` (in `deg_<sp>.tsv`) |
 |---|---|---|
 | kpneumoniae | 5,728 / 5,728 | **0 / 5,728 — no measurement exists** |
 | ecoli | 4,403 / 4,403 | 4,253 (96.6%) |
 | saureus | 2,889 / 2,889 | 2,678 (92.7%) |
 
-Supporting columns keep the evidence: `deg_n_datasets`, `deg_n_essential`, `deg_essential_any`,
-`deg_essential_all`, `geptop_evidence`, `geptop_in_reference_set`. `essentiality` /
-`essentiality_source` merge the two as a convenience.
-
 **`merge.py` also writes `deg_<species>.tsv`**, carrying `deg_ess` and its four provenance
-columns. Those used to be inlined into the headline and were **split out so every evidence source
-has the same shape** — its own file, plus one summary column in `essentiality_<species>.tsv`.
-That is the relationship `geptop_<species>.tsv` always had with the headline, now applied
-uniformly to DEG, OGEE and the screens.
+columns — `deg_n_datasets`, `deg_n_essential`, `deg_essential_any`, `deg_essential_all`. **Every
+evidence source has the same shape**: its own file, plus one summary column in
+`essentiality_<species>.tsv`. That is the relationship `geptop_<species>.tsv` always had with the
+headline, now applied uniformly to DEG, OGEE and the screens.
 
 ### Where `deg_ess` comes from
 
