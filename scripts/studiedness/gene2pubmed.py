@@ -22,7 +22,7 @@ So NCBI is dark on K. pneumoniae and S. aureus too, through a different door. Wh
 is finer RESOLUTION on well-studied organisms -- 189 distinct values against UniProt's 47 -- and
 that is the measurement worth keeping.
 
-**IT IS NOT THE SHIPPED COUNT -- that changed on 2026-09-22.** `n_papers_family` counts UniProt
+**IT IS NOT THE SHIPPED COUNT -- that changed on 2026-09-22.** `n_papers_uniprot_prokaryotic` counts UniProt
 curated references only, because "papers a curator read and used" is ONE consistent definition
 applied to every row, whereas `max(curated, gene-linked)` switched definition per protein: Kp
 `rpoB` took NCBI's 350 while ~11% of donors took SwissProt's number. One consistent definition

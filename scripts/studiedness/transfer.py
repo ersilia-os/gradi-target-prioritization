@@ -60,7 +60,7 @@ protein winning bacterial slots at ~30% identity. Hence lineage, not organism na
 "is not human" -- strains are filed under their own taxids.
 
 **Both scopes are computed on every run** and land in `evidence/donor_scope_comparison.tsv`, with
-`n_papers_family_bacteria` and `n_papers_family_any` side by side in the transfer table and
+`n_papers_uniprot_bacteria` and `n_papers_uniprot_any` side by side in the transfer table and
 `donor_scope` naming the shipped one. The held-out control is also run under both, which is the
 arbiter: it asks which scope better recovers E. coli's own measured literature from donors it was
 not allowed to see.
@@ -117,9 +117,9 @@ prints what fraction of queries are still capped; if that is large, raise k agai
 THE CONTROL: E. COLI WITH EVERY E. COLI DONOR REMOVED
 -------------------------------------------------------
 E. coli is the only anchor whose own literature is real, so it is the only place the transfer
-mechanism can be tested at all. The control recomputes `n_papers_family` for E. coli with
+mechanism can be tested at all. The control recomputes `n_papers_uniprot_prokaryotic` for E. coli with
 **every Escherichia donor struck out of SwissProt**, then correlates it against E. coli's own
-measured `n_papers_own`. That is a genuine held-out test of the whole mechanism -- the same
+measured `n_papers_uniprot_own`. That is a genuine held-out test of the whole mechanism -- the same
 shape as `embeddings/prott5.py` validating against UniProt's published vectors. The run exits
 non-zero if it falls below the floor.
 
@@ -171,6 +171,7 @@ G2P_COUNTS = OUT_DIR / "scratch" / "gene2pubmed_counts.tsv"
 # carried per donor and scored by the held-out control, and neither feeds donor selection or the
 # deliverable. Absent files degrade to zeros with a printed note, exactly like gene2pubmed.
 PT_GENEID_COUNTS = OUT_DIR / "scratch" / "pubtator_geneid_counts.tsv"
+PT_OWN_PMIDS = OUT_DIR / "scratch" / "pubtator_own_pmids.tsv"
 PT_SYMBOL_COUNTS = OUT_DIR / "scratch" / "pubtator_symbol_counts.tsv"
 DEFAULT_DIAMOND_DIR = Path.home() / "miniconda3" / "envs" / "gradi-ortho" / "bin"
 
@@ -353,6 +354,46 @@ def load_swissprot(counts: dict[str, int],
 EXACT_PIDENT = 95.0
 
 
+def pubtator_own_pmids() -> dict[str, set]:
+    """PubTator PMID sets per GeneID, for `n_papers_pubtator_own`. Written by pubtator.py."""
+    if not PT_OWN_PMIDS.exists():
+        say("  NOTE pubtator own-PMID sets absent -- n_papers_pubtator_own will be empty. "
+            "Run scripts/studiedness/pubtator.py --route own-pmids")
+        return {}
+    out: dict[str, set] = {}
+    for line in PT_OWN_PMIDS.read_text().splitlines()[1:]:
+        g, _, p = line.partition("\t")
+        out[g] = set(p.split(";")) if p else set()
+    say(f"  pubtator own   PMID sets for {len(out):,} GeneIDs")
+    return out
+
+
+def exact_own_geneids(species: str, hits: pd.DataFrame, sp_meta: pd.DataFrame,
+                      prot: pd.DataFrame) -> dict[str, set]:
+    """GeneIDs that name THIS protein -- its own, plus the same three `exact` routes.
+
+    The PubTator twin of `exact_own_pmids`. Same rule, different key: literature is reached
+    through NCBI GeneIDs rather than UniProt accessions, so the union is taken over the GeneIDs
+    of every entry that names this protein.
+    """
+    gid_of = dict(zip(sp_meta["donor_ac"], sp_meta["geneid"]))
+    bino = dict(zip(sp_meta["donor_ac"], sp_meta["donor_binomial"]))
+    want = ANCHOR_BINOMIAL[species]
+    out: dict[str, set] = {}
+    for a, cell in zip(prot["uniprot_ac"], prot["geneid"]):
+        got = set(split_ids(cell))
+        if got:
+            out[a] = got
+    h = hits[hits["qseqid"].isin(set(prot["uniprot_ac"]))]
+    h = h[(h["qcovhsp"] >= S.COVERAGE_FLOOR) & (h["scovhsp"] >= S.COVERAGE_FLOOR)]
+    same = h[(h["pident"] >= EXACT_PIDENT) & h["donor_ac"].map(lambda a: bino.get(a) == want)]
+    ident = h[(h["pident"] >= 100) & (h["qcovhsp"] >= 100) & (h["scovhsp"] >= 100)]
+    for frame in (same, ident):
+        for q, d in zip(frame["qseqid"], frame["donor_ac"]):
+            out.setdefault(q, set()).update(split_ids(gid_of.get(d, "")))
+    return out
+
+
 def exact_own_pmids(species: str, hits: pd.DataFrame, sp_meta: pd.DataFrame,
                     self_pmids: dict[str, set]) -> dict[str, set]:
     """PMIDs naming THIS protein, by the ligands axis's `exact` rule.
@@ -402,7 +443,9 @@ def own_exact(species: str, hits: pd.DataFrame, sp_meta: pd.DataFrame,
 
 
 def own_signals(species: str, counts: dict[str, int],
-                exact: dict[str, set] | None = None) -> pd.DataFrame:
+                exact: dict[str, set] | None = None,
+                pt_gids: dict[str, set] | None = None,
+                pt_pmids: dict[str, set] | None = None) -> pd.DataFrame:
     """This accession's own curation -- a measurement of darkness on Kp and Sa."""
     path = LIT_DIR / f"anchor_{species}.tsv.gz"
     if not path.exists():
@@ -424,16 +467,29 @@ def own_signals(species: str, counts: dict[str, int],
     # Union of PMIDs over accession + identical sequence + same species >= 95%.
     df["_self"] = df["lit_pubmed_id"].apply(lambda c: set(split_ids(c)))
     if exact:
-        df["n_papers_own"] = [len(s0 | exact.get(a, set()))
+        df["n_papers_uniprot_own"] = [len(s0 | exact.get(a, set()))
                               for a, s0 in zip(df["uniprot_ac"], df["_self"])]
-        n_up = int((df["n_papers_own"] > df["n_pubs_uniprot"]).sum())
+        n_up = int((df["n_papers_uniprot_own"] > df["n_pubs_uniprot"]).sum())
         say(f"  exact rule     {n_up:,} of {len(df):,} proteins gain literature from a "
             "same-species or identical-sequence entry")
     else:
-        df["n_papers_own"] = df["n_pubs_uniprot"]
+        df["n_papers_uniprot_own"] = df["n_pubs_uniprot"]
     df = df.drop(columns=["_self"])
+    # The PubTator twin of n_papers_uniprot_own: same `exact` rule, same union-of-PMIDs, but
+    # reached through NCBI GeneIDs. **Expect it to be near-empty on Kp and Sa** -- PubTator's
+    # gene vocabulary barely covers those proteomes' own GeneIDs (Kp 1.9%, Sa 14.8%, Ec 91.5%).
+    # That emptiness is a second, independent measurement of darkness, not a defect, which is
+    # the same reason n_papers_uniprot_own is kept despite being flat on Kp.
+    if pt_gids is not None and pt_pmids is not None:
+        df["n_papers_pubtator_own"] = [
+            len(set().union(*(pt_pmids.get(g, set()) for g in pt_gids.get(a, ()))) )
+            if pt_gids.get(a) else 0
+            for a in df["uniprot_ac"]]
+    else:
+        df["n_papers_pubtator_own"] = 0
     return df[["uniprot_ac", "gene_name", "reviewed", "annotation_score", "protein_existence",
-               "n_pubs_uniprot", "n_pubs_gene2pubmed", "n_papers_own"]]
+               "n_pubs_uniprot", "n_pubs_gene2pubmed", "n_papers_uniprot_own",
+               "n_papers_pubtator_own"]]
 
 
 # ---------------------------------------------------------------- DIAMOND
@@ -624,7 +680,7 @@ def pubtator_donors(hits: pd.DataFrame, sp_meta: pd.DataFrame, identity_floor: f
                              "donor_gene": "pubtator_donor_gene",
                              "donor_organism": "pubtator_donor_organism",
                              "pident": "pubtator_donor_pident",
-                             "donor_n_pubs_pubtator_geneid": "n_papers_family_pubtator"}))
+                             "donor_n_pubs_pubtator_geneid": "n_papers_pubtator_prokaryotic"}))
 
 
 def choose_donors(hits: pd.DataFrame, sp_meta: pd.DataFrame, identity_floor: float,
@@ -689,7 +745,7 @@ def assemble(species: str, own: pd.DataFrame, donors: pd.DataFrame,
     """
     df = own.merge(donors, on="uniprot_ac", how="left")
     # Straight through: the donor's curated reference count IS the number. No scaling, no blend.
-    df["n_papers_family"] = df["donor_n_pubs"].fillna(0).astype(int)
+    df["n_papers_uniprot_prokaryotic"] = df["donor_n_pubs"].fillna(0).astype(int)
     below = (df["uniprot_ac"].isin(any_hit) if any_hit is not None
              else pd.Series(False, index=df.index))
     df["evidence"] = np.select(
@@ -728,10 +784,10 @@ def run_control(hits: pd.DataFrame, sp_meta: pd.DataFrame, own_ec: pd.DataFrame,
     # Only proteins the held-out transfer could actually score are informative about the
     # mechanism; a no_homolog row says nothing about how good the transfer is when it fires.
     scored = df[df["donor_ac"].notna()]
-    rho = scored["n_papers_family"].corr(scored["n_papers_own"], method="spearman")
+    rho = scored["n_papers_uniprot_prokaryotic"].corr(scored["n_papers_uniprot_own"], method="spearman")
     # Pearson on raw counts is meaningless here -- both are heavily skewed integers -- so it is
     # taken on log1p, which is the scale on which "twice as studied" is a constant step.
-    pearson = np.log1p(scored["n_papers_family"]).corr(np.log1p(scored["n_papers_own"]))
+    pearson = np.log1p(scored["n_papers_uniprot_prokaryotic"]).corr(np.log1p(scored["n_papers_uniprot_own"]))
     stats = {"n": len(df), "n_scored": len(scored),
              "donor_scope": scope,
              "coverage_pct": round(100 * len(scored) / len(df), 1),
@@ -748,10 +804,10 @@ def run_control(hits: pd.DataFrame, sp_meta: pd.DataFrame, own_ec: pd.DataFrame,
     # vs 0.1716) is the measurement that justifies having a second donor at all.
     ptd = pubtator_donors(ec_hits, sp_meta, S.IDENTITY_FLOOR, exclude_taxids=excl, scope=scope)
     if len(ptd):
-        p = scored[["uniprot_ac", "n_papers_own"]].merge(ptd, on="uniprot_ac", how="inner")
+        p = scored[["uniprot_ac", "n_papers_uniprot_own"]].merge(ptd, on="uniprot_ac", how="inner")
         if len(p) >= 50:
             stats["rho_pubtator_own_donor"] = round(float(
-                p["n_papers_family_pubtator"].corr(p["n_papers_own"], method="spearman")), 4)
+                p["n_papers_pubtator_prokaryotic"].corr(p["n_papers_uniprot_own"], method="spearman")), 4)
             stats["n_pubtator_own_donor"] = len(p)
 
     alt_cols = ["donor_n_pubs_gene2pubmed", "donor_n_pubs_pubtator_geneid",
@@ -772,11 +828,11 @@ def run_control(hits: pd.DataFrame, sp_meta: pd.DataFrame, own_ec: pd.DataFrame,
             # already-studied donors and understated the route by a wide margin.
             ok = v.notna()
             short = c.replace("donor_n_pubs_", "")
-            stats[f"rho_{short}"] = (round(float(v[ok].corr(alt.loc[ok, "n_papers_own"],
+            stats[f"rho_{short}"] = (round(float(v[ok].corr(alt.loc[ok, "n_papers_uniprot_own"],
                                                             method="spearman")), 4)
                                      if ok.sum() >= 50 else None)
             stats[f"n_{short}"] = int(ok.sum())
-    keep = ["uniprot_ac", "gene_name", "n_papers_own", "n_papers_family", "evidence",
+    keep = ["uniprot_ac", "gene_name", "n_papers_uniprot_own", "n_papers_uniprot_prokaryotic", "evidence",
             "donor_ac", "donor_organism", "donor_pident", "donor_n_pubs"]
     return df[keep], stats
 
@@ -808,7 +864,7 @@ def main() -> None:
     ap.add_argument("--donor-scope", default="prokaryotic", choices=list(SCOPES),
                     help="which SwissProt entries may donate literature. ALL THREE are computed "
                          "every run and compared into evidence/donor_scope_comparison.tsv; this "
-                         "picks which one becomes the shipped n_papers_family")
+                         "picks which one becomes the shipped n_papers_uniprot_prokaryotic")
     ap.add_argument("--deep-targets", type=int, default=5000,
                     help="k for the second pass over queries that hit --max-targets (0 disables)")
     ap.add_argument("--max-targets", type=int, default=500,
@@ -855,9 +911,10 @@ def main() -> None:
     rule()
     counts = gene2pubmed_counts()
     pt_geneid, pt_symbol = pubtator_counts()
+    pt_pmids = pubtator_own_pmids()
     sp_meta = load_swissprot(counts, pt_geneid, pt_symbol)
     top = sp_meta.loc[sp_meta["donor_n_pubs_uniprot"].idxmax()]
-    say(f"  THE NUMBER  n_papers_family = the donor's curated reference count. No scaling, no "
+    say(f"  THE NUMBER  n_papers_uniprot_prokaryotic = the donor's curated reference count. No scaling, no "
         "blend.")
     say(f"              most-curated entry in SwissProt: {top['donor_ac']} with "
         f"{int(top['donor_n_pubs_uniprot'])} refs -- there is no cap")
@@ -897,7 +954,8 @@ def main() -> None:
     for sp in args.species:
         own = own_signals(sp, counts,
                           own_exact(sp, hits, sp_meta,
-                                    set(P.load_full(sp)["uniprot_ac"])))
+                                    set(P.load_full(sp)["uniprot_ac"])),
+                          exact_own_geneids(sp, hits, sp_meta, P.load_full(sp)), pt_pmids)
         if args.limit:
             own = own.head(args.limit)
         sp_hits = hits[hits.qseqid.isin(set(own["uniprot_ac"]))]
@@ -920,7 +978,7 @@ def main() -> None:
         ptd = pubtator_donors(sp_hits, sp_meta, S.IDENTITY_FLOOR, scope=args.donor_scope)
         df = df.merge(ptd, on="uniprot_ac", how="left")
         for scope in SCOPES:
-            df[f"n_papers_family_{scope}"] = scoped[scope]["n_papers_family"].to_numpy()
+            df[f"n_papers_uniprot_{scope}"] = scoped[scope]["n_papers_uniprot_prokaryotic"].to_numpy()
         other = "any"
         df[f"donor_ac_{other}"] = scoped[other]["donor_ac"].to_numpy()
         df[f"donor_organism_{other}"] = scoped[other]["donor_organism"].to_numpy()
@@ -934,9 +992,9 @@ def main() -> None:
                                     & cur["donor_ac"].isna().to_numpy()).sum()),
                 "different_donor_vs_any": int(
                     (cur["donor_ac"].fillna("") != base["donor_ac"].fillna("")).sum()),
-                "median_family": int(cur["n_papers_family"].median()),
-                "spearman_vs_any": round(float(cur["n_papers_family"].corr(
-                    base["n_papers_family"], method="spearman")), 4),
+                "median_family": int(cur["n_papers_uniprot_prokaryotic"].median()),
+                "spearman_vs_any": round(float(cur["n_papers_uniprot_prokaryotic"].corr(
+                    base["n_papers_uniprot_prokaryotic"], method="spearman")), 4),
                 "shipped": scope == args.donor_scope,
             })
 
@@ -947,13 +1005,16 @@ def main() -> None:
                    "donor_pident", "donor_qcov", "donor_n_pubs", "donor_n_pubs_uniprot",
                    "donor_n_pubs_gene2pubmed", "donor_n_pubs_pubtator_geneid",
                    "donor_n_pubs_pubtator_symbol_anyspecies",
-                   "n_papers_family_pubtator", "pubtator_donor_ac", "pubtator_donor_gene",
+                   "n_papers_pubtator_prokaryotic", "pubtator_donor_ac", "pubtator_donor_gene",
                    "pubtator_donor_organism", "pubtator_donor_pident",
                    "donor_annotation_score", "donor_protein_name",
                    "nearest_ac", "nearest_pident", "nearest_organism", "nearest_n_pubs",
-                   "n_candidates", "n_papers_own", "n_papers_family", "evidence",
-                   "donor_scope", "n_papers_family_prokaryotic",
-                   "n_papers_family_bacteria", "n_papers_family_any",
+                   "n_candidates", "n_papers_uniprot_own", "n_papers_uniprot_prokaryotic",
+                   "evidence", "donor_scope",
+                   # NOT n_papers_uniprot_prokaryotic again -- the shipped column IS the
+                   # prokaryotic scope (verified byte-identical), so listing it twice would
+                   # emit a duplicate header. The other two scopes are the real alternatives.
+                   "n_papers_uniprot_bacteria", "n_papers_uniprot_any",
                    f"donor_ac_{other}", f"donor_organism_{other}"]
         df[tr_cols].to_csv(tr_path, sep="\t", index=False)
 
@@ -966,7 +1027,7 @@ def main() -> None:
         # in-scope homolog, and that group is already split into two documented tiers
         # (`no_hit` vs `below_floor`) -- it is an answer, not an unrankable accident. What the
         # guard must catch is the SCORED part of the ranking collapsing.
-        scored_fam = df.loc[df["n_papers_family"] > 0, "n_papers_family"]
+        scored_fam = df.loc[df["n_papers_uniprot_prokaryotic"] > 0, "n_papers_uniprot_prokaryotic"]
         tie_counts = (scored_fam.value_counts() if len(scored_fam)
                       else pd.Series({0: 0}, dtype=int))
         frac = float(tie_counts.iloc[0] / max(len(scored_fam), 1))
@@ -980,10 +1041,10 @@ def main() -> None:
         say(f"    {len(df):,} proteins   with a donor {covered:,} "
             f"({100 * covered / len(df):.1f}%)   "
             + "   ".join(f"{k} {v:,}" for k, v in sorted(tiers.items())))
-        fam = df["n_papers_family"]
-        say(f"    n_papers_own    median {df.n_papers_own.median():.0f}   "
-            f"max {df.n_papers_own.max():,}   distinct {df.n_papers_own.nunique():,}")
-        say(f"    n_papers_family median {fam.median():.0f}   max {fam.max():,}   "
+        fam = df["n_papers_uniprot_prokaryotic"]
+        say(f"    n_papers_uniprot_own    median {df.n_papers_uniprot_own.median():.0f}   "
+            f"max {df.n_papers_uniprot_own.max():,}   distinct {df.n_papers_uniprot_own.nunique():,}")
+        say(f"    n_papers_uniprot_prokaryotic median {fam.median():.0f}   max {fam.max():,}   "
             f"distinct {fam.nunique():,}   zero for {int((fam == 0).sum()):,}")
         top3 = fam.value_counts().sort_index(ascending=False).head(3)
         say("      top of the ranking: "
@@ -997,7 +1058,7 @@ def main() -> None:
         rows.append({"species": sp, "n": len(df), "with_donor": covered,
                      "with_donor_pct": round(100 * covered / len(df), 1),
                      **{f"tier_{k}": v for k, v in tiers.items()},
-                     "median_own": int(df.n_papers_own.median()),
+                     "median_own": int(df.n_papers_uniprot_own.median()),
                      "median_family": int(fam.median()),
                      "max_family": int(fam.max()),
                      "distinct_family": int(fam.nunique()),
@@ -1062,7 +1123,8 @@ def main() -> None:
     excl = ecoli_taxids(sp_meta)
     own_by_sp = {sp: own_signals(sp, counts,
                                  own_exact(sp, hits, sp_meta,
-                                           set(P.load_full(sp)["uniprot_ac"])))
+                                           set(P.load_full(sp)["uniprot_ac"])),
+                                 exact_own_geneids(sp, hits, sp_meta, P.load_full(sp)), pt_pmids)
                  for sp in args.species}
     sweep = []
     for floor in FLOOR_SWEEP:
@@ -1080,7 +1142,7 @@ def main() -> None:
             cdf = assemble("ecoli", ec, dc)  # bands unused here; rho only
             sc = cdf[cdf["donor_ac"].notna()]
             row["control_spearman"] = (round(float(
-                sc["n_papers_family"].corr(sc["n_papers_own"], method="spearman")), 4)
+                sc["n_papers_uniprot_prokaryotic"].corr(sc["n_papers_uniprot_own"], method="spearman")), 4)
                 if len(sc) > 100 else float("nan"))
             row["control_n"] = len(sc)
         sweep.append(row)
@@ -1098,7 +1160,9 @@ def main() -> None:
         rule()
         ec_own = own_signals("ecoli", counts,
                              own_exact("ecoli", hits, sp_meta,
-                                       set(P.load_full("ecoli")["uniprot_ac"])))
+                                       set(P.load_full("ecoli")["uniprot_ac"])),
+                             exact_own_geneids("ecoli", hits, sp_meta,
+                                               P.load_full("ecoli")), pt_pmids)
         both = {}
         for scope in SCOPES:
             both[scope] = run_control(hits, sp_meta, ec_own, scope=scope)

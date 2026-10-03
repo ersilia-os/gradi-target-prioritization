@@ -116,7 +116,7 @@ missing row. Standing instruction from the project owner.
 **An `evidence` column is the default, NOT an invariant** — narrowed 2026-10-03, when the owner
 had studiedness drop it. Where an axis omits it, the tiers must still ship in that axis's
 `evidence/` tree and the loader docstring must say what a 0 can no longer distinguish:
-`studiedness_<sp>.tsv` has no `evidence`, so a `n_papers_family == 0` is `no_hit` or
+`studiedness_<sp>.tsv` has no `evidence`, so a `n_papers_uniprot_prokaryotic == 0` is `no_hit` or
 `below_floor` and `load_transfer()` is the only way to tell — 1,961 Kp proteins.
 
 **The invariant is one row per protein, complete, in canonical order.** The SHAPE a vocabulary axis
@@ -1210,22 +1210,30 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   Details: `docs/essentiality.md`.
 
 - **`studiedness/fetch.py`** + **`gene2pubmed.py`** + **`pubtator.py`** + **`unknome.py`** +
-  **`transfer.py`** + **`merge.py`** → `studiedness_<species>.tsv`: `uniprot_ac · n_papers_own ·
-  n_papers_family · n_papers_family_pubtator`. Wanted in both directions — an uncharacterised
+  **`transfer.py`** + **`merge.py`** → `studiedness_<species>.tsv`: **four counts on a 2×2 grid, {uniprot, pubtator} × {own,
+  prokaryotic}** — `n_papers_uniprot_own` · `n_papers_pubtator_own` ·
+  **`n_papers_uniprot_prokaryotic`** (the ranking) · `n_papers_pubtator_prokaryotic`.
+  **The names say SOURCE and DONOR SCOPE and claim nothing more — "family" was dropped
+  2026-10-03 because neither `_prokaryotic` column aggregates a family**: each reads ONE donor,
+  and not the same one (the two donors agree on 84.5% of Kp, differ on 15.5%). **`_prokaryotic`
+  names the DONOR POOL, not a species search** — for 99.8% of Kp the donor is another organism,
+  usually E. coli K-12. **`n_papers_pubtator_own` is near-empty on Kp (124) and Sa (427) against
+  Ec (4,028) and that is the finding**, not a defect: PubTator's gene vocabulary barely covers
+  those proteomes. **Do not rank Kp or Sa on either `own` column.** Wanted in both directions — an uncharacterised
   target is a risk, but it is also the novelty the collaboration is looking for
   (`src.studiedness.novelty()` reads it the other way). Run in that order; DIAMOND from
   `gradi-ortho`.
 
   **THREE COUNTS, THREE DEFINITIONS, NEVER a `max()` ACROSS THEM** — that is what killed the 0-1
-  composite on 2026-09-22. **Rank on `n_papers_family`.**
+  composite on 2026-09-22. **Rank on `n_papers_uniprot_prokaryotic`.**
 
   **`evidence` IS NOT IN THE DELIVERABLE** (owner, 2026-10-03) — it stays in
-  `evidence/transfer_<sp>.tsv`. So **a 0 in `n_papers_family` is ambiguous in this table**:
+  `evidence/transfer_<sp>.tsv`. So **a 0 in `n_papers_uniprot_prokaryotic` is ambiguous in this table**:
   `no_hit` (nothing among 575,748 curated entries resembles it — the strongest novelty claim the
   axis makes) and `below_floor` both read 0. On Kp that is 1,961 proteins. Join `load_transfer()`
   before reading a 0 as novelty.
 
-  **`n_papers_own` USES THE LIGANDS AXIS'S `exact` RULE** (2026-10-03): the UNION of PMIDs over
+  **`n_papers_uniprot_own` USES THE LIGANDS AXIS'S `exact` RULE** (2026-10-03): the UNION of PMIDs over
   **accession + identical sequence + same species ≥95%**, because *a protein does not stop being
   itself between strains* and the two axes must mean the same thing by "this protein".
   **Union, not max** — the analogue of pooling distinct molecules. **S. aureus proteins with any
@@ -1235,7 +1243,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   every strain entry while `family` reads ONE donor — the old "+3 on Kp, +0 on Ec" framing is
   withdrawn. **Still do not rank Kp or Sa on `_own`; rank on `_family`.**
 
-  **`pubtator.py` → `n_papers_family_pubtator`, keyed on NCBI GeneID.** A GeneID names one gene in
+  **`pubtator.py` → `n_papers_pubtator_prokaryotic`, keyed on NCBI GeneID.** A GeneID names one gene in
   one organism, so **the species is already in the key** and there is no symbol ambiguity: Kp
   `crp` reads **376** where the gene-SYMBOL route read **345,630** (human C-reactive protein).
   No network calls — the 756 MB `gene2pubtator3.gz` bulk file.

@@ -3,13 +3,13 @@
     data/processed/studiedness/evidence/confounds.tsv
 
 **It recomputes nothing and fits nothing.** Every axis is read through its own `src/` loader,
-aligned on canonical row order, and correlated against `n_papers_family` and `n_papers_own`.
+aligned on canonical row order, and correlated against `n_papers_uniprot_prokaryotic` and `n_papers_uniprot_own`.
 Seconds, no network, no model.
 
 WHY THIS EXISTS
 ----------------
 Nothing consumes studiedness yet, and before anything does, the size of the confound has to be on
-the table. `docs/ligands.md` already measured one corner of it: `n_papers_family` predicts "has a
+the table. `docs/ligands.md` already measured one corner of it: `n_papers_uniprot_prokaryotic` predicts "has a
 measurable bacterial ligand" at **AUROC 0.83-0.86**, which was one of the reasons a ligandability
 model was rejected -- it would have been a citation count wearing a druggability label. If the
 same relationship holds on the other axes, a prioritized shortlist built by stacking them is
@@ -22,8 +22,8 @@ and rejected; both are on disk with their numbers.
 
 TWO COLUMNS, NOT ONE, AND THEY MEAN DIFFERENT THINGS
 ------------------------------------------------------
-`n_papers_family` is the quantity to worry about: it is the real score, and it carries signal for
-almost every protein. `n_papers_own` is near-flat on Kp (5,710 of 5,728 proteins read exactly 1)
+`n_papers_uniprot_prokaryotic` is the quantity to worry about: it is the real score, and it carries signal for
+almost every protein. `n_papers_uniprot_own` is near-flat on Kp (5,710 of 5,728 proteins read exactly 1)
 and on Sa, so a correlation against it on those two species is close to meaningless and is
 reported only to make that visible. **On E. coli `_own` is the live column** -- it is the only
 anchor whose own literature is real -- so Ec is where the two can disagree informatively.
@@ -50,7 +50,7 @@ names say which direction is which. Read distance from 0.5, then the sign.
 
 THE TIER STRATIFICATION IS THE CONTROL
 ----------------------------------------
-A third of K. pneumoniae scores `n_papers_family == 0`, split between `no_hit` and `below_floor`.
+A third of K. pneumoniae scores `n_papers_uniprot_prokaryotic == 0`, split between `no_hit` and `below_floor`.
 A correlation driven entirely by that block is a correlation with "did DIAMOND find anything",
 not with studiedness -- so every pair is recomputed over the SCORED proteins alone
 (`swissprot_direct|close|homolog`). **Read the two rows together**: where `scored_rho` collapses
@@ -89,7 +89,7 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus")
 # both score 0 -- answers, not gaps, but not a ranking either.
 SCORED_TIERS = ("swissprot_direct", "swissprot_close", "swissprot_homolog")
 
-STUDIEDNESS_COLS = ("n_papers_family", "n_papers_own")
+STUDIEDNESS_COLS = ("n_papers_uniprot_prokaryotic", "n_papers_uniprot_own")
 
 VERBOSE = True
 
@@ -208,7 +208,7 @@ def endpoints(species: str) -> list[dict]:
         prec = align(L.load(species), "ligands/ligands")
         for col in ("n_ligands", "n_ligands_bacterial", "n_assayed_bacterial"):
             add("ligands", col, "continuous", pd.to_numeric(prec[col], errors="coerce"))
-        # The reproduction target: docs/ligands.md reports AUROC 0.83-0.86 for n_papers_family
+        # The reproduction target: docs/ligands.md reports AUROC 0.83-0.86 for n_papers_uniprot_prokaryotic
         # against "has any measurable bacterial ligand". n_measured_* lives in the full table.
         full = align(L.load_full(species), "ligands/ligands_full")
         measured = pd.to_numeric(full["n_measured_bacterial"], errors="coerce")
@@ -313,7 +313,7 @@ def main() -> None:
         all_rows.extend(rows)
 
         # the closing table: family only, the column that carries the signal
-        fam = [r for r in rows if r["studiedness_column"] == "n_papers_family"]
+        fam = [r for r in rows if r["studiedness_column"] == "n_papers_uniprot_prokaryotic"]
         fam.sort(key=lambda r: -abs(r["rho"] or 0))
         say(f"   {'endpoint':<40} {'rho':>7} {'scored':>7} {'AUROC':>7} {'PR':>7} {'(len)':>7}")
         for r in fam:

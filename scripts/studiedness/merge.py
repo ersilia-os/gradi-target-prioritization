@@ -2,7 +2,7 @@
 
     data/processed/studiedness/studiedness_<species>.tsv
 
-    uniprot_ac · n_papers_own · n_papers_family · evidence
+    uniprot_ac · n_papers_uniprot_own · n_papers_uniprot_prokaryotic · evidence
 
 **It recomputes nothing.** `transfer.py` already scored every protein; this reshapes those tables
 into the deliverable, enforces canonical row order through `src/matrices.py`, and runs the checks
@@ -10,16 +10,16 @@ that say whether the axis can be trusted. Seconds, no network, no DIAMOND.
 
 TWO PAPER COUNTS, BECAUSE THEY ANSWER DIFFERENT QUESTIONS
 -----------------------------------------------------------
-`n_papers_own` is the number of curated references naming THIS PROTEIN -- by the ligands axis's
+`n_papers_uniprot_own` is the number of curated references naming THIS PROTEIN -- by the ligands axis's
 `exact` rule, the union of PMIDs over accession, identical sequence and same species at >= 95%
-identity, because a protein does not stop being itself between strains. `n_papers_family` is the
+identity, because a protein does not stop being itself between strains. `n_papers_uniprot_prokaryotic` is the
 count on its best-studied prokaryotic SwissProt homolog.
 
 **`own` CAN EXCEED `family`, and that is not a bug**: `own` unions every strain entry of this
 protein while `family` reads ONE donor's count. On E. coli the medians are own 8 against family
 6, because a well-studied organism's own multi-strain literature outweighs any single homolog. Keeping both is what makes **"dark in
 K. pneumoniae, famous in E. coli"** readable off a single row -- and on this anchor that is the
-normal case, not an edge case. `n_papers_own` is near-flat on Kp and Sa *by design*: it is the
+normal case, not an edge case. `n_papers_uniprot_own` is near-flat on Kp and Sa *by design*: it is the
 measurement of darkness.
 
 **Both are plain integers on the same footing**, so the three species and the two columns compare
@@ -30,7 +30,7 @@ anyone combining this axis with the others.
 
 A ZERO IS NOT A MISSING VALUE, AND THERE ARE TWO KINDS OF IT
 --------------------------------------------------------------
-`n_papers_family == 0` comes with one of two evidence tiers, and they are different claims:
+`n_papers_uniprot_prokaryotic == 0` comes with one of two evidence tiers, and they are different claims:
 `no_hit` means **nothing among 575,748 curated entries resembles this protein at all** -- the
 strongest novelty signal the axis produces -- while `below_floor` means a distant relative exists
 whose literature is simply too far away to carry. Both are answers, not gaps; never impute them.
@@ -39,11 +39,11 @@ WHAT THIS SCRIPT CHECKS
 ------------------------
 1. **Completeness and order** -- every protein present, canonical order, no nulls in either score.
 2. **Spot checks** -- named workhorses (rpoB, gyrB, ftsZ, clpP, dnaA, secA, groEL, rplB) must rank
-   high on `n_papers_family`. A transfer joined to the wrong accessions would still produce a
+   high on `n_papers_uniprot_prokaryotic`. A transfer joined to the wrong accessions would still produce a
    well-formed table, so the control has to be named genes. The bar is calibrated on what these
    genes actually reach, not on an intuition -- see `SPOT_PERCENTILE`.
 3. **Is Unknome telling us anything new?** Spearman of `unknome_knownness` against
-   `n_papers_family` on the proteins where both exist. Reported plainly either way -- if it is
+   `n_papers_uniprot_prokaryotic` on the proteins where both exist. Reported plainly either way -- if it is
    redundant it is recorded as such rather than quietly dropped.
 4. **Is the family score just the own score?** If they agreed, the transfer would be doing no work.
    On Kp and Sa they must NOT agree, and the gap is the point of the axis.
@@ -105,8 +105,8 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         sys.exit(f"FATAL missing {path.relative_to(REPO_ROOT)} -- "
                  "run scripts/studiedness/transfer.py first")
     tr = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
-    for c in ("n_papers_own", "n_papers_family", "donor_pident", "donor_n_pubs",
-              "n_papers_family_pubtator"):
+    for c in ("n_papers_uniprot_own", "n_papers_uniprot_prokaryotic", "donor_pident", "donor_n_pubs",
+              "n_papers_pubtator_prokaryotic"):
         if c in tr.columns:
             tr[c] = pd.to_numeric(tr[c], errors="coerce")
 
@@ -114,19 +114,34 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     # ships in evidence/transfer_<species>.tsv, which is where to look when a 0 needs explaining:
     # `no_hit` (nothing in SwissProt resembles this protein -- the strongest novelty claim the
     # axis makes) and `below_floor` (a too-distant curated relative) both read 0 here.
-    out = tr[["uniprot_ac", "n_papers_own", "n_papers_family"]].copy()
+    out = tr[["uniprot_ac", "n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"]].copy()
+    # The 2x2 grid: {uniprot, pubtator} x {own, prokaryotic}. `n_papers_pubtator_own` comes from
+    # own_<species>.tsv rather than the transfer table, because it is a property of the anchor
+    # protein, not of any donor.
+    ownp = EVIDENCE_DIR / f"own_{species}.tsv"
+    if ownp.exists():
+        o = pd.read_csv(ownp, sep="\t", dtype=str, keep_default_na=False)
+        if "n_papers_pubtator_own" in o.columns:
+            out = out.merge(o[["uniprot_ac", "n_papers_pubtator_own"]], on="uniprot_ac",
+                            how="left")
+            out["n_papers_pubtator_own"] = pd.to_numeric(
+                out["n_papers_pubtator_own"], errors="coerce").fillna(0).astype(int)
     out = add_pubtator(out, tr, species)
-    if out[["n_papers_own", "n_papers_family"]].isna().any().any():
-        n = int(out[["n_papers_own", "n_papers_family"]].isna().any(axis=1).sum())
+    if out[["n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"]].isna().any().any():
+        n = int(out[["n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"]].isna().any(axis=1).sum())
         sys.exit(f"FATAL {species}: {n:,} rows have a null count. Every protein must carry a "
                  "number -- an unmatched protein has 0 papers, an answer, not a null.")
-    for c in ("n_papers_own", "n_papers_family"):
+    for c in ("n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"):
         if (out[c] % 1 != 0).any():
             sys.exit(f"FATAL {species}: {c} is not integral -- it is a paper count, not a score.")
         out[c] = out[c].astype(int)
 
     # Canonical row order by construction, not by hope. reindex() refuses to invent a missing
     # protein, so an incomplete axis fails here rather than shipping a NaN row.
+    order = [c for c in ("uniprot_ac", "n_papers_uniprot_own", "n_papers_pubtator_own",
+                         "n_papers_uniprot_prokaryotic", "n_papers_pubtator_prokaryotic")
+             if c in out.columns]
+    out = out[order]
     out = M.reindex(out, species)
     M.assert_canonical(out["uniprot_ac"], species)
     return out, tr
@@ -153,7 +168,7 @@ def add_pubtator(out: pd.DataFrame, tr: pd.DataFrame, species: str) -> pd.DataFr
     could not look anything up -- unreachable, not unstudied. A 0 means PubTator annotated 36M
     abstracts and never linked that gene. Coverage of scored proteins: ~95%.
     """
-    col = "n_papers_family_pubtator"
+    col = "n_papers_pubtator_prokaryotic"
     if col not in tr.columns:
         say(f"      NOTE {species}: transfer table predates the pubtator donor column -- "
             "omitted. Re-run scripts/studiedness/pubtator.py then transfer.py.")
@@ -167,7 +182,7 @@ def add_pubtator(out: pd.DataFrame, tr: pd.DataFrame, species: str) -> pd.DataFr
 
 
 def spot_check(species: str, out: pd.DataFrame) -> tuple[list[str], list[str]]:
-    """Named workhorses must rank high on n_papers_family."""
+    """Named workhorses must rank high on n_papers_uniprot_prokaryotic."""
     prot = P.load(species)[["uniprot_ac", "gene_name"]]
     d = out.merge(prot, on="uniprot_ac", how="left")
     lines, failed = [], []
@@ -177,11 +192,11 @@ def spot_check(species: str, out: pd.DataFrame) -> tuple[list[str], list[str]]:
             lines.append(f"      {gene:<7} not named in this proteome")
             continue
         row = hit.iloc[0]
-        pct = 100 * (d["n_papers_family"] < row["n_papers_family"]).mean()
+        pct = 100 * (d["n_papers_uniprot_prokaryotic"] < row["n_papers_uniprot_prokaryotic"]).mean()
         ok = pct >= SPOT_PERCENTILE
         if not ok:
             failed.append(f"{gene} ({pct:.1f}th)")
-        lines.append(f"      {gene:<7} {int(row['n_papers_family']):>4} papers  "
+        lines.append(f"      {gene:<7} {int(row['n_papers_uniprot_prokaryotic']):>4} papers  "
                      f"{pct:5.1f}th pct"
                      + ("" if ok else f"   <-- BELOW THE {SPOT_PERCENTILE:.0f}th FLOOR"))
     return lines, failed
@@ -198,14 +213,14 @@ def unknome_agreement(species: str, out: pd.DataFrame) -> dict | None:
     both = d[d["unknome_knownness"].notna()]
     if len(both) < 100:
         return None
-    rho = both["unknome_knownness"].corr(both["n_papers_family"], method="spearman")
+    rho = both["unknome_knownness"].corr(both["n_papers_uniprot_prokaryotic"], method="spearman")
     # Where Unknome is silent, is the family score also low? If so the two agree even on the
     # proteins Unknome cannot reach, and it adds nothing there either.
     silent = d[d["unknome_knownness"].isna()]
     return {"species": species, "n_both": len(both),
             "spearman_vs_family": round(float(rho), 4),
-            "median_family_where_unknome_present": int(both.n_papers_family.median()),
-            "median_family_where_unknome_absent": int(silent.n_papers_family.median())
+            "median_family_where_unknome_present": int(both.n_papers_uniprot_prokaryotic.median()),
+            "median_family_where_unknome_absent": int(silent.n_papers_uniprot_prokaryotic.median())
             if len(silent) else -1,
             "n_unknome_absent": len(silent)}
 
@@ -225,10 +240,10 @@ def main() -> None:
     rule("=")
     say(f"  in    {(EVIDENCE_DIR / 'transfer_<species>.tsv').relative_to(REPO_ROOT)}")
     say(f"  out   {(OUT_DIR / 'studiedness_<species>.tsv').relative_to(REPO_ROOT)}")
-    say("        uniprot_ac · n_papers_own · n_papers_family · n_papers_family_pubtator")
+    say("        uniprot_ac · n_papers_uniprot_own · n_papers_uniprot_prokaryotic · n_papers_pubtator_prokaryotic")
     say("  recomputes nothing; reshapes, reindexes to canonical order, and checks")
-    say("  n_papers_own is near-flat on Kp and Sa BY DESIGN -- rank on n_papers_family")
-    say("  n_papers_family == 0 is an ANSWER, not a gap -- `no_hit` (nothing resembles it) and")
+    say("  n_papers_uniprot_own is near-flat on Kp and Sa BY DESIGN -- rank on n_papers_uniprot_prokaryotic")
+    say("  n_papers_uniprot_prokaryotic == 0 is an ANSWER, not a gap -- `no_hit` (nothing resembles it) and")
     say("  `below_floor` (a too-distant relative) are different claims; never impute either")
     rule("=")
     if args.dry_run:
@@ -256,15 +271,15 @@ def main() -> None:
         # from `tr`, not `out` -- `evidence` is no longer a deliverable column, but the
         # tier breakdown is still the most useful line in the run log.
         tiers = tr["evidence"].value_counts().to_dict()
-        gap = float((out["n_papers_family"] - out["n_papers_own"]).median())
+        gap = float((out["n_papers_uniprot_prokaryotic"] - out["n_papers_uniprot_own"]).median())
         say(f"    {len(out):,} x {out.shape[1]}  ->  {path.relative_to(REPO_ROOT)}")
         say(f"      evidence   " + "   ".join(f"{k} {v:,}" for k, v in sorted(tiers.items())))
-        say(f"      n_papers_own    median {out.n_papers_own.median():.0f}   "
-            f"max {out.n_papers_own.max():,}   distinct {out.n_papers_own.nunique():,}   "
-            f"at 0 {int((out.n_papers_own == 0).sum()):,}")
-        say(f"      n_papers_family median {out.n_papers_family.median():.0f}   "
-            f"max {out.n_papers_family.max():,}   distinct {out.n_papers_family.nunique():,}   "
-            f"at 0 {int((out.n_papers_family == 0).sum()):,}")
+        say(f"      n_papers_uniprot_own    median {out.n_papers_uniprot_own.median():.0f}   "
+            f"max {out.n_papers_uniprot_own.max():,}   distinct {out.n_papers_uniprot_own.nunique():,}   "
+            f"at 0 {int((out.n_papers_uniprot_own == 0).sum()):,}")
+        say(f"      n_papers_uniprot_prokaryotic median {out.n_papers_uniprot_prokaryotic.median():.0f}   "
+            f"max {out.n_papers_uniprot_prokaryotic.max():,}   distinct {out.n_papers_uniprot_prokaryotic.nunique():,}   "
+            f"at 0 {int((out.n_papers_uniprot_prokaryotic == 0).sum()):,}")
         say(f"      family - own, median {gap:+.0f} papers   "
             f"(the transfer's contribution; must be large where the anchor is dark)")
 
@@ -289,11 +304,11 @@ def main() -> None:
 
         rows.append({"species": sp, "n": len(out),
                      **{f"tier_{k}": v for k, v in tiers.items()},
-                     "median_own": int(out.n_papers_own.median()),
-                     "median_family": int(out.n_papers_family.median()),
-                     "max_family": int(out.n_papers_family.max()),
-                     "distinct_own": int(out.n_papers_own.nunique()),
-                     "distinct_family": int(out.n_papers_family.nunique()),
+                     "median_own": int(out.n_papers_uniprot_own.median()),
+                     "median_family": int(out.n_papers_uniprot_prokaryotic.median()),
+                     "max_family": int(out.n_papers_uniprot_prokaryotic.max()),
+                     "distinct_own": int(out.n_papers_uniprot_own.nunique()),
+                     "distinct_family": int(out.n_papers_uniprot_prokaryotic.nunique()),
                      "median_family_minus_own": int(gap)})
 
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)

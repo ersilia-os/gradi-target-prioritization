@@ -239,7 +239,7 @@ def do_anchors(refresh: bool) -> list[dict]:
          "`proteomes/download.py` fetches neither annotation_score, protein_existence nor",
          "lit_pubmed_id, so this axis fetches them itself. Measured here: Kp is 0.1% reviewed",
          "with 5,710 of 5,728 proteins carrying exactly one PubMed id (the genome paper), so the",
-         "column is kept as `n_papers_own` -- a measurement of darkness -- and the usable",
+         "column is kept as `n_papers_uniprot_own` -- a measurement of darkness -- and the usable",
          "number is transferred from homologs by `transfer.py`."])
     return meta
 
@@ -312,7 +312,7 @@ def do_gene2pubmed(refresh: bool) -> dict:
          "anchors (Kp 12 distinct values, Sa 14.8% coverage -- both still dark) but it resolves",
          "a well-studied organism ~4x more finely than UniProt's curated list (Ec 193 distinct",
          "values, max 513, against UniProt's 48 and max 58). That sharpens the DONOR ranking,",
-         "but it is NOT the shipped count: n_papers_family counts UniProt curated refs only,",
+         "but it is NOT the shipped count: n_papers_uniprot_prokaryotic counts UniProt curated refs only,",
          "one consistent definition per row. gene2pubmed is a measured alternative.",
          "", "Public and re-derivable -- never upload it to eosvc. Deletable after",
          "`gene2pubmed.py` has reduced it to the GeneIDs this project uses."])

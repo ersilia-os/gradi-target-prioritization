@@ -277,7 +277,7 @@ down, not silently dropped.
    because the lookup is already a canonical deliverable rather than a possibility.
 4. **The honest baseline is not chance, and it is a lookup too.** Measured on our three proteomes
    against "has any measurable bacterial ligand" (now `n_measured_bacterial > 0`; base rate 3.1–4.1%): protein length alone scores AUROC
-   0.66–0.71, **studiedness `n_papers_family` scores 0.83–0.86 / AP 0.15–0.17**. A model would have
+   0.66–0.71, **studiedness `n_papers_uniprot_prokaryotic` scores 0.83–0.86 / AP 0.15–0.17**. A model would have
    to beat a citation count that names its own donors. (`best_pident_bacteria` scores 0.999 and is
    **circular** — it IS the label's definition at the 40% floor. It is not a baseline.)
 5. **Mean reversion points the wrong way for this consortium.** GraDi wants novel targets. A model

@@ -4,17 +4,24 @@ The axis is wanted in both directions: an uncharacterised target is a risk, but 
 novelty the GraDi collaboration is looking for. `novelty()` reads the same data the other way.
 
     data/processed/studiedness/studiedness_<species>.tsv        THE DELIVERABLE
-        uniprot_ac · n_papers_own · n_papers_family · evidence
+        uniprot_ac
+        n_papers_uniprot_own           n_papers_uniprot_prokaryotic
+        n_papers_pubtator_own          n_papers_pubtator_prokaryotic
+
+FOUR counts in a 2x2: SOURCE (uniprot = curated references a curator read; pubtator = PubTator3
+text mining) x SCOPE (own = this accession; prokaryotic = its best-studied prokaryotic SwissProt
+homolog). **Never summed, never max()-ed, never blended.** `evidence` is NOT here -- it ships in
+`load_transfer()`.
 
 THE NUMBER IS A PAPER COUNT. THAT IS THE WHOLE DEFINITION.
 -----------------------------------------------------------
-`n_papers_family` is the number of **curated references on the best-studied prokaryotic SwissProt
+`n_papers_uniprot_prokaryotic` is the number of **curated references on the best-studied prokaryotic SwissProt
 homolog** -- papers a UniProt curator actually read and used to annotate that protein. Nothing is
 scaled, weighted or blended. A 5 is five papers. A 0 is zero papers, not "unknown".
 
-`n_papers_own` is the same count on THIS accession. It is near-constant on Kp (the genome paper)
+`n_papers_uniprot_own` is the same count on THIS accession. It is near-constant on Kp (the genome paper)
 and Sa **by design** -- it is the measurement of darkness, and the gap between the two columns is
-the axis's entire product. Do not rank Kp or Sa on `n_papers_own`; rank on `n_papers_family`.
+the axis's entire product. Do not rank Kp or Sa on `n_papers_uniprot_own`; rank on `n_papers_uniprot_prokaryotic`.
 
 WHY NOT A 0-1 SCORE: THE BLEND THAT SHIPPED FIRST WAS UNINTERPRETABLE
 -----------------------------------------------------------------------
@@ -216,7 +223,7 @@ MAX_TIE_FRACTION = 0.25
 # set. **THERE IS NO NATURAL CUT HERE -- the ratio is a smooth heavy tail** (p50 0.5 · p75 1.9 ·
 # p90 9.2 · p95 39.8 · p99 621), so this is a CONSERVATISM CHOICE, not an accuracy threshold --
 # the same status `ligands/transfer_calibration.py` records for its identity bands. 50 sits at
-# about p95.5. The RATIO ITSELF SHIPS (`n_papers_family_pubtator_ratio`), so anyone who wants a
+# about p95.5. The RATIO ITSELF SHIPS (`n_papers_pubtator_prokaryotic_ratio`), so anyone who wants a
 # different cut sets one without re-running anything.
 PUBTATOR_RATIO_FLAG = 50.0
 
@@ -287,16 +294,30 @@ def _counts(df: pd.DataFrame, cols: tuple[str, ...]) -> pd.DataFrame:
 def load(species: str) -> pd.DataFrame:
     """The deliverable: one row per protein, canonical order, no nulls in either count.
 
-    THREE literature counts, three definitions, NEVER summed or `max()`-ed together:
+    FOUR literature counts in a 2x2 — SOURCE x SCOPE — NEVER summed or `max()`-ed together:
 
-        n_papers_own              curated references on THIS accession. Near-flat on Kp and Sa
-                                  by design -- it is the measurement of darkness.
-        n_papers_family           curated references on the best-studied prokaryotic SwissProt
-                                  homolog. **THE SHIPPED RANKING -- rank on this.**
-        n_papers_family_pubtator  PubTator3 TEXT-MINED papers on that donor's gene SYMBOL.
+        n_papers_uniprot_own            curated references on THIS accession. Near-flat on Kp and
+                                        Sa by design — it is the measurement of darkness.
+        n_papers_uniprot_prokaryotic    curated references on the best-studied prokaryotic
+                                        SwissProt homolog. **THE SHIPPED RANKING — rank on this.**
+        n_papers_pubtator_own           PubTator3 TEXT-MINED papers on THIS protein's gene symbol.
+        n_papers_pubtator_prokaryotic   the same, on that donor's gene symbol.
+
+    **Text mining does NOT rescue the dark anchors, which is worth knowing before reaching for it.**
+    `n_papers_pubtator_own` is median 0 on Kp with only **2.2%** of proteins above zero, and median
+    0 on Sa with 14.8% — against E. coli's median 8 and 91.5%. Where curation is silent, PubTator
+    is silent too: the darkness is real, not an artifact of which corpus was searched.
+
+    **The two `_prokaryotic` columns are near-redundant** (Spearman **0.786** on Kp), while both
+    `_own` columns are nearly independent of everything else (0.09–0.19). So the 2x2 is really one
+    strong axis — homolog literature, two ways of counting it — plus two sparse own-protein columns.
+
+    **`n_papers_pubtator_prokaryotic` is NOT complete**: filled for 62.5% of Kp, 95.7% of Ec, 53.1%
+    of Sa. An empty cell means the donor carries no gene symbol to look up, which is not a zero —
+    see the note below.
 
     **`evidence` IS NOT IN THIS TABLE** (project owner, 2026-10-03) -- it ships in
-    `load_transfer(species)`. A 0 in `n_papers_family` is therefore ambiguous here: it may be
+    `load_transfer(species)`. A 0 in `n_papers_uniprot_prokaryotic` is therefore ambiguous here: it may be
     `no_hit` (nothing in 575,748 curated entries resembles the protein, the strongest novelty
     claim the axis makes) or `below_floor` (a curated relative exists but below 40% identity).
     Join `load_transfer()` on `uniprot_ac` before reading a 0 as novelty.
@@ -310,8 +331,8 @@ def load(species: str) -> pd.DataFrame:
     lives. The count is also SPECIES-AGNOSTIC -- it cannot be donor-scoped the way the curated
     count is (see `docs/studiedness.md` 2b), so a residual eukaryotic contribution survives.
 
-    **Two kinds of blank in `n_papers_family_pubtator`, and they are different claims**: `0`
-    means no donor at all (what `n_papers_family` also says, with `evidence` giving the kind),
+    **Two kinds of blank in `n_papers_pubtator_prokaryotic`, and they are different claims**: `0`
+    means no donor at all (what `n_papers_uniprot_prokaryotic` also says, with `evidence` giving the kind),
     while **empty means a donor exists but carries no gene symbol to look up** -- not a measured
     zero. Kp 80 · Ec 10 · Sa 117 scored proteins.
 
@@ -323,11 +344,14 @@ def load(species: str) -> pd.DataFrame:
     _check(species)
     df = _read(STUDIEDNESS_DIR / f"studiedness_{species}.tsv",
                "scripts/studiedness/merge.py")
-    cols = [c for c in ("n_papers_own", "n_papers_family", "n_papers_family_pubtator")
+    cols = [c for c in ("n_papers_uniprot_own", "n_papers_pubtator_own",
+                        "n_papers_uniprot_prokaryotic", "n_papers_pubtator_prokaryotic")
             if c in df.columns]
     df = _numeric(df, tuple(cols))
-    for c in ("n_papers_own", "n_papers_family"):
-        df[c] = df[c].astype(int)
+    for c in ("n_papers_uniprot_own", "n_papers_pubtator_own",
+              "n_papers_uniprot_prokaryotic"):
+        if c in df.columns:
+            df[c] = df[c].astype(int)
     return df
 
 
@@ -353,11 +377,16 @@ def novelty(species: str) -> pd.DataFrame:
     resembles this protein) ranks above `below_floor` (a distant relative exists, too far to
     transfer from).
     """
+    # `evidence` left the deliverable on 2026-10-03, so the tier is pulled from the transfer
+    # table. Without it the ties at 0 are unordered and the strongest novelty claim the axis
+    # makes -- `no_hit` -- would be scattered through a third of the proteome.
     d = load(species)
-    out = d[["uniprot_ac", "n_papers_family", "evidence"]].copy()
+    tiers = load_transfer(species)[["uniprot_ac", "evidence"]]
+    out = d[["uniprot_ac", "n_papers_uniprot_prokaryotic"]].merge(
+        tiers, on="uniprot_ac", how="left")
     rank = {"no_hit": 0, "below_floor": 1}
     out["_tier"] = out["evidence"].map(rank).fillna(2)
-    return (out.sort_values(["n_papers_family", "_tier"], ascending=[True, True],
+    return (out.sort_values(["n_papers_uniprot_prokaryotic", "_tier"], ascending=[True, True],
                             kind="mergesort")
                .drop(columns="_tier").reset_index(drop=True))
 
@@ -369,7 +398,7 @@ def load_own(species: str) -> pd.DataFrame:
     _check(species)
     df = _read(EVIDENCE_DIR / f"own_{species}.tsv", "scripts/studiedness/transfer.py")
     return _counts(_numeric(df, ("annotation_score",)),
-                   ("n_pubs_uniprot", "n_pubs_gene2pubmed", "n_papers_own"))
+                   ("n_pubs_uniprot", "n_pubs_gene2pubmed", "n_papers_uniprot_own"))
 
 
 def load_transfer(species: str) -> pd.DataFrame:
@@ -379,9 +408,9 @@ def load_transfer(species: str) -> pd.DataFrame:
     df = _numeric(df, ("donor_pident", "donor_qcov", "donor_annotation_score",
                        "n_candidates", "nearest_pident"))
     return _counts(df, ("donor_n_pubs_uniprot", "donor_n_pubs_gene2pubmed", "nearest_n_pubs",
-                        "n_papers_own", "n_papers_family",
-                        "n_papers_family_prokaryotic", "n_papers_family_bacteria",
-                        "n_papers_family_any"))
+                        "n_papers_uniprot_own", "n_papers_uniprot_prokaryotic",
+                        "n_papers_uniprot_prokaryotic", "n_papers_uniprot_bacteria",
+                        "n_papers_uniprot_any"))
 
 
 def load_unknome(species: str) -> pd.DataFrame:
@@ -418,7 +447,7 @@ def load_donor_scope_comparison() -> pd.DataFrame:
     """Bacteria-only donors against unrestricted donors, per species.
 
     All THREE scopes are computed on every run, so this is a measurement rather than an argument.
-    `n_papers_family_prokaryotic`, `_bacteria` and `_any` all ship in `load_transfer()`, and
+    `n_papers_uniprot_prokaryotic`, `_bacteria` and `_any` all ship in `load_transfer()`, and
     `donor_scope` there names the one that became the deliverable. Switching is a column swap.
     """
     return _read(EVIDENCE_DIR / "donor_scope_comparison.tsv", "scripts/studiedness/transfer.py")
@@ -488,7 +517,7 @@ def control() -> pd.DataFrame:
 
     E. coli is the only anchor with real measured literature, so it is the only place the transfer
     mechanism can be tested. Every E. coli donor is removed from SwissProt and the family score
-    recomputed; the correlation against `n_papers_own` is a genuine held-out result.
+    recomputed; the correlation against `n_papers_uniprot_own` is a genuine held-out result.
     """
     return _read(EVIDENCE_DIR / "control_ecoli_heldout.tsv", "scripts/studiedness/transfer.py")
 

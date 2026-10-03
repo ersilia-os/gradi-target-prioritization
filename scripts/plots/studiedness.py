@@ -54,7 +54,7 @@ def fig_distributions(species: list[str]) -> Path:
     # least N papers" is monotone, bin-free and directly readable.
     ax = axs[0]
     for i, sp in enumerate(species):
-        v = S.load(sp)["n_papers_family"].astype(float).to_numpy()
+        v = S.load(sp)["n_papers_uniprot_prokaryotic"].astype(float).to_numpy()
         grid = np.arange(0, 61)
         frac = [(v >= n).mean() * 100 for n in grid]
         ax.step(grid, frac, where="post", lw=1.8, color=NPG[i],
@@ -70,7 +70,7 @@ def fig_distributions(species: list[str]) -> Path:
     ax = axs[1]
     for i, sp in enumerate(species):
         d = S.load(sp)
-        ax.scatter(d["n_papers_own"].astype(float) + 1, d["n_papers_family"].astype(float) + 1,
+        ax.scatter(d["n_papers_uniprot_own"].astype(float) + 1, d["n_papers_uniprot_prokaryotic"].astype(float) + 1,
                    s=3, alpha=0.25, color=NPG[i], edgecolors="none", label=LABELS[sp])
     lim = [1, 400]
     ax.plot(lim, lim, ls="--", lw=0.8, color="#888")
@@ -115,12 +115,12 @@ def fig_control(species: list[str]) -> Path:
     except FileNotFoundError:
         ctrl = None
     if ctrl is not None and len(ctrl):
-        for c in ("n_papers_own", "n_papers_family"):
+        for c in ("n_papers_uniprot_own", "n_papers_uniprot_prokaryotic"):
             ctrl[c] = ctrl[c].astype(float)
         scored = ctrl[ctrl["donor_ac"].astype(str) != ""]
-        ax.scatter(scored["n_papers_own"] + 1, scored["n_papers_family"] + 1, s=4, alpha=0.3,
+        ax.scatter(scored["n_papers_uniprot_own"] + 1, scored["n_papers_uniprot_prokaryotic"] + 1, s=4, alpha=0.3,
                    color=NPG[0], edgecolors="none")
-        rho = scored["n_papers_family"].corr(scored["n_papers_own"], method="spearman")
+        rho = scored["n_papers_uniprot_prokaryotic"].corr(scored["n_papers_uniprot_own"], method="spearman")
         ax.plot([1, 400], [1, 400], ls="--", lw=0.8, color="#888")
         ax.set_xscale("log"); ax.set_yscale("log")
         ax.set_xlim(1, 400); ax.set_ylim(1, 400)
@@ -161,7 +161,7 @@ def fig_interest(species: list[str]) -> Path:
         panel = d[d["is_interest"]]
         rest = d[~d["is_interest"]]
         grid = np.arange(0, 61)
-        rest_v = rest["n_papers_family"].astype(float).to_numpy()
+        rest_v = rest["n_papers_uniprot_prokaryotic"].astype(float).to_numpy()
         ax.step(grid, [(rest_v >= n).mean() * 100 for n in grid], where="post",
                 lw=1.6, color="#999",
                 label=f"proteome ({(rest_v == 0).mean() * 100:.0f}% zero)")
@@ -170,9 +170,9 @@ def fig_interest(species: list[str]) -> Path:
         if len(panel):
             # Percentile against the WHOLE proteome, zeros included -- the panel's standing is a
             # claim about the proteome, not about the scored subset.
-            pct = [100 * float((d["n_papers_family"] < v).mean())
-                   for v in panel["n_papers_family"]]
-            pv = panel["n_papers_family"].astype(float).to_numpy()
+            pct = [100 * float((d["n_papers_uniprot_prokaryotic"] < v).mean())
+                   for v in panel["n_papers_uniprot_prokaryotic"]]
+            pv = panel["n_papers_uniprot_prokaryotic"].astype(float).to_numpy()
             ax.scatter(pv, [(rest_v >= n).mean() * 100 for n in pv],
                        s=20, color=NPG[3], zorder=5,
                        label=f"panel ({len(panel)}), median {np.median(pct):.0f}th pct")

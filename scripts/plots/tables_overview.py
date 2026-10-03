@@ -154,8 +154,11 @@ COLUMNS: dict[str, dict[str, str]] = {
         "p2rank_score": "best P2Rank score among ADMITTED pockets -- admitted means the lining "
                         "residues average pLDDT >= 70, the one place model confidence enters "
                         "(v1 applied it twice). On the AlphaFold v6 model. Prefer it to fpocket "
-                        "-- within length deciles it agrees with the holo column at 0.54-0.58, "
-                        "fpocket not at all. A modest signal.",
+                        "-- but CONTROL FOR LENGTH before quoting any agreement: length alone "
+                        "predicts a measured ligand at AUROC 0.65-0.67. Within length deciles, "
+                        "against n_ligands_pdb > 0, P2Rank is 0.494 (Kp) / 0.561 (Ec) / 0.619 "
+                        "(Sa) and fpocket 0.435 / 0.523 / 0.477 -- so ON THE ANCHOR the pocket "
+                        "scores add nothing over protein size. A soft prior at best.",
         "fpocket_score": "best fpocket score, kept for comparison.",
         "n_ligands_pdb": "MEASURED: non-redundant drug-like ligands seen bound to THIS "
                          "protein's own PDB structures (>=95% identity chains). Non-redundant = "
@@ -180,13 +183,19 @@ COLUMNS: dict[str, dict[str, str]] = {
                         "Multi-label by design, built from the *_all columns.",
     },
     "studiedness": AC | {
-        "n_papers_own": "curated SwissProt references on THIS accession. A paper count, nothing "
+        "n_papers_uniprot_own": "curated SwissProt references on THIS accession. A paper count, nothing "
                         "scaled. Near-dead on Kp -- 5,710 of 5,728 carry exactly one id, the genome "
                         "paper -- and that IS the measurement of darkness. Do not rank Kp or Sa on it.",
-        "n_papers_family": "references on the best-cited prokaryotic SwissProt homolog. RANK ON "
+        "n_papers_pubtator_own": "PubTator3 TEXT-MINED papers on THIS protein's own gene symbol -- "
+                                 "the own-scope counterpart of the column below. Median 0 on Kp "
+                                 "against a curated median of 1, so it does not rescue the dark "
+                                 "anchor either; the four columns are a 2x2 of SOURCE (uniprot "
+                                 "curated vs pubtator text-mined) x SCOPE (own vs prokaryotic "
+                                 "homolog). NEVER sum or max across them.",
+        "n_papers_uniprot_prokaryotic": "references on the best-cited prokaryotic SwissProt homolog. RANK ON "
                            "THIS. Beside `_own` it makes `dark in Klebsiella, famous in E. coli` "
                            "readable off one row.",
-        "n_papers_family_pubtator": "PubTator3 TEXT-MINED papers on the donor's gene SYMBOL. A "
+        "n_papers_pubtator_prokaryotic": "PubTator3 TEXT-MINED papers on the donor's gene SYMBOL. A "
                                     "third definition, NEVER summed with the other two. It "
                                     "transfers measurably better (0.4054 vs 0.3428 on a held-out "
                                     "E. coli control) but is NOT the ranking: that control is "
@@ -339,7 +348,7 @@ TABLES = [
          read_first="Wanted in BOTH directions -- an uncharacterised target is a risk and also the "
                     "novelty the collaboration is looking for. THE NUMBER IS A PAPER COUNT, nothing "
                     "scaled. A zero is an answer, not a gap; never impute it.",
-         also="`evidence` is NOT here -- it ships in load_transfer(), so a 0 in n_papers_family is "
+         also="`evidence` is NOT here -- it ships in load_transfer(), so a 0 in n_papers_uniprot_prokaryotic is "
               "ambiguous in this table between `no_hit` (nothing among 575,748 curated entries "
               "resembles the protein -- the strongest novelty claim the axis makes) and "
               "`below_floor`. Read it there before calling a 0 novelty. The unpriced confound is "
