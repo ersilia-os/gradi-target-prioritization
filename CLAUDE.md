@@ -26,7 +26,7 @@ $P tools/check_claude_md.py   # EVERY path this file names must exist. Non-zero 
 for f in scripts/*/*.py scripts/*/*/*.py; do (cd /tmp && $P "$OLDPWD/$f" --help >/dev/null) || echo "BROKEN $f"; done
 
 $P -c "from src import proteomes,embeddings,function,localization,degradability,orthology,\
-ligandability,essentiality,projections,proteomelm,matrices,tabpfn; print('ok')"
+ligandability,essentiality,projections,proteomelm,matrices,tabpfn,pockets; print('ok')"
 
 $P -m src.matrices            # every matrix complete AND in canonical order
 ```
@@ -135,7 +135,7 @@ as one it measured as unknown. Fill it where the rows are built, and say what th
 3. **A zero means "not annotated", not "absent"** — for 26.3% of Kp that means nothing is known. Say so in the loader docstring; downstream must never read it as a measured negative.
 4. **Verify with a ROUND-TRIP, not a shape check.** Reconstructing the term lists from the matrix must reproduce the source columns exactly. Shape checks pass on wrong matrices.
 
-Status, from `python -m src.matrices`: **54/54 canonical.** A new representation of the same
+Status, from `python -m src.matrices`: **60/60 canonical** (2026-10-03, after `pockets/structure` joined the audit). A new representation of the same
 proteins (e.g.
 `proteomelm_<species>_orthodb.npz`) goes **into the audit list, not beside it** — an unaudited matrix
 is exactly the silent misalignment this rule exists to catch. Localization has two complete canonical
@@ -287,7 +287,9 @@ scripts/
                   precedents.py  transfer_calibration.py          -> chembl_<sp>.tsv
   studiedness/    fetch.py  gene2pubmed.py  unknome.py
                   transfer.py  merge.py                           -> studiedness_<sp>.tsv
-  pockets/  interactome/                    README.md only -- real axes, no code yet
+  pockets/        structures.py  predict.py  holo.py
+                  alphafill_check.py  merge.py                    -> structure_<sp>.tsv
+  interactome/                              README.md only -- a real axis, no code yet
   plots/          10 scripts, ALL figures
   workers/        tabpfn_cv.py             transversal; every axis may call it
 
@@ -296,6 +298,7 @@ docs/             one .md per task, named for the task (docs/function.md, not do
 tools/            one-shot migration scripts, kept for the record
 
 data/source/<provider>/       uniprot deg eggnog orthodb cdd go sprofgo geptop ncbi unknome
+                              alphafold alphafill biolip wwpdb sifts pdbe ecmdb plinder
 data/processed/<task>/        THE DELIVERABLES -- nothing else at this level
 data/processed/<task>/evidence/
 data/processed/<task>/scratch/
@@ -676,6 +679,32 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   restating them and **exits non-zero if either clause it relaxes is gone** — a denominator over a
   different population from the numerator is wrong in a way no shape check could see.
 
+- **`ligands/validate_api.py`** — **the counts, checked against the LIVE ChEMBL API.** Everything
+  else in this axis descends from three cached extracts, so a wrong SQL would be agreed with by
+  every downstream check: the `chembl.py` control shares the extracts and the assertions share the
+  code. This asks a different machine over HTTP. **88/88 comparisons over 49 proteins match
+  exactly**, all three species, 1 to 12,438 compounds. Round 1 checks `n_ligands` against the
+  resolved exact target (30 cases); round 2 checks `n_ligands_bacterial` and
+  `n_measured_bacterial` as **UNIONS over every bacterial homolog** (29 proteins × 2; Kp `KPC-2`
+  unions 52 targets) — that is where a double-count or a dropped `tid` would show.
+
+  **It also checks the union against the per-target SUM**, which it must stay below: KPC-2 276 vs
+  365, `bla` 269 vs 327, `folA` 443 vs 529 — and **the API agrees with the union, never the sum**,
+  which is the distinct-molecule claim verified from outside.
+
+  Two things that make the comparison legitimate: the activity endpoint does **not expose
+  `confidence_score`**, which is fine HERE and nowhere else because `>= 8` removes 0 of 3,271,336
+  single-protein rows, and only SINGLE PROTEIN tids are compared on both sides. A target too large
+  to page is **skipped and named, never truncated** — Ec `ampC` (12,438 potent over 16 targets)
+  is the one, and its exact count was verified in round 1 anyway.
+
+  **It found a real defect**: `exact_target` round-tripped as `""` rather than NA, so
+  `exact_target.notna()` was True for all 13,020 proteins and useless as a filter — the run picked
+  up the whole proteome as test cases. Counts were unaffected; `_coerce_precedents` now maps empty
+  to `pd.NA` and the column agrees with `exact_route != "none"` at 12 / 182 / 69.
+  Evidence: `evidence/precedent_api_validation.tsv`. CLI: `--per-species 8` · `--round exact union`
+  · `-q`. Needs network, no dump. ~15 min.
+
 - **`ligands/transfer_calibration.py`** — **the bands 95/60/40 CANNOT be calibrated, and that is the
   result.** Over 1,582 ChEMBL target pairs where both ligand sets are known: compound-set overlap
   does not transfer at any identity (median Jaccard ~0.00 in every band — two near-identical targets
@@ -722,6 +751,35 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   track **without ever measuring the overlap**; measured, it adds 33 proteins across all three
   species, 11.5% over ChEMBL's 287. **Not promoted**; if it ever is, columns go *beside* the ChEMBL
   ones, never merged.
+
+- **`pockets/structures.py`** → **`predict.py`** → **`holo.py`** → **`merge.py`** — **structural
+  ligandability**: can a small molecule bind this fold? Deliverable `structure_<species>.tsv`, 7
+  columns, complete and canonical for the three bacteria: `p2rank_score` · `fpocket_score` ·
+  `p2rank_n_pockets` (predicted, on AlphaFold v6 models) · `holo_identity` (measured: % identity
+  to the closest bacterial PDB chain with a drug-like ligand in the aligned site) · `af_plddt` ·
+  `evidence`. All `gradi`; fpocket/P2Rank from `gradi-pockets`, DIAMOND from `gradi-ortho`. ~40 min
+  cold. **Load through `src/pockets.py`.** Details: `docs/pockets.md`.
+
+  **Confidence enters ONCE**: a pocket counts only if its residues average pLDDT ≥ 70. v1 applied
+  pLDDT twice. Neither tool reads it (P2Rank's `alphafold` config drops B-factor), so the filter is
+  the only use. **Reproduces v1 exactly**: any P2Rank pocket on 4,542 Kp / 3,589 Ec proteins.
+  AlphaFold models are used only if their sequence equals the proteome's (0 mismatches).
+
+  **"Drug-like" is built from published sources, not a denylist** — BioLiP, PLINDER's artefact
+  list, PDBe cofactor classes, a nucleotide SMARTS, and **ECMDB metabolites (owner's choice,
+  2026-10-03)**; each is a flag in `evidence/ligand_classes.tsv`. **QED ≥ 0.2 and Ro3 "fragment"
+  were measured and REJECTED: both delete antibiotics** (novobiocin 0.184, rifampicin 0.109, the
+  aminoglycosides; fosfomycin, D-cycloserine). Kp/Ec/Sa with bacterial holo evidence:
+  **608 / 559 / 307**.
+
+  **Match the SITE, not the chain** — every BioLiP binding-site residue inside the alignment, PDB
+  chain ≥ 50% aligned, **no query-coverage floor**: E. coli GyrB/clorobiocin (1kzn) is a 186-aa
+  domain of an 804-aa protein, which `MIN_QCOV = 50` would reject. Two traps: an `[R1]` ring SMARTS
+  misses cyclic-di-GMP (use `[R]`), and BioLiP alone leaks detergents/cryoprotectants (hence PLINDER).
+
+  **Trust P2Rank, not fpocket** — measured against the holo column (no shared input): P2Rank AUROC
+  0.64–0.71, fpocket 0.53–0.59. **AlphaFill was measured and left out** (`alphafill_check.py`: +37
+  Kp / +21 Ec, mostly additives). `druggability()` is derived on the fly, never stored.
 
 - **`essentiality/labels.py`** + **`essentiality/deg_proteomes.py`** — the training corpus, from
   **DEG**: 49 of 51 datasets, 173,048 labeled proteins, 20,194 essential (11.67%), 38 species, **each
@@ -927,6 +985,18 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   approximates a lookup DIAMOND does exactly and auditably, and mean-reversion would hide the novel
   proteins the axis exists to surface.
 
+  **`studiedness/confounds.py`** → `evidence/confounds.tsv`: the axis measured against every
+  other axis, fitting nothing. **Read `rho` beside `scored_rho`** (scored tiers only) — every
+  degradability correlation **collapses to ~0 under it** (−0.15 → +0.008), so it was the
+  zero-tier block, not the probabilities. **AUROC below 0.5 is a DIRECTION, not a failure.** Two
+  sanity checks pass and license the rest: ligand precedent reproduces `docs/ligands.md`'s
+  independent **0.83–0.86** (length 0.66–0.71), and annotation darkness reads 0.85–0.88.
+  **THE UNPRICED CONFOUND IS ESSENTIALITY** — `geptop_ess` rho **0.38–0.50**, and alone among the
+  axes it **survives stratification** (0.35–0.39), so stacking the two double-counts; part of it
+  is that Geptop predicts from conservation and conservation is also what gets a protein studied.
+  **Degradability and localization are clean.** What role studiedness plays in prioritisation is
+  deliberately NOT decided here.
+
   **A finding for the collaboration: the consortium's own panel is NOT novel** — `src/interest.py`
   sits at the 80th percentile (median) on Kp. Details: `docs/studiedness.md`.
 ## Legacy
@@ -966,7 +1036,7 @@ an unrelated `ersilia` env. Use `~/miniconda3/envs/gradi/bin/python`.
 | **`gradi-loc`** (3.11) | DeepLocPro + TMbed | **`fair-esm` claims the same top-level `esm` package as EvolutionaryScale's ESM-C.** Pins `setuptools<81` and `transformers==4.44.2` |
 | **`gradi-tabpfn`** (3.11) | `tabpfn==9.0.0` + `tabpfn-client==0.6.0` | torch 2.14 against gradi's 2.12. Needs `TABPFN_TOKEN` |
 | **`gradi-lazyqsar`** (3.11) | lazy-qsar 3.4.4, for the degradability head comparison only | pins `numpy==2.1.3` / `scikit-learn==1.6.1`. **Rejected as an estimator**; kept so the comparison is reproducible |
-| **`gradi-pockets`** (osx-64, Rosetta) | `fpocket` + `openjdk=17` for P2Rank | — |
+| **`gradi-pockets`** (osx-64, Rosetta) | `fpocket` 4.0 + `openjdk=17` for P2Rank 2.5.1 (tarball in `tmp/tools/p2rank_2.5.1`) | no arm64 build. `pockets/predict.py` runs in `gradi` and calls it across a process boundary (`FPOCKET_BIN`, `P2RANK_DIR`, `POCKETS_JAVA_HOME`) |
 | **`gradi-pymol`** | `pymol-open-source` | ray-traced structure cartoons |
 
 **Every split above is mandatory, not cosmetic.** The recurring failure is the same one each time:

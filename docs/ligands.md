@@ -389,6 +389,49 @@ all assayed and none measurable has no sequence at all and DIAMOND cannot reach 
 ligand rows by construction, which is why the potent counts reproduce 113 / 96 / 78 exactly after
 the change.
 
+## Validated against the live ChEMBL API
+
+Everything else in this axis descends from three cached extracts that `chembl.py` wrote from the
+dump. If that SQL were subtly wrong, every downstream check would agree with it — the control
+shares the extracts, the assertions share the code. `ligands/validate_api.py` asks a different
+machine the same questions over HTTP.
+
+**88/88 comparisons over 49 proteins match exactly**, all three species, spanning 1 to 12,438
+compounds.
+
+| round | what it checks | cases | result |
+|---|---|---|---|
+| exact | `n_ligands` against the resolved exact target | 30 | 30/30 |
+| union | `n_ligands_bacterial` over every bacterial homolog | 29 | 29/29 |
+| union | `n_measured_bacterial`, same pools | 29 | 29/29 |
+
+Round 2 is the harder one: Kp `KPC-2` unions **52 targets**, `ctx-m-14` 49, `blaSHV-11` 39. A
+dropped `tid` or a double-count would show there and nowhere else.
+
+**The union is also checked against the per-target sum**, which it must stay below:
+
+| | targets | union | per-target sum |
+|---|---|---|---|
+| Kp `KPC-2` | 51 | **276** | 365 |
+| Kp `bla` | 36 | **269** | 327 |
+| Ec `folA` | 6 | **443** | 529 |
+
+**The API agrees with the union, never with the sum** — the distinct-molecule claim, verified from
+outside the code that makes it.
+
+Two things that make the comparison legitimate. The activity endpoint does **not expose
+`confidence_score`**, which is acceptable *here and nowhere else*: `>= 8` removes 0 of 3,271,336
+single-protein rows, so the gate is a no-op, and only SINGLE PROTEIN tids are compared on both
+sides. And a target too large to page honestly is **skipped and named rather than truncated** —
+E. coli `ampC` (12,438 potent compounds over 16 targets) is the only one, and its single-target
+exact count was verified in round 1 regardless.
+
+**The run found a defect worth recording.** Selecting test cases by `exact_target.notna()` picked
+up 12,767 of 13,020 proteins. `pd.NA` written to TSV returns as `""`, and under `string` dtype an
+empty string is a valid non-null value — so that column could not be used to ask "does this
+protein have an exact match". The counts were never affected. `_coerce_precedents` now maps empty
+to `pd.NA`, and the column agrees with `exact_route != "none"` at 12 / 182 / 69.
+
 ## The selectivity finding
 
 ![selectivity](../output/plots/ligands/chembl_selectivity.png)
@@ -637,13 +680,14 @@ to eosvc.**
 - **The newer BindingDB is already on disk** — `data/raw/legacy/bindingdb/BindingDB_All_202605_tsv.zip`
   (2026-05) is a year newer than the 2025-04 in use, and `PROVENANCE.md` flags it as the upgrade
   candidate. Re-running the gain measurement against it is ~8 min.
-- **Structure-based ligandability** — PDB co-crystals, AlphaFill transplants, fpocket/P2Rank pockets.
-  v1 built all of them (`legacy/scripts/06c`–`06g`) and they reach far more proteins than
-  bioactivity does (v1: 2,525 Kp with a drug-like co-crystal against 175 with a potent ligand). That
-  is the obvious part 2, and the composite score belongs after it, not before.
+- **Structure-based ligandability is now its own axis** — `docs/pockets.md`,
+  `structure_<species>.tsv`. Under a stricter, established drug-like definition and a binding-site
+  coverage test it gives 608 Kp proteins with bacterial holo evidence (v1's 2,525 is not
+  reconciled; see that doc). AlphaFill was measured there and left out.
 - **The ribosome is missing** and the reason is structural, not incidental: its drugs are measured
   as MIC, which carries no pChEMBL. Given stage 04's top-100 is ribosome-heavy, a targeted route to
-  ribosome-binding evidence (PDB co-crystals will find it) matters more here than elsewhere.
+  ribosome-binding evidence matters more here than elsewhere. PDB co-crystals recover it only
+  partly (9–11 ribosomal proteins per species in `docs/pockets.md`): the drugs mostly contact rRNA.
 - **`allorg` versus `remote` is unexploited.** The gap between them is a measured statement about how
   much apparent ligandability comes from non-bacterial homologs, which is exactly the quantity v1's
   rat trap got wrong. Worth a figure.

@@ -329,7 +329,13 @@ def _coerce_precedents(d: pd.DataFrame) -> pd.DataFrame:
         elif c.startswith(("best_pactivity", "best_pident", "best_pchembl", "hit_rate")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
         elif c in ("exact_route", "exact_target"):
-            d[c] = d[c].astype("string")
+            # EMPTY STRING IS NOT A VALUE. `pd.NA` written to TSV comes back as "", and casting to
+            # `string` dtype makes that a perfectly valid non-null entry -- so
+            # `exact_target.notna()` was True for all 5,728 Kp rows and useless as a filter for
+            # "has an exact match". Caught by an API validation run that selected its test cases
+            # that way and silently picked up every protein in the proteome. Filter on
+            # `exact_route != "none"`, or on this column now that it is properly null.
+            d[c] = d[c].astype("string").replace("", pd.NA)
     return d
 
 
