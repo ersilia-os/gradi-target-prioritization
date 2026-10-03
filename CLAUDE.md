@@ -801,7 +801,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   else in this axis descends from three cached extracts, so a wrong SQL would be agreed with by
   every downstream check: the `chembl.py` control shares the extracts and the assertions share the
   code. This asks a different machine over HTTP. **88/88 comparisons over 49 proteins match
-  exactly**, all three species, 1 to 12,438 compounds. Round 1 checks `n_ligands` against the
+  exactly**, all three species, 1 to 12,438 compounds. Round 1 checks `n_ligands_own` against the
   resolved exact target (30 cases); round 2 checks `n_ligands_bacterial` and
   `n_measured_bacterial` as **UNIONS over every bacterial homolog** (29 proteins × 2; Kp `KPC-2`
   unions 52 targets) — that is where a double-count or a dropped `tid` would show.
@@ -848,16 +848,16 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   scaffolds**, 3.3 per scaffold — the difference between 50 starting points and 50 analogues of one
   series), the identity bands broken out (direct 21 / close 79 / remote 113 proteins), the match
   provenance (`best_target`/`best_pident`/`best_organism`) and `allorg_*`. **What ONLY the
-  deliverable has is the denominator**, `n_assayed*` — the axis's only real negatives.
+  deliverable has is the denominator**, `n_assayed_*` — the axis's only real negatives.
 
-  **TWO QUESTIONS, NOT ONE, and a single count conflates them**: `n_ligands*` is POTENT (pChEMBL ≥ 6)
-  and `n_assayed*` is "has anyone looked", each over three scopes — this protein, the bacterial pool,
+  **TWO QUESTIONS, NOT ONE, and a single count conflates them**: `n_ligands_*` is POTENT (pChEMBL ≥ 6)
+  and `n_assayed_*` is "has anyone looked", each over three scopes — this protein, the bacterial pool,
   and human (**a LIABILITY, never summed into the bacterial count**). **A 0 against 158 assayed
-  compounds is a measured discouragement; a 0 against 0 is an open question.** `n_assayed*` is **NA,
+  compounds is a measured discouragement; a 0 against 0 is an open question.** `n_assayed_*` is **NA,
   never 0**, when the effort extract is missing, because a 0 would claim nobody ever assayed the
   protein — the opposite evidence from "we do not know". (The old four-tier `precedent_evidence`
   column was dropped as redundant once the denominator shipped: `no_homolog` is just
-  `n_targets_bacteria == 0`.)
+  `n_targets_bacterial == 0`.)
 
   **"UNIQUE" is the whole point and it is not a per-target sum** — counting DISTINCT
   `parent_molregno` over the union of homologous targets counts MOLECULES, where summing per-target
@@ -886,7 +886,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   canonical for the three bacteria: `p2rank_score` · `fpocket_score` (predicted, on AlphaFold v6
   models) · `n_ligands_pdb` (**measured**: drug-like ligands in this protein's OWN PDB structures)
   · `n_ligands_alphafill` (**modelled**: drug-like ligands AlphaFill transplanted onto its model)
-  · `pdb_n_structures` (PDB entries that ARE this protein, ligand or not; partial structures
+  · `n_pdb_structures` (PDB entries that ARE this protein, ligand or not; partial structures
   count; coverage is in `evidence/pdb_<sp>.tsv`) · `af_plddt`.
 
   **NEVER SUM THE TWO LIGAND COUNTS** — a co-crystal of this protein (88 Kp / 308 Ec / 90 Sa
@@ -1252,7 +1252,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   Newman/USA300/Mu50/N315); Ec median 5 → 8; Kp distinct values 7 → 32. Held-out control
   **0.3280 → 0.3398**. **`own` can now EXCEED `family`** (Ec median 8 vs 6) because `own` unions
   every strain entry while `family` reads ONE donor — the old "+3 on Kp, +0 on Ec" framing is
-  withdrawn. **Still do not rank Kp or Sa on `_own`; rank on `_family`.**
+  withdrawn. **Still do not rank Kp or Sa on `_own`; rank on `n_papers_uniprot_prokaryotic`.**
 
   **`pubtator.py` → `n_papers_pubtator_prokaryotic`, keyed on NCBI GeneID.** A GeneID names one gene in
   one organism, so **the species is already in the key** and there is no symbol ambiguity: Kp

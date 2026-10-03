@@ -137,17 +137,17 @@ COLUMNS: dict[str, dict[str, str]] = {
                                     "de novo on our own FASTAs, so it is a finding, not a miss.",
     },
     "ligands": AC | {
-        "n_ligands": "POTENT (pChEMBL >= 6) distinct molecules on THIS protein, species-level.",
-        "n_ligands_bacterial": "potent molecules over the bacterial pool. CONTAINS `n_ligands` -- "
+        "n_ligands_own": "POTENT (pChEMBL >= 6) distinct molecules on THIS protein, species-level.",
+        "n_ligands_bacterial": "potent molecules over the bacterial pool. CONTAINS `n_ligands_own` -- "
                                "never sum the two. Distinct parent_molregno over the UNION of "
                                "homologous targets, never a per-target sum.",
         "n_ligands_human": "potent molecules on human targets. A LIABILITY, never summed in.",
-        "n_assayed": "compounds anyone ASSAYED against this protein, whatever the outcome.",
+        "n_assayed_own": "compounds anyone ASSAYED against this protein, whatever the outcome.",
         "n_assayed_bacterial": "the denominator. A 0 in `n_ligands_bacterial` against 158 assayed "
                                "is a measured discouragement; against 0 it is an open question. "
                                "NA, never 0, when the effort extract is missing.",
         "n_assayed_human": "assayed against human targets.",
-        "best_pactivity_bacteria": "max pChEMBL over the bacterial pool. This is ChEMBL's "
+        "best_pactivity_bacterial": "max pChEMBL over the bacterial pool. This is ChEMBL's "
                                    "`pchembl_value` renamed, not a new quantity.",
     },
     "pockets": AC | {
@@ -160,13 +160,15 @@ COLUMNS: dict[str, dict[str, str]] = {
                         "(Sa) and fpocket 0.435 / 0.523 / 0.477 -- so ON THE ANCHOR the pocket "
                         "scores add nothing over protein size. A soft prior at best.",
         "fpocket_score": "best fpocket score, kept for comparison.",
-        "n_ligands_pdb": "MEASURED: non-redundant drug-like ligands seen bound to THIS "
+        "n_ligands_pdb": "NOT the ligands axis's n_ligands -- these are SCAFFOLDS seen in a "
+                         "structure, not MOLECULES with a measured potency. "
+                         "MEASURED: non-redundant drug-like ligands seen bound to THIS "
                          "protein's own PDB structures (>=95% identity chains). Non-redundant = "
                          "distinct Bemis-Murcko generic scaffolds, the ChEMBL axis's definition.",
         "n_ligands_alphafill": "MODELLED: non-redundant drug-like ligands AlphaFill transplanted "
                                "onto the AlphaFold model, from ~30%-identity donors. NEVER add "
                                "this to n_ligands_pdb -- different evidence, 10x the reach.",
-        "pdb_n_structures": "distinct PDB entries with a chain that IS this protein (>=95% "
+        "n_pdb_structures": "distinct PDB entries with a chain that IS this protein (>=95% "
                             "identity, matched by SEQUENCE -- the accession route reached 30 of "
                             "5,728 Kp proteins). Ligand or not: this is structural COVERAGE, the "
                             "question the ligand counts do not ask.",
@@ -317,7 +319,10 @@ TABLES = [
                     "Proteins with a potent ligand are ~2% of each proteome (Kp 113 / Ec 96 / "
                     "Sa 78) and that must not be forced upward -- it is a fact about how little "
                     "of the bacterial proteome anyone has screened.",
-         also="WHAT THIS TABLE CANNOT SAY: how many distinct SCAFFOLDS those compounds cover. On "
+         also="`n_ligands_*` HERE IS NOT `n_ligands_*` IN POCKETS: these are distinct MOLECULES "
+              "with a measured pChEMBL >= 6 over a taxonomic pool, and they NEST; the pockets ones "
+              "are distinct SCAFFOLDS seen in a structure, with no potency, and they are DISJOINT. "
+              "WHAT THIS TABLE CANNOT SAY: how many distinct SCAFFOLDS those compounds cover. On "
               "Kp the 5,286 potent compounds collapse to 1,593 Murcko scaffolds (3.3 per "
               "scaffold), which is the difference between 50 starting points and 50 analogues of "
               "one series -- that is `*_n_scaffolds` in evidence/chembl_<sp>.tsv, along with the "
@@ -329,7 +334,7 @@ TABLES = [
          loader=pockets.load,
          question="Could a small molecule bind this fold at all?",
          read_first="Three kinds of column, never merged: p2rank/fpocket are PREDICTED on an "
-                    "AlphaFold model, n_ligands_pdb and pdb_n_structures are MEASURED, and "
+                    "AlphaFold model, n_ligands_pdb and n_pdb_structures are MEASURED, and "
                     "n_ligands_alphafill is a third party's MODEL. Within length deciles the "
                     "pocket scores barely track where ligands are really found (P2Rank 0.49-0.62, "
                     "fpocket 0.44-0.52), so prefer the measured columns where they are non-zero. "

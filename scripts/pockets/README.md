@@ -17,7 +17,7 @@ Run in order, all with the `gradi` env:
 | `merge.py` | the deliverable + its checks | `pockets_<sp>.tsv` |
 
 Deliverable, complete and canonical: `uniprot_ac · p2rank_score · fpocket_score · n_ligands_pdb ·
-n_ligands_alphafill · pdb_n_structures · af_plddt`. Load through `src/pockets.py`.
+n_ligands_alphafill · n_pdb_structures · af_plddt`. Load through `src/pockets.py`.
 Details, measurements and traps: `docs/pockets.md`.
 
 **We do not transfer ligands ourselves.** An earlier `holo.py` did — DIAMOND against BioLiP's holo

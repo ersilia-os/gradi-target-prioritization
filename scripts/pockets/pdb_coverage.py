@@ -4,12 +4,12 @@
     data/processed/pockets/evidence/pdb_chains_<species>.tsv LONG: one row per matched PDB chain
     data/processed/pockets/scratch/pdb_seqres/               unique-sequence FASTA, DIAMOND db, hits
 
-    uniprot_ac · pdb_n_structures · pdb_n_chains · pdb_coverage · pdb_best_identity · pdb_ids
+    uniprot_ac · n_pdb_structures · pdb_n_chains · pdb_coverage · pdb_best_identity · pdb_ids
 
 Ligand or not, it does not matter -- this is structural COVERAGE, the question `holo.py` does not
 ask. Requested by the project owner on 2026-10-03.
 
-* `pdb_n_structures` -- distinct PDB entries with at least one chain that IS this protein.
+* `n_pdb_structures` -- distinct PDB entries with at least one chain that IS this protein.
 * `pdb_coverage` -- fraction (0-1) of this protein's residues covered by the union of those chains'
   alignments.
 
@@ -140,7 +140,7 @@ def score(species: str, hits: pd.DataFrame,
     for acc, seq in zip(prot["uniprot_ac"], prot["sequence"]):
         d = g.get(acc)
         if d is None:
-            rows.append({"uniprot_ac": acc, "pdb_n_structures": 0, "pdb_n_chains": 0,
+            rows.append({"uniprot_ac": acc, "n_pdb_structures": 0, "pdb_n_chains": 0,
                          "pdb_coverage": 0.0, "pdb_best_identity": np.nan, "pdb_ids": ""})
             continue
         covered = np.zeros(len(seq), dtype=bool)
@@ -154,7 +154,7 @@ def score(species: str, hits: pd.DataFrame,
                 chain_rows.append({"uniprot_ac": acc, "pdb": pdb_id, "chain": ch,
                                    "identity": float(pid), "chain_coverage": round(sc / 100, 4)})
         entries = sorted({c.split("_")[0] for c in chains})
-        rows.append({"uniprot_ac": acc, "pdb_n_structures": len(entries),
+        rows.append({"uniprot_ac": acc, "n_pdb_structures": len(entries),
                      "pdb_n_chains": len(chains), "pdb_coverage": round(float(covered.mean()), 4),
                      "pdb_best_identity": float(d["pident"].max()),
                      "pdb_ids": ";".join(entries)})
@@ -191,11 +191,11 @@ def main() -> None:
         path = EVIDENCE_DIR / f"pdb_{sp}.tsv"
         out.to_csv(path, sep="\t", index=False)
         chains.to_csv(EVIDENCE_DIR / f"pdb_chains_{sp}.tsv", sep="\t", index=False)
-        has = out["pdb_n_structures"] > 0
+        has = out["n_pdb_structures"] > 0
         summary.append({
             "species": sp, "n": len(out), "with_structure": int(has.sum()),
             "pct": 100 * has.mean(),
-            "median_n_when>0": float(out.loc[has, "pdb_n_structures"].median()),
+            "median_n_when>0": float(out.loc[has, "n_pdb_structures"].median()),
             "median_cov_when>0": float(out.loc[has, "pdb_coverage"].median()),
             "cov>=0.9": int((out["pdb_coverage"] >= 0.9).sum()),
         })

@@ -2,7 +2,7 @@
 
     data/processed/pockets/pockets_<species>.tsv        THE DELIVERABLE (complete, canonical)
         uniprot_ac · p2rank_score · fpocket_score · n_ligands_pdb · n_ligands_alphafill ·
-        pdb_n_structures · af_plddt
+        n_pdb_structures · af_plddt
 
 THREE KINDS OF COLUMN, NEVER MERGED
 -------------------------------------
@@ -10,13 +10,17 @@ THREE KINDS OF COLUMN, NEVER MERGED
   best pocket) and `fpocket_score` (fpocket 4.0 druggability of the best pocket). Only pockets
   whose lining residues average pLDDT >= 70 count -- the single place model confidence enters.
 * **Measured** in the PDB: `n_ligands_pdb`, drug-like ligands seen bound to **this protein's own**
-  structures, and `pdb_n_structures`, how many PDB entries are this protein at all (ligand or not;
+  structures, and `n_pdb_structures`, how many PDB entries are this protein at all (ligand or not;
   partial structures count).
 * **Modelled** by a third party: `n_ligands_alphafill`, drug-like ligands AlphaFill transplanted
   onto this protein's AlphaFold model by structural superposition, from donors at ~30% median
   identity.
 
-**Never add the two ligand counts.** A co-crystal of this protein and a transplant from a remote
+**NOT the same `n_ligands` as the ligands axis.** These two count distinct Bemis-Murcko
+SCAFFOLDS physically seen in a structure (PDB) or superposed onto the model (AlphaFill), with no
+potency involved, and they are DISJOINT. `ligands_<species>.tsv`'s `n_ligands_*` count distinct
+MOLECULES with a measured pChEMBL >= 6 over a taxonomic pool, and those NEST. Structural evidence
+vs assay evidence. **Never add the two ligand counts.** A co-crystal of this protein and a transplant from a remote
 homolog are not the same evidence, and they differ by an order of magnitude in reach (tens of
 proteins against ~1,500). There is deliberately no combined column.
 
@@ -28,7 +32,7 @@ raw chemical-component codes overstates by 25-34%; those raw counts ship as `n_c
 A ZERO AND AN NA ARE DIFFERENT CLAIMS
 ---------------------------------------
 With an AlphaFold model, a pocket score of 0 means the tools looked and found no admitted pocket.
-Without one the pocket scores and `af_plddt` are NA. The ligand counts and `pdb_n_structures` are
+Without one the pocket scores and `af_plddt` are NA. The ligand counts and `n_pdb_structures` are
 never NA: every protein was searched, and 0 means nothing was found -- which for `n_ligands_pdb`
 is ~95% of each proteome, a fact about what crystallographers have done, not about the proteins.
 **Never `fillna(0)` the pocket scores**; that is the v1 mistake (`legacy/HISTORY.md:199`).
@@ -66,7 +70,7 @@ TASK_DIR = REPO_ROOT / "data" / "processed" / "pockets"
 EVIDENCE_DIR = TASK_DIR / "evidence"
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
 COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "n_ligands_pdb", "n_ligands_alphafill",
-           "pdb_n_structures", "af_plddt"]
+           "n_pdb_structures", "af_plddt"]
 
 
 def _check(species: str) -> None:

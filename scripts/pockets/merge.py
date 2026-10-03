@@ -3,7 +3,7 @@
     data/processed/pockets/pockets_<species>.tsv
 
     uniprot_ac · p2rank_score · fpocket_score · n_ligands_pdb · n_ligands_alphafill ·
-    pdb_n_structures · af_plddt
+    n_pdb_structures · af_plddt
 
 **It recomputes nothing.** `structures.py`, `predict.py`, `holo.py` and `pdb_coverage.py` did the
 work; this reduces
@@ -31,7 +31,7 @@ THE COLUMNS
   They replaced `holo_identity` on 2026-10-03: that column reported the % identity of the closest
   bacterial holo chain found by a DIAMOND search of our own -- a hand-rolled AlphaFill. See
   `alphafill.py` for the measurement that retired it.
-* `pdb_n_structures` -- distinct PDB entries with a chain that IS this protein (>= 95% identity,
+* `n_pdb_structures` -- distinct PDB entries with a chain that IS this protein (>= 95% identity,
   >= 50% of the PDB chain aligned), ligand or not (`pdb_coverage.py`). For conserved
   enterobacterial proteins this includes other species' structures of a near-identical protein:
   Kp rpoB counts E. coli's 411 RNA polymerase entries. 0 = no structure.
@@ -64,7 +64,7 @@ mistake (`legacy/HISTORY.md:199`). **So never `fillna(0)` these columns.**
 WHAT THIS SCRIPT CHECKS
 ------------------------
 1. **Completeness and order** -- every protein, canonical order, no NA in the pocket columns
-   where a model exists, no NA in the ligand counts or `pdb_n_structures` anywhere.
+   where a model exists, no NA in the ligand counts or `n_pdb_structures` anywhere.
 2. **Spot checks -- NAMED LIGANDS, not counts.** A broken join still yields a well-formed table
    of plausible counts, so the check is that specific molecules land on specific genes:
    methotrexate and trimethoprim on E. coli `folA`, novobiocin on S. aureus `gyrB`, and E. coli
@@ -105,7 +105,7 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus")
 TASK_DIR = REPO_ROOT / "data" / "processed" / "pockets"
 EVIDENCE_DIR = TASK_DIR / "evidence"
 COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "n_ligands_pdb",
-           "n_ligands_alphafill", "pdb_n_structures", "af_plddt"]
+           "n_ligands_alphafill", "n_pdb_structures", "af_plddt"]
 # `evidence` stays a WORKING column -- the completeness checks below read it -- but is not shipped
 # (owner's call, 2026-10-03). It is a function of two columns that ARE shipped:
 #     af_plddt.notna()      a model exists, so the pocket columns could be computed
@@ -195,11 +195,11 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         d.loc[~has_model, c] = np.nan
     d = d.merge(lig[["uniprot_ac", "n_ligands_pdb", "n_ligands_alphafill"]], on="uniprot_ac",
                 how="left")
-    d = d.merge(pdb[["uniprot_ac", "pdb_n_structures"]], on="uniprot_ac", how="left")
+    d = d.merge(pdb[["uniprot_ac", "n_pdb_structures"]], on="uniprot_ac", how="left")
 
     out = M.reindex(d[COLUMNS + ["seq_length"]], species)   # seq_length: working only
     M.assert_canonical(out["uniprot_ac"], species)
-    for c in ("n_ligands_pdb", "n_ligands_alphafill", "pdb_n_structures"):
+    for c in ("n_ligands_pdb", "n_ligands_alphafill", "n_pdb_structures"):
         if out[c].isna().any():
             sys.exit(f"FATAL {species}: {c} has NA -- every protein was searched")
         out[c] = out[c].astype(int)
@@ -236,7 +236,7 @@ def checks(species: str, out: pd.DataFrame, pk: pd.DataFrame) -> tuple[dict, lis
         "median_fpocket": float(m["fpocket_score"].median()),
         "lig_pdb>0": int((out["n_ligands_pdb"] > 0).sum()),
         "lig_af>0": int((out["n_ligands_alphafill"] > 0).sum()),
-        "pdb>0": int((out["pdb_n_structures"] > 0).sum()),
+        "pdb>0": int((out["n_pdb_structures"] > 0).sum()),
         "auroc_p2rank": auroc(pos["p2rank_score"].to_numpy(), neg["p2rank_score"].to_numpy()),
         "auroc_fpocket": auroc(pos["fpocket_score"].to_numpy(), neg["fpocket_score"].to_numpy()),
         "auroc_length": auroc(pos["seq_length"].to_numpy(), neg["seq_length"].to_numpy()),

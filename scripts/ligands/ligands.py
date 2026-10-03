@@ -1,7 +1,7 @@
 """Ligand precedent for any protein sequence -- three counts, in about a second.
 
-    n_ligands / n_ligands_bacterial / n_ligands_human   POTENT, pChEMBL >= 6 (1 uM)
-    n_assayed / n_assayed_bacterial / n_assayed_human   compounds tried at all
+    n_ligands_own / n_ligands_bacterial / n_ligands_human   POTENT, pChEMBL >= 6 (1 uM)
+    n_assayed_own / n_assayed_bacterial / n_assayed_human   compounds tried at all
     (c) n_ligands_human      ligands on HUMAN orthologs
 
 A QUERY TOOL over arbitrary input -- which is what separates it from `ligands/chembl.py`. That
@@ -54,7 +54,7 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus")
 # version is not discarded, it goes to evidence/precedents_full_<sp>.tsv, because two of the
 # dropped columns answer questions a bare count cannot:
 #
-#   best_pident_bacteria         100% on KPC-2 and 87.9% on nfo are different claims, and the
+#   best_pident_bacterial         100% on KPC-2 and 87.9% on nfo are different claims, and the
 #                                count alone does not distinguish "this protein" from "something
 #                                that resembles it"
 #   n_ligands_bacteria_complex   E. coli gyrB carries 666 single-protein ligands and 1,412 complex
@@ -169,8 +169,8 @@ def main() -> None:
     rule("=")
     say(f"  identity floor {a.min_identity:.0f}%   coverage floors q>={PR.L.MIN_QCOV:.0f} "
         f"s>={PR.L.MIN_SCOV:.0f} (imported, not restated)")
-    say(f"  n_ligands*     POTENT only: pChEMBL >= {PR.L.PCHEMBL_HEADLINE:g} (1 uM)")
-    say("  n_assayed*     compounds tried at all, whatever the outcome")
+    say(f"  n_ligands_*     POTENT only: pChEMBL >= {PR.L.PCHEMBL_HEADLINE:g} (1 uM)")
+    say("  n_assayed_*     compounds tried at all, whatever the outcome")
     say("  every count is DISTINCT MOLECULES over the union of the pool, never per-target sums")
     say("  *_bacterial INCLUDES the exact match -- nested, so never sum the two")
     say("  *_human is a LIABILITY -- never add it to the bacterial count")
@@ -193,7 +193,7 @@ def main() -> None:
             out.to_csv(ev / f"precedents_full_{sp}.tsv", sep="\t", index=False)
             p = OUT_DIR / f"ligands_{sp}.tsv"
             out[list(DELIVERABLE_COLUMNS)].to_csv(p, sep="\t", index=False)
-            say(f"    potent: exact {int((out.n_ligands > 0).sum()):5,}   "
+            say(f"    potent: exact {int((out.n_ligands_own > 0).sum()):5,}   "
                 f"bacterial {int((out.n_ligands_bacterial > 0).sum()):5,}   "
                 f"human {int((out.n_ligands_human > 0).sum()):5,}   |   "
                 f"assayed: bacterial {int((out.n_assayed_bacterial.fillna(0) > 0).sum()):5,}")
@@ -236,13 +236,13 @@ def main() -> None:
             say(f"  {r['id']}")
             def fmt(v):
                 return "n/a" if pd.isna(v) else f"{int(v):,}"
-            say(f"    this protein   {fmt(r['n_ligands']):>9s} potent / "
-                f"{fmt(r['n_assayed']):>9s} assayed   via {r['exact_route']}"
+            say(f"    this protein   {fmt(r['n_ligands_own']):>9s} potent / "
+                f"{fmt(r['n_assayed_own']):>9s} assayed   via {r['exact_route']}"
                 + (f", target {r['exact_target']}" if pd.notna(r["exact_target"]) else ""))
             say(f"    bacterial      {fmt(r['n_ligands_bacterial']):>9s} potent / "
                 f"{fmt(r['n_assayed_bacterial']):>9s} assayed   "
-                f"{r['n_targets_bacteria']} targets, best id {r['best_pident_bacteria']}%, "
-                f"best pActivity {r['best_pactivity_bacteria']}   (INCLUDES this protein)")
+                f"{r['n_targets_bacterial']} targets, best id {r['best_pident_bacterial']}%, "
+                f"best pActivity {r['best_pactivity_bacterial']}   (INCLUDES this protein)")
             say(f"    human          {fmt(r['n_ligands_human']):>9s} potent / "
                 f"{fmt(r['n_assayed_human']):>9s} assayed   "
                 f"{r['n_targets_human']} targets, best id {r['best_pident_human']}%"

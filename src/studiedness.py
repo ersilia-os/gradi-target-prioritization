@@ -9,7 +9,9 @@ novelty the GraDi collaboration is looking for. `novelty()` reads the same data 
 
 THREE counts: SOURCE (uniprot = curated references a curator read; pubtator = PubTator3 text
 mining) x SCOPE (own = this accession; prokaryotic = its best-studied prokaryotic SwissProt
-homolog) -- minus the pubtator/own cell, dropped 2026-10-03 because text mining does not rescue a
+homolog -- NOT literally this one accession: `_own` is the ligands axis's `exact` rule,
+the union over accession + identical sequence + same species at >=95%, because a protein does
+not stop being itself between strains) -- minus the pubtator/own cell, dropped 2026-10-03 because text mining does not rescue a
 dark anchor: it was median 0 on Kp with only 2.2% of proteins above zero, and median 0 on Sa.
 **Never summed, never max()-ed, never blended.** `evidence` is NOT here -- it ships in
 `load_transfer()`.
@@ -19,6 +21,13 @@ THE NUMBER IS A PAPER COUNT. THAT IS THE WHOLE DEFINITION.
 `n_papers_uniprot_prokaryotic` is the number of **curated references on the best-studied prokaryotic SwissProt
 homolog** -- papers a UniProt curator actually read and used to annotate that protein. Nothing is
 scaled, weighted or blended. A 5 is five papers. A 0 is zero papers, not "unknown".
+
+**`_prokaryotic` here is NOT the ligands axis's `_bacterial`, and harmonizing them would be
+wrong.** A donor qualifies if its lineage lacks Eukaryota -- Bacteria, Archaea **and phages** --
+because of the 93 proteins a strict bacterial rule stranded with no donor, 70 lost theirs to a
+virus. `ligands_<species>.tsv` restricts to true Bacteria, for its own measured reason (an
+unrestricted pool gave 424 potent Kp proteins against a true 175). Different populations,
+different names, both deliberate.
 
 `n_papers_uniprot_own` is the same count on THIS accession. It is near-constant on Kp (the genome paper)
 and Sa **by design** -- it is the measurement of darkness, and the gap between the two columns is

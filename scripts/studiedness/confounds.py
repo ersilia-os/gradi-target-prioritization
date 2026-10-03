@@ -206,7 +206,7 @@ def endpoints(species: str) -> list[dict]:
     # -- ligands: the precedent counts, and the binary endpoint docs/ligands.md already measured
     try:
         prec = align(L.load(species), "ligands/ligands")
-        for col in ("n_ligands", "n_ligands_bacterial", "n_assayed_bacterial"):
+        for col in ("n_ligands_own", "n_ligands_bacterial", "n_assayed_bacterial"):
             add("ligands", col, "continuous", pd.to_numeric(prec[col], errors="coerce"))
         # The reproduction target: docs/ligands.md reports AUROC 0.83-0.86 for n_papers_uniprot_prokaryotic
         # against "has any measurable bacterial ligand". n_measured_* lives in the full table.

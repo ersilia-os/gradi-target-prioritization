@@ -20,7 +20,7 @@ bacteria (`python -m src.matrices`):
 | `fpocket_score` | predicted, 0–1 | fpocket druggability score of the best admitted pocket |
 | `n_ligands_pdb` | measured, int | non-redundant drug-like ligands bound in this protein's **own** PDB structures; 0 = none |
 | `n_ligands_alphafill` | modelled, int | non-redundant drug-like ligands AlphaFill transplanted onto its model; 0 = none |
-| `pdb_n_structures` | measured, int | PDB entries with a chain that IS this protein (≥ 95% identity, ≥ 50% of the chain aligned), ligand or not; 0 = none |
+| `n_pdb_structures` | measured, int | PDB entries with a chain that IS this protein (≥ 95% identity, ≥ 50% of the chain aligned), ligand or not; 0 = none |
 | `af_plddt` | confidence | mean AlphaFold pLDDT; **NA means no model** |
 
 ### There is no `evidence` column
@@ -205,7 +205,7 @@ collapse to scaffolds, count.
 | Sa | 90 (3.1%) | 345 | 230 | 33.3% |
 
 **A zero here is overwhelmingly "nobody has solved it with a drug bound", not "undruggable"** —
-~95% of each proteome. Compare `pdb_n_structures`: Ec has 1,893 proteins with a structure but only
+~95% of each proteome. Compare `n_pdb_structures`: Ec has 1,893 proteins with a structure but only
 308 with a drug-like ligand in one.
 
 Named spot checks, enforced by `merge.py` (a broken join still yields plausible counts, so the
@@ -291,7 +291,7 @@ narrowed, not closed.
 **v1's "2,525 Kp drug-like co-crystals" is not comparable** and was never reconciled: v1 had no
 site test, no taxonomy restriction, and kept metabolites, cofactors and sugars.
 
-## Experimental structures (`pdb_n_structures`)
+## Experimental structures (`n_pdb_structures`)
 
 How many PDB entries exist for this protein, ligand or not — requested by the project owner
 2026-10-03. A `pdb_coverage` column (how much of the protein those entries cover) shipped briefly

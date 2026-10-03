@@ -332,7 +332,7 @@ def _coerce_precedents(d: pd.DataFrame) -> pd.DataFrame:
     file already on disk load correctly too.
     """
     for c in d.columns:
-        if c.startswith(("n_ligands", "n_assayed", "n_measured", "n_targets", "n_compounds")):
+        if c.startswith(("n_ligands_own", "n_assayed_own", "n_measured_own", "n_targets", "n_compounds")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
         elif c.startswith(("best_pactivity", "best_pident", "best_pchembl", "hit_rate")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
@@ -376,13 +376,20 @@ def load(species: str) -> pd.DataFrame:
 
     Written by `scripts/ligands/ligands.py --species`. Eight columns:
 
-        n_ligands              POTENT (pChEMBL >= 6, i.e. sub-micromolar) on THIS protein
+        n_ligands_own              POTENT (pChEMBL >= 6, i.e. sub-micromolar) on THIS protein
         n_ligands_bacterial    potent over the bacterial pool
         n_ligands_human        potent over human targets
-        n_assayed              compounds ASSAYED against this protein, whatever the outcome
+        n_assayed_own              compounds ASSAYED against this protein, whatever the outcome
         n_assayed_bacterial    assayed over the bacterial pool
         n_assayed_human        assayed over human targets
-        best_pactivity_bacteria   max pChEMBL over the bacterial pool
+        best_pactivity_bacterial   max pChEMBL over the bacterial pool
+
+    **NOT the same `n_ligands` as the pockets axis.** Here a ligand is a distinct MOLECULE with a
+    measured pChEMBL >= 6, and the suffixes are a taxonomic pool that NESTS
+    (`n_ligands_own <= n_ligands_bacterial`). In `pockets_<species>.tsv`, `n_ligands_pdb` and
+    `n_ligands_alphafill` count distinct Bemis-Murcko SCAFFOLDS seen in a structure, with no
+    potency at all, and those two are DISJOINT. Assay evidence vs structural evidence; molecules
+    vs scaffolds. Stacked side by side the five columns read as one family and are not.
 
     **Every count is DISTINCT MOLECULES** -- distinct `parent_molregno` (ChEMBL's
     `molecule_hierarchy` parent, so salts are collapsed) over the UNION of the pool's targets,
@@ -390,16 +397,16 @@ def load(species: str) -> pd.DataFrame:
     443, where the per-target sum is 529 -- the 86 compounds tested against several homologs are
     counted once.
 
-    **`*_bacterial` INCLUDES the exact match.** folA reads `n_ligands` 388 and
+    **`*_bacterial` INCLUDES the exact match.** folA reads `n_ligands_own` 388 and
     `n_ligands_bacterial` 443, and the 443 CONTAINS the 388 -- the same nesting `chembl.py` uses
     for its direct/close/remote buckets. **Never sum the two.** The guaranteed ordering is
-    `n_ligands <= n_ligands_bacterial <= n_assayed_bacterial`.
+    `n_ligands_own <= n_ligands_bacterial <= n_assayed_bacterial`.
 
-    **`best_pactivity_bacteria` IS ChEMBL's `pchembl_value`** -- renamed from `best_pchembl_*`
+    **`best_pactivity_bacterial` IS ChEMBL's `pchembl_value`** -- renamed from `best_pchembl_*`
     because the axis speaks of activity rather than of one database's column, but it is the same
     number, so do not go looking for a `pactivity` field in ChEMBL.
 
-    **`n_assayed*` is NA, never 0, when the effort extract is missing** -- it needs the 30.5 GB
+    **`n_assayed_*` is NA, never 0, when the effort extract is missing** -- it needs the 30.5 GB
     dump, while everything else runs off cached extracts. A 0 would claim nobody ever assayed the
     protein, which is the opposite piece of evidence from "we do not know".
 
@@ -407,7 +414,7 @@ def load(species: str) -> pd.DataFrame:
     denominator it is a measured discouragement (Kp `pyrH`: 158 compounds assayed against a
     98.3%-identical target, none potent); with 0 it means nobody has opened the family. The
     `precedent_evidence` category that used to encode this was dropped as redundant -- `no_homolog`
-    is `n_targets_bacteria == 0` in the evidence table.
+    is `n_targets_bacterial == 0` in the evidence table.
 
     **MIC and %-inhibition are absent by construction**, so this does not say "has an antibiotic";
     a ribosomal protein reading empty is a fact about assay type, not biology.
@@ -430,10 +437,10 @@ def load_full(species: str) -> pd.DataFrame:
     """The deliverable plus the provenance columns it omits. 19 columns.
 
     Adds: which route the exact match came through (`exact_route`, `exact_target`), how many
-    targets each count unions over (`n_targets_bacteria`/`_human`), best identity per side,
+    targets each count unions over (`n_targets_bacterial`/`_human`), best identity per side,
     `best_pactivity_human`, and two things worth knowing about.
 
-    **`n_measured*` is the ANY-POTENCY count** -- what `n_ligands*` meant before the table was
+    **`n_measured_*` is the ANY-POTENCY count** -- what `n_ligands_*` meant before the table was
     reshaped around potency. Kept so the previously published figures stay recoverable: proteins
     with any measurable ligand are 180 Kp / 160 Ec / 119 Sa, against 113 / 96 / 78 at pChEMBL >= 6.
     Guaranteed: `n_ligands_bacterial <= n_measured_bacterial <= n_assayed_bacterial`.

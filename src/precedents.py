@@ -1,12 +1,12 @@
 """Ligand precedent for ANY protein sequence: potent counts and assayed counts.
 
-    n_ligands             POTENT (pChEMBL >= 6, sub-micromolar) on THIS protein
+    n_ligands_own             POTENT (pChEMBL >= 6, sub-micromolar) on THIS protein
     n_ligands_bacterial   potent over the bacterial pool   (INCLUDES this protein)
     n_ligands_human       potent over human targets        (LIABILITY, never summed in)
-    n_assayed             compounds ASSAYED against this protein, whatever the outcome
+    n_assayed_own             compounds ASSAYED against this protein, whatever the outcome
     n_assayed_bacterial   assayed over the bacterial pool
     n_assayed_human       assayed over human targets
-    best_pactivity_bacteria   max pChEMBL over the bacterial pool -- ChEMBL's `pchembl_value`
+    best_pactivity_bacterial   max pChEMBL over the bacterial pool -- ChEMBL's `pchembl_value`
 
 TWO QUESTIONS, NOT ONE. "Has anyone found a sub-micromolar binder" and "has anyone looked" are
 different, and a single count conflates them. A 0 against 158 assayed compounds is a measured
@@ -90,25 +90,25 @@ EXACT_PIDENT = L.DIRECT_PIDENT              # 95.0
 HIT_COLS = ["query", "component_id", "pident", "ppos", "length",
             "qlen", "slen", "qcov", "scov", "evalue", "bitscore"]
 
-# The deliverable seven, then provenance. `n_ligands*` are POTENT (pChEMBL >= 6 = 1 uM);
-# `n_assayed*` are compounds tried at all, whatever the outcome.
+# The deliverable seven, then provenance. `n_ligands_*` are POTENT (pChEMBL >= 6 = 1 uM);
+# `n_assayed_*` are compounds tried at all, whatever the outcome.
 DELIVERABLE = [
-    "n_ligands", "n_ligands_bacterial", "n_ligands_human",
-    "n_assayed", "n_assayed_bacterial", "n_assayed_human",
-    "best_pactivity_bacteria",
+    "n_ligands_own", "n_ligands_bacterial", "n_ligands_human",
+    "n_assayed_own", "n_assayed_bacterial", "n_assayed_human",
+    "best_pactivity_bacterial",
 ]
 OUT_COLS = [
     "id", *DELIVERABLE,
     "exact_route", "exact_target",
-    "n_targets_bacteria", "best_pident_bacteria",
+    "n_targets_bacterial", "best_pident_bacterial",
     "n_targets_human", "best_pident_human", "best_pactivity_human",
-    "n_measured", "n_measured_bacterial", "n_measured_human",
+    "n_measured_own", "n_measured_bacterial", "n_measured_human",
     "n_ligands_bacterial_complex",
 ]
-COUNT_COLS = [c for c in OUT_COLS if c.startswith(("n_ligands", "n_assayed", "n_measured",
+COUNT_COLS = [c for c in OUT_COLS if c.startswith(("n_ligands_own", "n_assayed_own", "n_measured_own",
                                                    "n_targets"))]
-FLOAT_COLS = ["best_pactivity_bacteria", "best_pactivity_human",
-              "best_pident_bacteria", "best_pident_human"]
+FLOAT_COLS = ["best_pactivity_bacterial", "best_pactivity_human",
+              "best_pident_bacterial", "best_pident_human"]
 
 _CACHE: dict = {}
 
@@ -154,7 +154,7 @@ def _tables() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str]]:
         # nothing came out". That made the `screened_clean` tier structurally unreachable, i.e. a
         # category that would have shipped permanently empty while looking meaningful. 326 targets.
         # They carry NO rows in chembl_ligands.tsv by construction, so adding them cannot change
-        # any ligand count -- only `n_targets_bacteria`, `best_pident_bacteria`, and the tier.
+        # any ligand count -- only `n_targets_bacterial`, `best_pident_bacterial`, and the tier.
         for extra, faa in ((SCRATCH / "chembl_effort_targets.tsv",
                             SCRATCH / "chembl_effort_targets.faa"),):
             if extra.exists() and faa.exists():
@@ -198,11 +198,11 @@ def _effort() -> tuple[dict, bool]:
     where the hit rate matters most.
 
     Covers BOTH scopes -- the file carries a `kingdom` column (bacteria / human) and tids are
-    unique across them, so one dict serves `n_assayed`, `n_assayed_bacterial` and `n_assayed_human`
+    unique across them, so one dict serves `n_assayed_own`, `n_assayed_bacterial` and `n_assayed_human`
     without the caller needing to know which pool a target came from.
 
     Optional by design -- it needs the 30.5 GB dump restored, while everything else here runs off
-    82 MB of cached extracts. Absent, every `n_assayed*` column is NA. NA is honest; a zero would
+    82 MB of cached extracts. Absent, every `n_assayed_*` column is NA. NA is honest; a zero would
     claim nobody ever assayed the protein, which is the opposite piece of evidence.
     """
     if "e" not in _CACHE:
@@ -273,9 +273,9 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
     # proteome is one species.
     org_of = ({k: organisms for k in sequences} if isinstance(organisms, str)
               else dict(organisms or {}))
-    # `min_pchembl` IS the potency cut for `n_ligands*`, not a pre-filter on everything. Under the
+    # `min_pchembl` IS the potency cut for `n_ligands_*`, not a pre-filter on everything. Under the
     # old schema the counts were "any measurable" and this narrowed them; now they are potent by
-    # definition, so the flag sets WHERE potent starts. `n_measured*` stays unfiltered -- it exists
+    # definition, so the flag sets WHERE potent starts. `n_measured_*` stays unfiltered -- it exists
     # precisely to be the any-potency number -- and filtering `lg` here would silently redefine it.
     potency_cut = L.PCHEMBL_HEADLINE if min_pchembl is None else float(min_pchembl)
 
@@ -354,7 +354,7 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
                 out["complex"] |= cplx.get(tid, set())
         return out
 
-    def n_assayed(pool: dict[str, set]) -> object:
+    def n_assayed_own(pool: dict[str, set]) -> object:
         """NA, not 0, when the effort extract is absent -- a 0 would claim nobody ever assayed it."""
         return len(pool["assayed"]) if have_effort else pd.NA
 
@@ -397,35 +397,35 @@ def count(sequences: dict[str, str], accessions: dict[str, str] | None = None,
 
         rows.append({
             "id": qid,
-            # THE DELIVERABLE SIX. `n_ligands*` are POTENT (pChEMBL >= 6, i.e. sub-micromolar),
-            # `n_assayed*` are compounds tried at all. SINGLE track throughout -- mixing in the
+            # THE DELIVERABLE SIX. `n_ligands_*` are POTENT (pChEMBL >= 6, i.e. sub-micromolar),
+            # `n_assayed_*` are compounds tried at all. SINGLE track throughout -- mixing in the
             # complex track put 713 next to a bacterial 0 on E. coli gyrA, three columns that
             # cannot be compared.
             #
             # `*_bacterial` is INCLUSIVE of the exact match, like chembl.py's nested buckets:
-            # E. coli folA reads n_ligands 443 and n_ligands_bacterial 519, where the 519 CONTAINS
+            # E. coli folA reads n_ligands_own 443 and n_ligands_bacterial 519, where the 519 CONTAINS
             # the 443. **Never sum the two** -- that double-counts every compound on the protein
             # itself.
-            "n_ligands": len(ex["potent"]),
+            "n_ligands_own": len(ex["potent"]),
             "n_ligands_bacterial": len(bp_["potent"]),
             "n_ligands_human": len(hp_["potent"]),
-            "n_assayed": n_assayed(ex),
-            "n_assayed_bacterial": n_assayed(bp_),
-            "n_assayed_human": n_assayed(hp_),
-            "best_pactivity_bacteria": bp(bact),
+            "n_assayed_own": n_assayed_own(ex),
+            "n_assayed_bacterial": n_assayed_own(bp_),
+            "n_assayed_human": n_assayed_own(hp_),
+            "best_pactivity_bacterial": bp(bact),
 
             # ---- evidence only, below here
             "exact_route": route,
             "exact_target": ";".join(str(c) for c in comps) if comps else pd.NA,
-            "n_targets_bacteria": len(bact),
-            "best_pident_bacteria": round(bact["pident"].max(), 1) if len(bact) else pd.NA,
+            "n_targets_bacterial": len(bact),
+            "best_pident_bacterial": round(bact["pident"].max(), 1) if len(bact) else pd.NA,
             "n_targets_human": len(hum),
             "best_pident_human": round(hum["pident"].max(), 1) if len(hum) else pd.NA,
             "best_pactivity_human": bp(hum),
             # ANY measurable potency, the old `n_ligands_*` semantics. Kept so the previously
             # published 180/160/119 stay recoverable and the reshape can be shown to have
             # reinterpreted nothing.
-            "n_measured": len(ex["measured"]),
+            "n_measured_own": len(ex["measured"]),
             "n_measured_bacterial": len(bp_["measured"]),
             "n_measured_human": len(hp_["measured"]),
             "n_ligands_bacterial_complex": len(bp_["complex"]),

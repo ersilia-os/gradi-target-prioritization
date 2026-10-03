@@ -262,7 +262,7 @@ it is not re-proposed — the `interpro2go` and Unknome precedents: a rejected a
 down, not silently dropped.
 
 1. **`y = num_ligands` is screening effort, near-definitionally.** Within bacterial ChEMBL,
-   `rho(n_ligands, n_activities) = +0.985` and the median is **1.00 activity per compound**. A
+   `rho(n_ligands_own, n_activities) = +0.985` and the median is **1.00 activity per compound**. A
    model of y is a model of how many analogues someone published. The repo's own numbers already
    said this from the other side: `ampC` is 12,671 compounds over 5,829 scaffolds, `folA` 443 over
    64 — a lead-optimisation series moves y by hundreds and the number of chemotypes by ~1.
@@ -278,7 +278,7 @@ down, not silently dropped.
 4. **The honest baseline is not chance, and it is a lookup too.** Measured on our three proteomes
    against "has any measurable bacterial ligand" (now `n_measured_bacterial > 0`; base rate 3.1–4.1%): protein length alone scores AUROC
    0.66–0.71, **studiedness `n_papers_uniprot_prokaryotic` scores 0.83–0.86 / AP 0.15–0.17**. A model would have
-   to beat a citation count that names its own donors. (`best_pident_bacteria` scores 0.999 and is
+   to beat a citation count that names its own donors. (`best_pident_bacterial` scores 0.999 and is
    **circular** — it IS the label's definition at the 40% floor. It is not a baseline.)
 5. **Mean reversion points the wrong way for this consortium.** GraDi wants novel targets. A model
    trained on ChEMBL rewards the already-prosecuted families — gyrase, DHFR, PBPs, FabI, LpxC — and
@@ -297,7 +297,7 @@ construction, rather than being a popularity model wearing a ligandability label
 
 ## Precedent: species-level exact, and what a zero means
 
-**The exact count (`n_ligands` / `n_measured`) is species-level, not byte-level.** It was "identical sequence, or an accession
+**The exact count (`n_ligands_own` / `n_measured_own`) is species-level, not byte-level.** It was "identical sequence, or an accession
 match", so a single substitution in another isolate demoted the same enzyme to a homolog and its
 ligands left the exact count. It is now the UNION of three routes — accession, identical sequence,
 and **same species at ≥ 95% identity** (two-word binomial, the same rule `chembl.py` uses for its
@@ -332,13 +332,13 @@ binder"** and **"did anyone look"**:
 
 | column | meaning |
 |---|---|
-| `n_ligands` | potent (pChEMBL ≥ 6) on **this protein** |
+| `n_ligands_own` | potent (pChEMBL ≥ 6) on **this protein** |
 | `n_ligands_bacterial` | potent over the bacterial pool |
 | `n_ligands_human` | potent over human targets — liability |
-| `n_assayed` | compounds **assayed** against this protein, any outcome |
+| `n_assayed_own` | compounds **assayed** against this protein, any outcome |
 | `n_assayed_bacterial` | assayed over the bacterial pool |
 | `n_assayed_human` | assayed over human targets |
-| `best_pactivity_bacteria` | max pChEMBL over the bacterial pool |
+| `best_pactivity_bacterial` | max pChEMBL over the bacterial pool |
 
 Measured, proteins with at least one:
 
@@ -361,12 +361,12 @@ where the per-target sum is 529; the 86 compounds tested against several homolog
 **`*_bacterial` INCLUDES the exact match.** folA reads 388 potent on itself and 443 bacterial, and
 the 443 *contains* the 388 — the same nesting `chembl.py` uses for direct ⊆ close ⊆ remote.
 **Never sum the two.** Guaranteed per row:
-`n_ligands ≤ n_ligands_bacterial ≤ n_measured_bacterial ≤ n_assayed_bacterial`.
+`n_ligands_own ≤ n_ligands_bacterial ≤ n_measured_bacterial ≤ n_assayed_bacterial`.
 
-**`best_pactivity_bacteria` is ChEMBL's `pchembl_value`**, renamed because the axis speaks of
+**`best_pactivity_bacterial` is ChEMBL's `pchembl_value`**, renamed because the axis speaks of
 activity rather than of one database's column name. Do not look for a `pactivity` field in ChEMBL.
 
-**`n_assayed*` is NA, never 0, when the effort extract is absent** — it needs the 30.5 GB dump,
+**`n_assayed_*` is NA, never 0, when the effort extract is absent** — it needs the 30.5 GB dump,
 while the rest runs off cached extracts. A 0 would claim nobody ever assayed the protein.
 
 ### Reading a zero
@@ -376,12 +376,12 @@ A 0 in `n_ligands_bacterial` means one of three things, and `n_assayed_bacterial
 | | |
 |---|---|
 | assayed > 0 | **a measured discouragement** — Kp `pyrH`: 158 compounds assayed against a 98.3%-identical target, none potent. Also Ec `polA` 36, `mrcB` 34, `phoA` 16 |
-| assayed = 0, `n_targets_bacteria` > 0 | a homolog exists, nobody has opened it |
-| `n_targets_bacteria` = 0 | nothing in ChEMBL within the floors — ~95% of each proteome |
+| assayed = 0, `n_targets_bacterial` > 0 | a homolog exists, nobody has opened it |
+| `n_targets_bacterial` = 0 | nothing in ChEMBL within the floors — ~95% of each proteome |
 
 A four-way `precedent_evidence` category used to encode this. **It was dropped**: "158 assayed, 0
 potent" says strictly more than a label, and every category is recoverable from the counts plus
-`n_targets_bacteria` in the evidence table.
+`n_targets_bacterial` in the evidence table.
 
 **Those assayed numbers could not exist without `effort.py`'s 326 recovered sequences.**
 `chembl.py` builds `chembl_targets.faa` after the pChEMBL filter, so a target whose compounds were
@@ -401,7 +401,7 @@ compounds.
 
 | round | what it checks | cases | result |
 |---|---|---|---|
-| exact | `n_ligands` against the resolved exact target | 30 | 30/30 |
+| exact | `n_ligands_own` against the resolved exact target | 30 | 30/30 |
 | union | `n_ligands_bacterial` over every bacterial homolog | 29 | 29/29 |
 | union | `n_measured_bacterial`, same pools | 29 | 29/29 |
 
@@ -507,7 +507,7 @@ duplicates — `remote_n_compounds` == `n_ligands_bacterial` and `human_n_compou
 | `best_target` · `best_pident` · `best_organism` | which ChEMBL target the match actually came from |
 | `allorg_*` | the unrestricted count, kept as the comparison that justified restricting to true Bacteria (424 vs a true 175) |
 
-**What precedents has and this does not** is the denominator, `n_assayed*` — the axis's only real
+**What precedents has and this does not** is the denominator, `n_assayed_*` — the axis's only real
 negatives. Columns:
 
 | column | meaning |
@@ -718,14 +718,14 @@ a per-species table. This asks *what about **this** sequence* — any sequence, 
 from 82 MB of cached extracts.
 
 ```
-n_ligands              POTENT (pChEMBL >= 6) on THIS protein -- accession, identical
+n_ligands_own              POTENT (pChEMBL >= 6) on THIS protein -- accession, identical
                        sequence, or same species at >= 95%
 n_ligands_bacterial    potent over the bacterial pool   (INCLUDES this protein)
 n_ligands_human        potent over human targets        (LIABILITY, never summed in)
-n_assayed              compounds ASSAYED against this protein, whatever the outcome
+n_assayed_own              compounds ASSAYED against this protein, whatever the outcome
 n_assayed_bacterial    assayed over the bacterial pool
 n_assayed_human        assayed over human targets
-best_pactivity_bacteria   max pChEMBL over the bacterial pool
+best_pactivity_bacterial   max pChEMBL over the bacterial pool
 ```
 
 ## What it runs on

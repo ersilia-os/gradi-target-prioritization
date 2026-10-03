@@ -8,7 +8,7 @@ code. This script asks a different machine the same questions over HTTP and comp
 Two rounds, because they test different things
 -----------------------------------------------
 **Round 1 -- EXACT targets.** For a protein whose exact route fired we know precisely which ChEMBL
-target it resolved to, so `n_ligands` is checkable against one API query. Tests the join chain
+target it resolved to, so `n_ligands_own` is checkable against one API query. Tests the join chain
 `sequence -> component_id -> tid -> parent_molregno` and the potency cut.
 
 **Round 2 -- the UNION.** `n_ligands_bacterial` unions every bacterial homolog, which is where a
@@ -121,15 +121,15 @@ def round1(per_species: int) -> list[dict]:
     comp2tids, single, tid2id, _ = bridge()
     rows = []
     rule()
-    say("ROUND 1 -- exact targets: does n_ligands match the API on the resolved target?")
+    say("ROUND 1 -- exact targets: does n_ligands_own match the API on the resolved target?")
     rule()
     say(f"  {'sp':6s} {'gene':10s} {'targets':24s} {'ours':>8s} {'api':>8s}")
     for sp in L.SPECIES:
         f = L.load_full(sp).merge(
             P.load(sp)[["uniprot_ac", "gene_name"]], on="uniprot_ac", how="left")
         hit = f[f["exact_route"].ne("none")].copy()
-        pick = pd.concat([hit.nlargest(per_species, "n_ligands"),
-                          hit[hit["n_ligands"] > 0].nsmallest(3, "n_ligands")]
+        pick = pd.concat([hit.nlargest(per_species, "n_ligands_own"),
+                          hit[hit["n_ligands_own"] > 0].nsmallest(3, "n_ligands_own")]
                          ).drop_duplicates("uniprot_ac")
         for _, r in pick.iterrows():
             ids = sorted({tid2id[x] for c in str(r["exact_target"]).split(";")
@@ -144,7 +144,7 @@ def round1(per_species: int) -> list[dict]:
                     skip = True
                     break
                 got |= m
-            ours = int(r["n_ligands"] or 0)
+            ours = int(r["n_ligands_own"] or 0)
             if skip:
                 say(f"  {sp[:6]:6s} {str(r['gene_name'])[:10]:10s} {'':24s} "
                     f"{ours:>8,}   [too large to page -- skipped]")
@@ -154,7 +154,7 @@ def round1(per_species: int) -> list[dict]:
                 f"{ours:>8,} {len(got):>8,}  {'OK' if ok else 'DIFF'}")
             rows.append({"round": "exact", "species": sp, "gene": r["gene_name"],
                          "uniprot_ac": r["uniprot_ac"], "targets": ",".join(ids),
-                         "column": "n_ligands", "ours": ours, "api": len(got), "match": ok})
+                         "column": "n_ligands_own", "ours": ours, "api": len(got), "match": ok})
     return rows
 
 
@@ -173,9 +173,9 @@ def round2(per_species: int) -> list[dict]:
     for sp in L.SPECIES:
         f = L.load_full(sp).merge(
             P.load(sp)[["uniprot_ac", "gene_name", "sequence"]], on="uniprot_ac", how="left")
-        multi = f[(f["n_targets_bacteria"].fillna(0) >= 2)
+        multi = f[(f["n_targets_bacterial"].fillna(0) >= 2)
                   & (f["n_ligands_bacterial"].fillna(0) > 0)]
-        pick = pd.concat([multi.nlargest(per_species, "n_targets_bacteria"),
+        pick = pd.concat([multi.nlargest(per_species, "n_targets_bacterial"),
                           multi.nsmallest(2, "n_ligands_bacterial")]
                          ).drop_duplicates("uniprot_ac")
         for _, r in pick.iterrows():
