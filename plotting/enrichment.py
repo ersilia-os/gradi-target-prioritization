@@ -21,8 +21,13 @@ structure, at 27x under ADEP4 and 64x under ONC212 -- on **8 members**, 6 and 7 
 Every row therefore carries its group size in the tick label, and dot area is proportional to it,
 so a category with 8 members cannot look like one with 800.
 
-**Categories below `MIN_ENRICHMENT_GROUP` members are dropped, and that is a correctness fix, not
-tidying.** `log2_or_adj` applies a Haldane +0.5 continuity correction so that groups with a zero
+**Categories with NO significant result under either activator are not drawn** -- they carry no
+evidence in either direction, and on a slide they cost the height that makes the rest readable
+(Kp: 6 of 25, `A D O R V W`). `--all` keeps them, and the run log names them with their numbers
+either way, so nothing is hidden, only undrawn.
+
+**Categories below `MIN_ENRICHMENT_GROUP` members are dropped for a different and harder reason,
+and that one is a correctness fix, not tidying.** `log2_or_adj` applies a Haldane +0.5 continuity correction so that groups with a zero
 cell still have a finite logarithm; on a group of ONE with zero hits the correction outvotes the
 data and the sign flips -- COG `Z` (cytoskeleton, 1 member, 0 hits, raw odds ratio 0) comes out at
 **+1.58, reading as enriched**. No row with 5 or more members flips. Dropped rows are named in the
@@ -182,6 +187,8 @@ def main() -> None:
     ap.add_argument("--species", default="kpneumoniae", choices=sorted(LABELS))
     ap.add_argument("--min-group", type=int, default=D.MIN_ENRICHMENT_GROUP,
                     help="drop categories smaller than this (see the Haldane sign flip)")
+    ap.add_argument("--all", action="store_true",
+                    help="also draw categories with no significant result under either activator")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()
     say = (lambda m: None) if args.quiet else (lambda m: print(m, flush=True))
@@ -202,6 +209,21 @@ def main() -> None:
             say(f"    COG {r['key']:<14} n={int(r['group_n'])}  hits={int(r['a_group_top'])}"
                 f"  raw OR={r['odds_ratio']:.2f}  but log2_or_adj={r['log2_or_adj']:+.2f}")
 
+    if not args.all:
+        keep = cog.groupby("key")["significant"].any()
+        mute = sorted(keep[~keep].index)
+        if mute:
+            say(f"\n  NOT DRAWN -- no significant result under either activator ({len(mute)} of "
+                f"{keep.size} COG categories; --all keeps them)")
+            for k in mute:
+                r = cog[(cog["key"] == k) & (cog["activator"] == "adep4")].iloc[0]
+                o = cog[(cog["key"] == k) & (cog["activator"] == "onc212")].iloc[0]
+                say(f"    COG {k:<3} n={int(r['group_n']):<5} hits={int(r['a_group_top']):<4}"
+                    f" log2 OR {r['log2_or_adj']:+.2f} / {o['log2_or_adj']:+.2f}   {r['label'][:44]}")
+        cog = cog[cog["key"].isin(keep[keep].index)]
+        lkeep = loc.groupby("key")["significant"].any()
+        loc = loc[loc["key"].isin(lkeep[lkeep].index)] if lkeep.any() else loc
+
     top_n = int(cog["top_n"].iloc[0])
     say(f"\n  hits = top {top_n:,} of the proteome (top decile), against the rest")
 
@@ -216,7 +238,7 @@ def main() -> None:
     cog_pretty = {k: f"{k}  {v}" if len(k) == 1 else v
                   for k, v in zip(cog["key"], cog["label"])}
 
-    fig, axs = stylia.create_figure(1, 2, width_ratios=[3.1, 2.3], width=1.0, height=0.62)
+    fig, axs = stylia.create_figure(1, 2, width_ratios=[3.1, 2.3], width=1.0, height=0.46)
     plot_block(axs.next(), cog, cog_order, cog_pretty,
                "Function", lo, hi, show_legend=False)
     plot_block(axs.next(), loc, loc_order, LOC_PRETTY,

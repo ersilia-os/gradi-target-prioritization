@@ -139,11 +139,15 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
    against a classified median of 297 aa, while `spearman(length, adep4_prob) = -0.677`. Within
    length deciles `unclassified` falls from a 3.85x to a 2.64x rate ratio — a real residual, but a
    third of the bar is protein size. Measured 2026-10-04.
-8. **Categories under 5 members are dropped from `enrichment.png`, as a correctness fix.** The
+8. **`enrichment.png` draws only categories significant under at least one activator** (Kp: 19 of
+   25; `A D O R V W` carry no evidence either way). That is a legibility choice, not a statistical
+   one — `--all` keeps them and the run log names every omitted category with its counts. It is
+   also what makes the figure slide-shaped: 25 rows forced an aspect of 1.62, taller than 16:9.
+9. **Categories under 5 members are dropped from `enrichment.png`, as a correctness fix.** The
    Haldane +0.5 correction in `log2_or_adj` outvotes the data on a group of one: COG `Z`
    (cytoskeleton, 1 member, 0 hits, raw OR 0) comes out at **+1.58, reading as ENRICHED**. No row
    with >= 5 members flips. `src.degradability.MIN_ENRICHMENT_GROUP` carries the threshold.
-9. **`src/interest.py` is an expansion of prose, flagged as a draft**, matched by gene symbol
+10. **`src/interest.py` is an expansion of prose, flagged as a draft**, matched by gene symbol
    against a proteome whose `gene_name` is 63.4% covered.
 
 ## Traps found while building this
