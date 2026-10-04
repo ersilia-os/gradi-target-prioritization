@@ -29,6 +29,28 @@ and this is the first figure in the deck where obeying it visibly changes the de
 and 2 use the RAW paper counts and the evidence tiers; only panel 3, which stays inside a species,
 uses the consensus.
 
+**THE THREE PANELS DO NOT ALL REST ON THE SAME SOURCE, so each one says which.** The violins and
+the evidence tiers are **UniProt only** -- `n_papers_uniprot_prokaryotic` and the SwissProt
+transfer ladder behind it. The relationship panel uses `studiedness_consensus`, which is a rank
+mean over **three** columns: `n_papers_uniprot_own`, `n_papers_uniprot_prokaryotic` and
+`n_papers_pubtator_prokaryotic`. PubTator therefore enters exactly one panel, and the axis labels
+name the source so that is visible rather than silent.
+
+**The source does not change the SIGN, but on K. pneumoniae it changes the MAGNITUDE**, and the run
+log prints rho against `essentiality_consensus` for all three source columns separately rather than
+asserting they agree. Measured: Kp **consensus +0.332 · uniprot_prokaryotic +0.312 · uniprot_own
++0.126 · pubtator +0.417** -- a 3.3x spread, with **PubTator strongest**, which matches the axis's
+own held-out control where it beat the curated column 0.3722 to 0.3398. `n_papers_uniprot_own` is
+weakest because it is 95.1% ties on Kp, an organism with almost no literature of its own. On E. coli
+all three are well populated and agree closely (0.381-0.417). The consensus tracks
+`n_papers_uniprot_prokaryotic` at rho +0.974 Kp / +0.938 Ec and `src/studiedness.py:consensus()`
+says outright that it "adds little"; it exists so a reader stacking ten deliverables has one scale.
+
+**`n_papers_pubtator_prokaryotic` CARRIES REAL BLANKS, NOT ZEROS** -- Kp 2,149 · Ec 190 · Sa 1,356,
+meaning no in-scope donor had an NCBI GeneID. `percentile_consensus()` skips them row-wise, so
+`studiedness_consensus` rests on THREE columns for some proteins and TWO for others, and nothing in
+the number says which. Never fill them.
+
 **A Kp zero and an Ec zero are not the same claim**, which is what panel 2 is for. Kp sits at
 1,961 / 3,403 / 364 across evidence tiers 1/2/3 against Ec's 29 / 519 / 3,855 -- Ec is 87.6% at
 tier 3, its own curated literature, where Kp is 6.4%. A Kp zero is usually `no_hit` or
@@ -134,7 +156,7 @@ def plot_papers(ax, data: dict) -> None:
         fontsize=SS * 0.9,
     )
     ax.set_xlim(-0.65, len(SPECIES) - 0.35)
-    stylia.label(ax, xlabel="", ylabel="Curated papers (prokaryotic donor)",
+    stylia.label(ax, xlabel="", ylabel="Curated papers (UniProt, prokaryotic donor)",
                  title="K. pneumoniae is a dark proteome")
 
 
@@ -205,7 +227,7 @@ def plot_relationship(ax, data: dict, n_bins: int) -> tuple[dict, dict]:
               handletextpad=0.5, labelspacing=0.35)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    stylia.label(ax, xlabel="Studiedness (within-species percentile)",
+    stylia.label(ax, xlabel="Studiedness consensus, 3 sources (percentile)",
                  ylabel="Essentiality (within-species percentile)",
                  title="Better studied, more essential")
     return curves, rhos
@@ -264,6 +286,31 @@ def main() -> None:
             out_cells.append(f"{r:+.3f} (n={len(s):,})")
         say(f"    {LABELS[sp]:<16} " + " ".join(f"{c:>18}" for c in out_cells))
     say("    It STRENGTHENS as the evidence improves -- so it is not an artifact of the zero block.")
+
+    say("\n  DOES THE SOURCE CHANGE THE ANSWER?  rho against essentiality_consensus")
+    say(f"    {'':<16} {'consensus(3)':>14} {'uniprot_prok':>14} {'uniprot_own':>14} {'pubtator':>14}")
+    for sp in SPECIES:
+        d = data[sp]
+        cells = []
+        for col in ("studiedness_consensus", PAPERS, "n_papers_uniprot_own",
+                    "n_papers_pubtator_prokaryotic"):
+            v = pd.to_numeric(d[col], errors="coerce")
+            cells.append(f"{v.corr(d['essentiality_consensus'], method='spearman'):+.3f}")
+        say(f"    {LABELS[sp]:<16} " + " ".join(f"{c:>14}" for c in cells))
+    say("    Same POSITIVE sign in every column and both species -- the finding does not depend")
+    say("    on the source. The MAGNITUDE does, on Kp: 0.126 to 0.417, a 3.3x spread.")
+    say("    PubTator is the STRONGEST there (+0.417), matching the axis's own held-out control")
+    say("    where it beat the curated column 0.3722 to 0.3398. `n_papers_uniprot_own` is the")
+    say("    weakest (+0.126) and that is expected -- it is 95.1% ties on Kp, which has almost")
+    say("    no literature of its own. On Ec, where all three are well populated, they agree")
+    say("    closely (0.381-0.417). The violins and tiers panels are UniProt only; only the")
+    say("    relationship panel uses the 3-source consensus.")
+
+    say("\n  PUBTATOR BLANKS  (no in-scope donor had an NCBI GeneID -- NOT zeros)")
+    for sp in SPECIES:
+        n = pd.to_numeric(data[sp]["n_papers_pubtator_prokaryotic"], errors="coerce").isna().sum()
+        say(f"    {LABELS[sp]:<16} {int(n):>5,} of {len(data[sp]):,} "
+            f"({100 * n / len(data[sp]):.1f}%) -- ranked on the other two columns, never filled")
 
     say("\n  LENGTH CONTROL  (partial rho given protein length)")
     for sp in SPECIES:

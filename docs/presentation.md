@@ -124,7 +124,16 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   i.e. Ec is 87.6% on its own curated literature where Kp is 6.4%. **The deck implication**: the
   "unexplored and essential" quadrant in `novelty_vs_essentiality.png` is genuinely thinner than it
   looks. Association only — people study essential genes, and easily-studied genes are easier to
-  call essential.
+  call essential. **The three panels do not rest on one source and the axis labels now say so**:
+  the violins and the evidence tiers are UniProt only, while the relationship panel uses
+  `studiedness_consensus`, a rank mean over `n_papers_uniprot_own`, `n_papers_uniprot_prokaryotic`
+  and `n_papers_pubtator_prokaryotic`. The source does not change the SIGN but on Kp it changes the
+  MAGNITUDE — ρ against `essentiality_consensus` is **consensus +0.332 · uniprot_prokaryotic +0.312
+  · uniprot_own +0.126 · pubtator +0.417**, a 3.3× spread with **PubTator strongest**, matching the
+  axis's own held-out control (0.3722 vs 0.3398). On Ec all three agree closely (0.381–0.417).
+  `n_papers_pubtator_prokaryotic` carries **real blanks, not zeros** (Kp 2,149 = 37.5%; Ec 190),
+  which `percentile_consensus()` skips row-wise — so the consensus rests on three columns for some
+  proteins and two for others.
 - **degradability CV**: cluster-grouped, 5 folds x 5 seeds, TabPFN-3.5 on ESM-C. ADEP4
   **0.8738 ± 0.0029 AUROC / 0.6103 ± 0.0091 PR** on n=1,677 (base 0.137); ONC212
   **0.7671 ± 0.0060 / 0.5803 ± 0.0075** on n=1,045 (base 0.246). Length-only baseline 0.775 / 0.680;
