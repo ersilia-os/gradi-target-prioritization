@@ -12,6 +12,47 @@ species, so the label means the same thing in each.
 |---|---|---|
 | `localization` | DeepLocPro 1.0 | the compartment call |
 | `cytoplasmic_fraction` | TMbed | the topology score |
+| `localization_evidence` | derived | **1–3**, how well corroborated the call is — see below |
+
+### `localization_evidence`
+
+| level | rule | Kp | Ec | Sa |
+|---|---|---|---|---|
+| 3 | predictors concur **and** confident (≥0.7) **and** a curated GO CC term agrees | 1,519 | 1,681 | 694 |
+| 2 | one of those | 3,200 | 2,098 | 1,606 |
+| 1 | neither, **or** a GO term contradicts the call | 1,009 | 624 | 589 |
+
+**Level 3 does not mean experimentally localized.** Nothing in this axis is an experiment — it is
+two sequence predictors and a curated annotation agreeing.
+
+**The GO cellular-component term is the only signal here that is not a sequence model.**
+DeepLocPro is ESM-2-based and TMbed is ProtT5-based, but both read the sequence; a GO CC
+annotation is a human assignment. `src.localization.GO_CC_TO_COMPARTMENT` maps the six
+`goslim_prokaryote` CC terms 1:1 onto the six DeepLocPro classes — the vocabulary happens to carry
+exactly one term per class, so the mapping needs no judgement. It is present for 29.6–48.4% of
+proteins and agrees **90.8–94.8%** where present.
+
+**A GO contradiction forces level 1** — 94 Kp, 195 Ec, 56 Sa. A curator saying `periplasm` while
+the model says `cytoplasm` is the strongest disagreement this axis can surface.
+
+**The concordance thresholds were read off the data, not chosen.** Per class, the median and lower
+quartile of `cytoplasmic_fraction` and the signal-peptide rate: cytoplasm 1.000 / 1.000 / ~0.1%,
+membrane 0.27–0.30 / 0.18–0.22 / 4–12%, periplasm 0.000 / 89–94%, outer membrane 0.04–0.11 /
+79–86%. Hence ≥0.8 for cytoplasm, a 0.05–0.9 band for membrane, ≤0.2 or a signal peptide for
+exported. The predictors concur for **85.6–90.2%** of proteins.
+
+**It behaves correctly on the documented weak class.** `extracellular` reaches level 3 for 0.4% of
+Kp proteins against cytoplasm's 15.1% — on Kp its median `cytoplasmic_fraction` is 1.000 and its
+median confidence 0.569, i.e. TMbed flatly contradicting the call.
+
+**`merge.py` reads `function_<species>.tsv`** for the GO terms — the stage's one cross-axis
+dependency. It exits non-zero if that file is absent rather than silently computing a two-signal
+ladder under the same name, so run `function/matrix.py` first.
+
+**There is no `localization_consensus`**, and the reason is stronger than "no magnitude":
+collapsing a compartment and a fraction into a single 0–1 number *is* an accessibility score,
+which this axis deliberately does not compute — v1's `clp_accessibility` ladder was consumed by
+nothing, and the choice belongs to whichever stage consumes this.
 
 **`confidence` is not in the deliverable** (owner's call, 2026-10-03) — byte-identical in
 `evidence/deeplocpro_<species>.tsv`. This one has teeth: DeepLocPro **always** returns a call and

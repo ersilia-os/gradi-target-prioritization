@@ -489,8 +489,26 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   missing accessions rather than zero-filling: **(0, 0) is a real position**, in the dense centre.
 
 - **`localization/predict.py`** + **`localization/merge.py`** → **`localization_<species>.tsv`**,
-  **3 columns**, **from sequence alone**: `localization` (DeepLocPro 1.0) and
-  `cytoplasmic_fraction` (TMbed). **`confidence` ships in `evidence/deeplocpro_<species>.tsv`**
+  **4 columns**, **from sequence alone**: `localization` (DeepLocPro 1.0),
+  `cytoplasmic_fraction` (TMbed) and **`localization_evidence`** (1–3).
+
+  **`localization_evidence`**: **3** = the two predictors CONCUR, DeepLocPro is confident (≥0.7)
+  **and** a curated GO cellular-component term agrees · **2** = one of those · **1** = neither, or
+  a GO term **contradicts** the call. Kp 1,009/3,200/1,519 · Ec 624/2,098/1,681 · Sa 589/1,606/694.
+  **LEVEL 3 IS NOT "EXPERIMENTALLY LOCALIZED"** — nothing in this axis is an experiment. **The GO
+  term is the only signal that is not a sequence model** (both predictors read the sequence), which
+  is why it is worth the cross-axis read: it is present for 29.6–48.4% of proteins and agrees with
+  DeepLocPro **90.8–94.8%** where present. `GO_CC_TO_COMPARTMENT` in `src/localization.py` maps the
+  six goslim CC terms 1:1 onto the six classes. The weak class sinks as it should: `extracellular`
+  reaches 3 for **0.4% on Kp** against cytoplasm's 15.1%.
+
+  **`merge.py` now READS `function_<species>.tsv`** — the one cross-axis dependency in this stage,
+  and it **exits non-zero if absent** rather than quietly computing a two-signal ladder under the
+  same column name. Run `function/matrix.py` first.
+
+  **Still no `localization_consensus`, and the reason is stronger than "no magnitude"**: collapsing
+  a compartment and a fraction into one 0–1 number IS an accessibility score, which this axis
+  deliberately does not compute — v1's `clp_accessibility` ladder was consumed by nothing. **`confidence` ships in `evidence/deeplocpro_<species>.tsv`**
   (owner's call, 2026-10-03), byte-identical — but DeepLocPro **always** returns a call, so the
   label now reads equally authoritative for every protein and nothing in the table says which calls
   are weak: **12–15% sit below 0.7 confidence, 2–4% below 0.5.** Join it back before trusting one

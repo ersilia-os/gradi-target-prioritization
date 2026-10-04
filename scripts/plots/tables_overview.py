@@ -107,6 +107,15 @@ COLUMNS: dict[str, dict[str, str]] = {
                         "method, not evidence -- and `confidence` is no longer here to say which "
                         "calls are weak. 12-15% of them sit below 0.7; read "
                         "evidence/deeplocpro_<sp>.tsv before trusting one label.",
+        "localization_evidence": "1-3. 3 = the two predictors CONCUR, DeepLocPro is confident "
+                                 "(>=0.7), AND a curated GO cellular-component term agrees · 2 = "
+                                 "one of those · 1 = neither, or a GO term CONTRADICTS the call "
+                                 "(94 Kp / 195 Ec / 56 Sa). LEVEL 3 IS NOT 'EXPERIMENTALLY "
+                                 "LOCALIZED' -- nothing here is an experiment; the GO term is the "
+                                 "only signal that is not a sequence model. It agrees with "
+                                 "DeepLocPro 90.8-94.8% where present (29.6-48.4% of proteins). "
+                                 "The weak class sinks as it should: `extracellular` reaches 3 for "
+                                 "0.4% on Kp against cytoplasm's 15.1%.",
         "cytoplasmic_fraction": "TMbed: fraction of residues on the cytoplasmic side. PREFER this "
                                 "over the label where a choice is forced -- it corroborates "
                                 "`extracellular`, the weakest class, from outside DeepLocPro.",

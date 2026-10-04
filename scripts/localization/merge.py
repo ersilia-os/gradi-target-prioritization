@@ -48,7 +48,7 @@ from src import proteomes as P  # noqa: E402
 OUT_DIR = REPO_ROOT / "data" / "processed" / "localization"
 EVIDENCE_DIR = OUT_DIR / "evidence"
 
-COLUMNS = ["uniprot_ac", "localization", "cytoplasmic_fraction"]
+COLUMNS = ["uniprot_ac", "localization", "cytoplasmic_fraction", "localization_evidence"]
 # `confidence` is NOT shipped (owner's call, 2026-10-03). Byte-identical in
 # `evidence/deeplocpro_<species>.tsv`. KNOW WHAT GOES WITH IT: DeepLocPro always returns a call,
 # so `localization` reads equally authoritative for every protein, and `confidence` was the only
@@ -90,6 +90,23 @@ def merge_species(species: str, quiet: bool) -> pd.DataFrame:
     df.attrs["n_deeplocpro"] = int(df["localization"].notna().sum())
     df.attrs["n_tmbed"] = int(df["cytoplasmic_fraction"].notna().sum())
 
+    # CROSS-AXIS READ, and the only one in this stage: the evidence level needs curated GO
+    # cellular-component terms, which are the one signal here that is NOT a sequence model.
+    # Both predictors read the sequence; a GO CC annotation is a human assignment, so it is the
+    # only genuinely external check this axis has. Absent -> fail loudly, never silently drop to a
+    # two-signal ladder that would wear the same column name.
+    fn_path = REPO_ROOT / "data" / "processed" / "function" / f"function_{species}.tsv"
+    if not fn_path.exists():
+        sys.exit(f"FATAL missing {fn_path.relative_to(REPO_ROOT)} -- run "
+                 f"scripts/function/matrix.py first. localization_evidence needs its GO "
+                 f"cellular-component terms; computing the level without them would ship a "
+                 f"different quantity under the same name.")
+    go = pd.read_csv(fn_path, sep="\t", keep_default_na=False).set_index("uniprot_ac")
+    df["goslim_terms"] = df["uniprot_ac"].map(go["goslim_terms"])
+    df["localization_evidence"] = LOC.localization_evidence(
+        df["localization"], df["cytoplasmic_fraction"], df["has_signal_peptide"],
+        df["confidence"], df["goslim_terms"])
+
     keep = COLUMNS + ["confidence", "has_signal_peptide"]
     df = M.reindex(df[keep], species)   # canonical row order -- see src/matrices.py
 
@@ -106,6 +123,8 @@ def merge_species(species: str, quiet: bool) -> pd.DataFrame:
             + (f"   never called: {', '.join(unreached)}" if unreached else ""))
         say(f"    cytoplasmic_fraction   median {df['cytoplasmic_fraction'].median():.3f}"
             f"   signal peptide {100 * df['has_signal_peptide'].mean():.1f}%")
+        lv = df["localization_evidence"].value_counts().sort_index()
+        say(f"    evidence               " + "  ".join(f"L{k}={v:,}" for k, v in lv.items()))
     return df
 
 

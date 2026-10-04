@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -227,6 +228,108 @@ def read_tmbed_labels(path: Path) -> dict[str, str]:
     return out
 
 
+# GO-slim cellular-component terms that name a bacterial compartment, mapped onto DeepLocPro's
+# classes. The `goslim_prokaryote` vocabulary happens to carry exactly one term per class, so the
+# mapping is 1:1 and needs no judgement. The other 8 CC terms (ribosome, chromosome, cytoskeleton,
+# organelle, thylakoid, ...) name a structure rather than a compartment and are deliberately out.
+GO_CC_TO_COMPARTMENT: dict[str, str] = {
+    "GO:0005737": "cytoplasm",
+    "GO:0005886": "cytoplasmic_membrane",
+    "GO:0042597": "periplasm",
+    "GO:0009279": "outer_membrane",
+    "GO:0005576": "extracellular",
+    "GO:0005618": "cell_wall_surface",
+}
+
+EXPORTED_CLASSES = ("periplasm", "outer_membrane", "extracellular", "cell_wall_surface")
+
+# Concordance thresholds, READ OFF THE DATA rather than chosen. Per class, the median and lower
+# quartile of `cytoplasmic_fraction` and the signal-peptide rate across the three species:
+#   cytoplasm             median 1.000, q25 1.000, signal 0.0-0.2%
+#   cytoplasmic_membrane  median 0.27-0.30, q25 0.18-0.22, signal 4-12%
+#   periplasm             median 0.000, signal 89-94%
+#   outer_membrane        median 0.04-0.11, signal 79-86%
+CYTO_MIN_FRACTION = 0.8      # a cytoplasmic call wants nearly all residues inside
+MEMBRANE_BAND = (0.05, 0.9)  # a membrane protein has BOTH sides; neither extreme fits
+EXPORTED_MAX_FRACTION = 0.2  # exported: little or nothing facing the cytoplasm
+MIN_CONFIDENCE = 0.7         # 85-88% of proteins clear this; below it the winning class is weak
+
+
+def concordant(localization: pd.Series, cytoplasmic_fraction: pd.Series,
+               has_signal_peptide: pd.Series) -> pd.Series:
+    """Do DeepLocPro's compartment and TMbed's topology tell the same story?
+
+    The two predictors answer different questions from different backbones -- DeepLocPro is
+    ESM-2-based and calls a compartment, TMbed is ProtT5-based and counts which side of the
+    membrane each residue sits on -- so agreement between them is real corroboration, not one
+    model checked against itself.
+
+    True for 85.6-90.2% of proteins. The disagreements concentrate where `CLAUDE.md` already says
+    they would: `extracellular` is DeepLocPro's weakest class, and on K. pneumoniae its proteins
+    have a MEDIAN cytoplasmic fraction of 1.000 -- TMbed flatly contradicting the call.
+    """
+    loc = localization.fillna("")
+    frac = pd.to_numeric(cytoplasmic_fraction, errors="coerce")
+    sig = has_signal_peptide.fillna(False).astype(bool)
+    # np.select rather than masked item assignment: the latter sets a bool Series from a bool
+    # Series and still trips pandas' incompatible-dtype FutureWarning, which becomes an error.
+    return pd.Series(
+        np.select(
+            [loc.eq("cytoplasm"), loc.eq("cytoplasmic_membrane"), loc.isin(EXPORTED_CLASSES)],
+            [(frac.ge(CYTO_MIN_FRACTION) & ~sig).to_numpy(),
+             frac.between(*MEMBRANE_BAND).to_numpy(),
+             (sig | frac.le(EXPORTED_MAX_FRACTION)).to_numpy()],
+            default=False),
+        index=loc.index, dtype=bool)
+
+
+def localization_evidence(localization: pd.Series, cytoplasmic_fraction: pd.Series,
+                          has_signal_peptide: pd.Series, confidence: pd.Series,
+                          goslim_terms: pd.Series) -> pd.Series:
+    """`localization_evidence`, 1-3. The axis's half of the standard pair.
+
+        3  the two predictors concur, DeepLocPro is confident (>= 0.7), AND a curated GO
+           cellular-component term agrees
+        2  the predictors concur and are confident, OR a GO term agrees
+        1  neither -- or a GO term CONTRADICTS the call, which forces 1 whatever else holds
+
+    Kp 1,009 / 3,200 / 1,519 · Ec 624 / 2,098 / 1,681 · Sa 589 / 1,606 / 694.
+
+    **There is no `localization_consensus`, and that is not just "no magnitude".** Turning a
+    compartment plus a fraction into one 0-1 number IS an accessibility score, which this axis
+    deliberately does not compute -- v1's `clp_accessibility` ladder was consumed by nothing, and
+    the choice belongs to whichever stage consumes this.
+
+    **The GO term is the only signal here that is not a sequence model.** DeepLocPro and TMbed both
+    read the sequence; a curated GO cellular-component annotation is a human assignment, so it is
+    the one genuinely external check this axis has. It is present for 29.6-48.4% of proteins and
+    agrees with DeepLocPro 90.8-94.8% of the time where present.
+
+    **A GO contradiction drops the protein to 1** (owner's call, 2026-10-04) -- 94 Kp, 195 Ec, 56
+    Sa proteins. A curator saying `periplasm` while the model says `cytoplasm` is the strongest
+    disagreement this axis can surface, and the row deserves to read as unsettled.
+
+    **Level 3 does NOT mean experimentally localized.** Nothing here is an experiment: this is two
+    predictors and a curated annotation agreeing. The axis is sequence-only by construction.
+    """
+    terms = goslim_terms.fillna("").astype(str)
+    cc = [{GO_CC_TO_COMPARTMENT[t] for t in s.split(";") if t in GO_CC_TO_COMPARTMENT}
+          for s in terms]
+    loc = localization.fillna("")
+    go_agrees = pd.Series([bool(c) and (l in c) for c, l in zip(cc, loc)], index=loc.index)
+    go_conflicts = pd.Series([bool(c) and (l not in c) for c, l in zip(cc, loc)], index=loc.index)
+
+    conc = concordant(localization, cytoplasmic_fraction, has_signal_peptide)
+    sure = pd.to_numeric(confidence, errors="coerce").ge(MIN_CONFIDENCE)
+    solid = conc & sure
+
+    level = pd.Series(1, index=loc.index, dtype="int64")
+    level[(solid | go_agrees).to_numpy()] = 2
+    level[(solid & go_agrees).to_numpy()] = 3
+    level[go_conflicts.to_numpy()] = 1
+    return level.astype("Int64")
+
+
 # ---------------------------------------------------------------- loaders
 
 def _check(species: str) -> None:
@@ -267,7 +370,20 @@ def load_tmbed(species: str) -> pd.DataFrame:
 def load(species: str) -> pd.DataFrame:
     """`localization_<species>.tsv` -- the axis's single deliverable, complete and canonical.
 
-        uniprot_ac  localization  cytoplasmic_fraction
+        uniprot_ac  localization  cytoplasmic_fraction  localization_evidence
+
+    **`localization_evidence` (1-3)** -- 3 = the two predictors concur, DeepLocPro is confident
+    (>= 0.7) and a curated GO cellular-component term agrees · 2 = one of those · 1 = neither, or
+    a GO term CONTRADICTS the call. Kp 1,009/3,200/1,519 · Ec 624/2,098/1,681 · Sa 589/1,606/694.
+    See `localization_evidence()` for the rule.
+
+    **LEVEL 3 DOES NOT MEAN EXPERIMENTALLY LOCALIZED.** Nothing in this axis is an experiment: it
+    is two sequence predictors and a curated annotation agreeing. The GO term is the only signal
+    that is not a model.
+
+    **There is no `localization_consensus`, and the reason is stronger than "no magnitude":**
+    collapsing a compartment and a fraction into one 0-1 number IS an accessibility score, which
+    this axis deliberately does not compute. See below.
 
     **`confidence` is NOT here** (owner's call, 2026-10-03) — byte-identical in
     `evidence/deeplocpro_<species>.tsv`, via `load_deeplocpro()`. **Know what goes with that.**
