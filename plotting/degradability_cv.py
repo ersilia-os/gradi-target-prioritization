@@ -108,6 +108,11 @@ def _curves(activator: str) -> tuple[pd.DataFrame, pd.Series]:
     return oof, cv
 
 
+#: How much wider the deployment panel is than each square curve panel. Used BOTH in
+#: `width_ratios` and in that panel's `set_box_aspect`, so the three axes boxes end up exactly the
+#: same height -- which is what keeps the three titles on one line.
+VIOLIN_RATIO = 1.3
+
 GRID = np.linspace(0.0, 1.0, 201)
 
 
@@ -150,8 +155,12 @@ def _fold_band(oof: pd.DataFrame, which: str) -> tuple[np.ndarray, np.ndarray]:
 def plot_roc(ax, data: dict) -> None:
     """ROC, pooled line with the across-fold envelope behind it.
 
-    Deliberately NOT `set_aspect("equal")`: a square ROC is conventional on its own, but in a
-    multi-panel row it shrinks this axes box and leaves every title at a different height."""
+    **Square, via `set_box_aspect(1)`.** A ROC read on a stretched axis is misleading -- the
+    distance of the curve from the diagonal is the whole visual argument, and it is only
+    proportional to the effect when x and y are on the same scale. `set_box_aspect` squares the
+    AXES BOX directly, where `set_aspect("equal")` squares it by shrinking it inside its slot and
+    so drops the title relative to its neighbours. The deployment panel's box aspect is set from
+    the same constant, so all three boxes come out the same height."""
     for act, (oof, cv) in data.items():
         lo, hi = _fold_band(oof, "roc")
         ax.fill_between(GRID, lo, hi, color=ACT_COLOR[act], alpha=0.18, linewidth=0, zorder=1)
@@ -183,6 +192,7 @@ def plot_roc(ax, data: dict) -> None:
 
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
+    ax.set_box_aspect(1)
     ax.legend(fontsize=SS * 0.82, frameon=False, loc="lower right", handletextpad=0.5)
     stylia.label(ax, xlabel="False positive rate", ylabel="True positive rate",
                  title="ROC (band = 5 CV folds)")
@@ -202,6 +212,7 @@ def plot_pr(ax, data: dict) -> None:
         ax.axhline(cv.base_rate, color=ACT_COLOR[act], lw=1.0, ls=":", zorder=0)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
+    ax.set_box_aspect(1)
     ax.legend(fontsize=SS * 0.82, frameon=False, loc="upper right", handletextpad=0.5)
     stylia.label(ax, xlabel="Recall", ylabel="Precision",
                  title="Precision-recall (dotted = base rate)")
@@ -262,6 +273,7 @@ def plot_species(ax, species_scores: dict) -> None:
     ax.set_xticklabels([g[0] for g in GROUPS], fontsize=SS * 0.8)
     ax.set_xlim(-VIOLIN_WIDTH / 2 - 0.2, (len(GROUPS) - 1) * GROUP_STEP + VIOLIN_WIDTH / 2 + 0.2)
     ax.set_ylim(0, 1)
+    ax.set_box_aspect(1 / VIOLIN_RATIO)
     handles = [
         Line2D([], [], marker="s", ls="", markersize=7, color=ACT_COLOR["adep4"], label="ADEP4"),
         Line2D([], [], marker="s", ls="", markersize=7, markerfacecolor="white",
@@ -298,7 +310,7 @@ def main() -> None:
             species_scores[(label, act)] = v
             counts[(label, act)] = len(v)
 
-    fig, axs = stylia.create_figure(1, 3, width_ratios=[1, 1, 1.35], width=1.0, height=0.55)
+    fig, axs = stylia.create_figure(1, 3, width_ratios=[1, 1, VIOLIN_RATIO], width=1.0, height=0.46)
     plot_roc(axs.next(), data)
     plot_pr(axs.next(), data)
     plot_species(axs.next(), species_scores)
