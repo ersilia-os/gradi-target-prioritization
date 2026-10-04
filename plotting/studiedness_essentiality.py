@@ -96,25 +96,45 @@ TIER_COLOR = {1: PAL.NPG[0], 2: PAL.NPG[1], 3: PAL.NPG[4]}
 
 
 def plot_papers(ax, data: dict) -> None:
-    """How much literature each protein has, as an ECDF.
+    """How much literature each protein has, as a violin per species.
 
-    ECDF rather than a histogram because the Kp distribution is 34% zeros: overlaid histograms put
-    that spike in one bar and hide the rest, while on an ECDF the height of the step at zero IS the
-    zero fraction and can be read straight off the axis."""
-    for sp in SPECIES:
-        v = np.sort(data[sp][PAPERS].to_numpy())
-        y = np.arange(1, len(v) + 1) / len(v) * 100
-        ax.step(np.log1p(v), y, where="post", color=PAL.SPECIES_COLOR[sp], lw=2.2,
-                label=f"{LABELS[sp]}   median {np.median(v):.0f}")
-        ax.plot([np.log1p(0)], [(v == 0).mean() * 100], "o", color=PAL.SPECIES_COLOR[sp],
-                markersize=6, markeredgecolor="white", markeredgewidth=0.6, zorder=4)
+    **A VIOLIN CANNOT REPRESENT A POINT MASS, and 34% of K. pneumoniae sits at exactly zero.** The
+    kernel smears that spike into a smooth hump and, unclipped, puts density below zero where no
+    protein can be. So the body is clipped at zero and the zero fraction is written on the panel as
+    a number -- the one part of this distribution the shape genuinely cannot carry.
+
+    Counts are log1p because the range is 0-58 with a median of 4: on a linear axis both proteomes
+    collapse against the bottom."""
+    for i, sp in enumerate(SPECIES):
+        v = data[sp][PAPERS].to_numpy(float)
+        parts = ax.violinplot([np.log1p(v)], positions=[i], widths=0.8, showextrema=False)
+        for b in parts["bodies"]:
+            # clip the kernel's tail at zero: it is an artifact of the smoothing, not data
+            pv = b.get_paths()[0].vertices
+            pv[:, 1] = np.clip(pv[:, 1], 0.0, None)
+            b.set_alpha(1.0)
+            b.set_facecolor(PAL.SPECIES_COLOR[sp])
+            b.set_edgecolor("white")
+            b.set_linewidth(1.0)
+
+        med = float(np.median(v))
+        ax.scatter([i], [np.log1p(med)], s=26, color=PAL.INK, zorder=5)
+        ax.text(i, np.log1p(med) + 0.17, f"median {med:.0f}", ha="center", fontsize=SS * 0.8,
+                color=PAL.INK)
 
     ticks = [0, 1, 2, 5, 10, 20, 50]
-    ax.set_xticks(np.log1p(ticks))
-    ax.set_xticklabels([str(t) for t in ticks], fontsize=SS)
-    ax.set_ylim(0, 100)
-    ax.legend(fontsize=SS * 0.85, frameon=False, loc="lower right", handletextpad=0.5)
-    stylia.label(ax, xlabel="Curated papers (prokaryotic donor)", ylabel="% of proteome at or below",
+    ax.set_yticks(np.log1p(ticks))
+    ax.set_yticklabels([str(t) for t in ticks], fontsize=SS)
+    ax.set_ylim(-0.1, np.log1p(70))
+    ax.set_xticks(range(len(SPECIES)))
+    # The zero fraction rides in the tick label: as free-floating text under the violin it
+    # collided with the species name, and it is the number the violin shape cannot carry.
+    ax.set_xticklabels(
+        [f"{LABELS[sp]}\n{(data[sp][PAPERS] == 0).mean() * 100:.1f}% at zero" for sp in SPECIES],
+        fontsize=SS * 0.9,
+    )
+    ax.set_xlim(-0.65, len(SPECIES) - 0.35)
+    stylia.label(ax, xlabel="", ylabel="Curated papers (prokaryotic donor)",
                  title="K. pneumoniae is a dark proteome")
 
 

@@ -57,7 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
-| `studiedness_essentiality.py` | `studiedness_essentiality.png` | how dark Kp is, and why "unexplored" and "essential" are not independent |
+| `studiedness_essentiality.py` | `studiedness_essentiality.png` | how dark Kp is (violins), why a zero differs by organism, and why "unexplored" and "essential" are not independent |
 | `degradability_cv.py` | `degradability_cv.png` | does the model work? ROC and PR with the across-fold band, and where the scores land per proteome |
 | `enrichment.py` | `enrichment.png` | what kind of protein ClpP reaches: COG function and compartment/topology |
 | `projection_pair.py` | `projection_pair.png` | one map read twice: compartment, then the top 250 essential |
