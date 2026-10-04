@@ -57,6 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
+| `degradability_cv.py` | `degradability_cv.png` | does the model work? ROC, PR, the length baseline, and the score distribution by measured label |
 | `enrichment.py` | `enrichment.png` | what kind of protein ClpP reaches: COG function and compartment/topology |
 | `projection_pair.py` | `projection_pair.png` | one map read twice: compartment, then the top 250 essential |
 | `shortlist.py` | `shortlist.png`, `shortlist_kpneumoniae.tsv` | five rules, 59 proteins, and what each rule cost |
@@ -112,6 +113,13 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   for random draws of the same size — they genuinely cluster, measured before being drawn. They are
   COG J (translation) 90 of 250, and 78.8% cytoplasmic against a 60.5% proteome background, with
   outer membrane enriched (8.4% vs 4.1%) and extracellular absent entirely.
+- **degradability CV**: cluster-grouped, 5 folds x 5 seeds, TabPFN-3.5 on ESM-C. ADEP4
+  **0.8738 ± 0.0029 AUROC / 0.6103 ± 0.0091 PR** on n=1,677 (base 0.137); ONC212
+  **0.7671 ± 0.0060 / 0.5803 ± 0.0075** on n=1,045 (base 0.246). Length-only baseline 0.775 / 0.680;
+  cross-assay yardstick 0.877 / 0.815 (a yardstick, **not** a ceiling). `leakage_gap` is +0.001 and
+  −0.005 — grouping cost nothing on this label set, which is a property of the labels, not a licence
+  to drop grouping. **The drawn curve is not the quoted number**: one OOF realisation gives 0.8761 /
+  0.7706 against the 5-seed means, both inside one SD.
 - **enrichment**: hits are the top decile (Kp 573 of 5,728). Compartment is the clean story —
   `wholly cytoplasmic` is the strongest enrichment in the table, every membrane/export feature is
   depleted (TM helix, signal peptide, beta-barrel, inner membrane, periplasm), and **`extracellular`
