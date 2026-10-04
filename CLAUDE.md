@@ -1421,7 +1421,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   Details: `docs/essentiality.md`.
 
 - **`studiedness/fetch.py`** + **`gene2pubmed.py`** + **`pubtator.py`** + **`unknome.py`** +
-  **`transfer.py`** + **`merge.py`** → `studiedness_<species>.tsv`: **three counts** — `n_papers_uniprot_own` ·
+  **`transfer.py`** + **`merge.py`** → `studiedness_<species>.tsv`, **6 columns**: **three counts** — `n_papers_uniprot_own` ·
   **`n_papers_uniprot_prokaryotic`** (the ranking) · `n_papers_pubtator_prokaryotic`.
   **The names say SOURCE and DONOR SCOPE and claim nothing more — "family" was dropped
   2026-10-03 because neither `_prokaryotic` column aggregates a family**: each reads ONE donor,
@@ -1437,6 +1437,42 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   **`n_papers_pubtator_prokaryotic` STAYS** — it is 41% empty against the curated column's 34%,
   **84% of that emptiness is shared** (proteins with no donor at all), and it is the **best
   predictor on the held-out control, 0.3722 against 0.3398**. Do not confuse the two.
+
+  **The standard pair, added 2026-10-04 — the TENTH and last axis, completing the convention.**
+  **`studiedness_consensus`** is the mean within-species percentile of all three counts, with
+  proteins having NO literature anywhere pinned to exactly 0 (**S. aureus only** — on Kp and Ec
+  every protein carries its genome paper). **IT IS NOT THE 0-1 COMPOSITE REMOVED 2026-09-22**, and
+  the difference is the whole argument: that one blended a paper count with UniProt's **ANNOTATION
+  SCORE**, two quantities on two scales with invented weights, and all three of its recorded faults
+  (the same value meaning 13 or 83 papers; the halves double-counting at r 0.64–0.70; the weights
+  backwards because annotation's spread was ~2× larger) are faults of that heterogeneity. **Here
+  every input is a count of papers.** It also is not `scaled()`, which stays unstored: that is one
+  column, log-compressed against a caller-chosen `ref`, magnitude-preserving and cross-species;
+  this is rank-only over three, reference-free and within-species. **`NEVER a max()` is respected**
+  — a `max()` switches which DEFINITION a row used, while an equal-weight rank mean uses all three
+  for every protein. **It adds little**: ρ **+0.974 / +0.938 / +0.963** against
+  `n_papers_uniprot_prokaryotic` — rank on that count inside this axis. **The big tie block is the
+  DATA**: 34.3% / 3.2% / 43.5%, above this axis's own `MAX_TIE_FRACTION` of 0.25 on two species —
+  **and so is the column it summarises** (34.4% / 14.2% / 44.2%), with `_own` at 95.1% / 9.7% /
+  63.7%.
+
+  **`studiedness_evidence` RESOLVES THE AMBIGUOUS ZERO**, the stronger half of the pair. **3** a
+  SwissProt donor at ≥95% (this protein's own literature) · **2** a donor at ≥40% · **1** nothing
+  in SwissProt resembles it. Kp **1,961/3,403/364** · Ec **29/519/3,855** · Sa **1,276/1,281/332**.
+  Since `evidence` left the deliverable on 2026-10-03, a 0 in `n_papers_uniprot_prokaryotic` has
+  been ambiguous in the shipped table — `no_hit` and `below_floor` both read 0. **Of Kp's 1,969
+  proteins reading 0, 1,961 are level 1**, i.e. NO DONOR rather than a donor with no papers; only 8
+  are the latter. It still **merges `no_hit` with `below_floor`**, so `load_transfer()` and
+  `evidence/consensus_audit.tsv` stay the finer instrument. **DO NOT EXPECT THE CONSENSUS TO RISE
+  WITH THE LEVEL** — Ec 0.028/0.555/**0.501** and Sa 0.000/0.525/**0.390** invert at L2/L3, because
+  `direct` covers obscure proteins while `close` covers conserved families with famous donors. That
+  inversion is the proof the two are complementary.
+
+  **THREE REGISTRATION SITES ON THIS AXIS, and the dangerous one is the writer.**
+  `scripts/studiedness/merge.py`'s `order` tuple **projects the frame**, so a column absent from it
+  never reaches disk — the silent-drop shape `src/pockets.py` has in its loader. `src/studiedness.py`
+  `load()` then coerces a **hand-kept literal list** with no prefix rule, so an unregistered column
+  loads as **text**. Both must be edited.
 
   **THREE COUNTS, THREE DEFINITIONS, NEVER a `max()` ACROSS THEM** — that is what killed the 0-1
   composite on 2026-09-22. **Rank on `n_papers_uniprot_prokaryotic`.**

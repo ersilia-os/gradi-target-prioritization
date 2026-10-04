@@ -71,6 +71,12 @@ cross-axis comparability -- but a reader who does not know that will over-read i
 travels with the column rather than living only in the docs. The honest form of such a column
 names the confound first.
 
+**ALL TEN AXES CARRY THIS CONVENTION as of 2026-10-04**, `studiedness` last. Seven ship evidence
+only or both; `embeddings` ships neither by decision. Four axes ship evidence without a consensus
+(`proteomes`, `function`, `localization`, `orthology`) because they have no single magnitude --
+orthology's two columns point in OPPOSITE prioritization directions, so a mean of them would be a
+weighting rather than a summary.
+
 **Level 0 does not exist.** Every protein in every axis has a prediction, so "no evidence
 whatever" is unreachable and a 0 would mean the source count is broken.
 

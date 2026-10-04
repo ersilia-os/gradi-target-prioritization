@@ -53,6 +53,81 @@ a third of the proteome.
 
 ---
 
+## 0b. The two standard columns
+
+Added **2026-10-04**, completing the project-wide pair across all ten axes. The deliverable is now
+**6 columns**.
+
+### `studiedness_consensus` — and why it is not the composite that was removed
+
+Mean within-species percentile rank over all three counts, with proteins carrying **no literature
+anywhere** pinned to exactly 0 (the zero-floor the ligands axis introduced). **It fires only on
+*S. aureus***, 1,258 proteins: on Kp and Ec every protein has at least its genome paper in
+`n_papers_uniprot_own`, so nothing qualifies.
+
+**The 0–1 composite removed on 2026-09-22 was
+`0.6 × log-scaled paper count + 0.4 × (annotation_score − 1)/4`** — a literature count blended with
+UniProt's **annotation-quality rating**. Every one of its three recorded faults is a fault of that
+heterogeneity:
+
+| the fault | why it cannot recur here |
+|---|---|
+| the same value meant 13 papers at annotation 3 and 83 at annotation 1 | the two terms were not exchangeable; all three inputs here are counts of papers |
+| the halves double-counted at r 0.64–0.70 | that was *paper count* vs *annotation score* |
+| the weights did the opposite of what the code claimed (annotation's spread was ~2× larger) | equal weight by construction, and percentile ranking removes spread differences outright |
+
+**It does not duplicate `scaled()` either**, which stays on-the-fly and unstored: `scaled()` is
+`log1p(n)/log1p(ref)` over **one** column against a caller-chosen reference — magnitude-preserving
+and cross-species comparable. The consensus is rank-only over three, reference-free, and
+**within-species**. Both have a place; neither replaces the other.
+
+**`NEVER a max() ACROSS THEM` is respected.** That rule exists because a `max()` or a sum silently
+switches *which definition* a protein's number came from, row by row. An equal-weight rank mean uses
+all three for every protein, so no row changes definition.
+
+**It adds little, and the docstring says so**: ρ **+0.974 Kp / +0.938 Ec / +0.963 Sa** against
+`n_papers_uniprot_prokaryotic`. **Rank on that count inside this axis**; the consensus exists so a
+reader stacking ten deliverables has one scale.
+
+**The large tie block is the data, not the column.** Largest tie 34.3% (Kp) / 3.2% (Ec) / 43.5% (Sa)
+— above this axis's own `MAX_TIE_FRACTION` of 0.25 on two species, **and so is the column it
+summarises**: `n_papers_uniprot_prokaryotic` ties 34.4% / 14.2% / 44.2%, and
+`n_papers_uniprot_own` 95.1% / 9.7% / 63.7%. A third of *K. pneumoniae* simply has no curated donor
+at 40% identity. The consensus is marginally **better** tied than the incumbent, not worse.
+
+### `studiedness_evidence` — it resolves the ambiguous zero
+
+```
+3  swissprot_direct                      a donor at >=95% -- this protein's own literature
+2  swissprot_close | swissprot_homolog   a real donor at >=40%
+1  below_floor | no_hit                  nothing in SwissProt resembles it
+```
+
+| | L1 | L2 | L3 |
+|---|---|---|---|
+| Kp | **1,961** | 3,403 | 364 |
+| Ec | 29 | 519 | 3,855 |
+| Sa | **1,276** | 1,281 | 332 |
+
+**This is the stronger half of the pair.** The deliverable dropped its `evidence` column on
+2026-10-03, which left **a 0 in `n_papers_uniprot_prokaryotic` ambiguous in the shipped table** —
+`no_hit`, the strongest novelty claim this axis makes, and `below_floor` both read 0, and the reader
+was told to join `load_transfer()` first. Level 1 recovers exactly that class: of Kp's **1,969**
+proteins reading 0, **1,961 are level 1**; only 8 are "a donor exists and has no papers".
+
+It still **merges `no_hit` with `below_floor`**, so the five-tier column remains the finer
+instrument — kept in `evidence/consensus_audit.tsv` and in `load_transfer()`.
+
+**Nothing here is an experiment**, so a 3 is method directness, not experimental corroboration, and
+a 1 means "no donor to look at".
+
+**Do NOT expect the consensus to rise with the level.** Median consensus by level: Kp 0.284 / 0.603 /
+0.740, but **Ec 0.028 / 0.555 / 0.501** and **Sa 0.000 / 0.525 / 0.390** — level 2 above level 3 on
+two species. That is correct, and it is the proof the two columns are complementary: on E. coli
+`swissprot_direct` covers 3,855 proteins including obscure ones, while `close`/`homolog` are the
+conserved families whose donors are famous. **Evidence grades how directly the count was measured,
+not how large it is.**
+
 ## 1. Why the anchors' own literature cannot carry the axis
 
 Measured on UniProt 2026_03 (2026-09-21), fetching
@@ -60,7 +135,7 @@ Measured on UniProt 2026_03 (2026-09-21), fetching
 
 | | reviewed | PubMed ids per protein | distinct values | verdict |
 |---|---|---|---|---|
-| **Kp HS11286** | 0.1% | **5,710 of 5,728 have exactly 1** (the genome paper) | 7 | dead column |
+| **Kp HS11286** | 0.1% | **5,446 of 5,728 have exactly 1** (the genome paper) | 32 | near-dead column |
 | **Sa NCTC 8325** | 28.2% | **2,532 of 2,889 have none**; median 0 | 14 | nearly dead |
 | **Ec K-12** | 100% | median 5, max 58 | 48 | rich |
 

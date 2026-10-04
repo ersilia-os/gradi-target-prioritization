@@ -127,6 +127,9 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     # Canonical row order by construction, not by hope. reindex() refuses to invent a missing
     # protein, so an incomplete axis fails here rather than shipping a NaN row.
+    # The two standard columns are appended AFTER this projection (below), because the consensus
+    # ranks within a species and the ladder needs `tr`. Anything absent from this tuple never
+    # reaches disk -- the silent-drop shape `src/pockets.py` has in its loader.
     order = [c for c in ("uniprot_ac", "n_papers_uniprot_own",
                          "n_papers_uniprot_prokaryotic", "n_papers_pubtator_prokaryotic")
              if c in out.columns]
@@ -252,14 +255,46 @@ def main() -> None:
         sys.exit("FATAL evidence/definition.tsv is missing -- "
                  "run scripts/studiedness/transfer.py first")
 
-    rows, unk_rows, failures = [], [], []
+    rows, unk_rows, failures, audit_rows = [], [], [], []
     for sp in args.species:
         rule()
         say(f"{sp}")
         rule()
         out, tr = build(sp)
+        # Through `src/studiedness.py` so the file and the loader cannot drift. The ladder reads the
+        # five transfer tiers, which are 1:1 with the deliverable on `uniprot_ac`.
+        out["studiedness_consensus"] = S.consensus(out).round(6)
+        tiers_by_ac = tr.set_index("uniprot_ac")["evidence"]
+        t = out["uniprot_ac"].map(tiers_by_ac)
+        if t.isna().any():
+            sys.exit(f"FATAL {sp}: {int(t.isna().sum())} proteins have no transfer tier")
+        lvl = pd.Series(1, index=out.index, dtype="Int64")
+        lvl[t.isin(S.EVIDENCE_HOMOLOG)] = 2
+        lvl[t.isin(S.EVIDENCE_DIRECT)] = 3
+        out["studiedness_evidence"] = lvl
         path = OUT_DIR / f"studiedness_{sp}.tsv"
         out.to_csv(path, sep="\t", index=False)
+
+        lv = out["studiedness_evidence"].value_counts()
+        rank = pd.to_numeric(out["n_papers_uniprot_prokaryotic"], errors="coerce")
+        rho = float(out["studiedness_consensus"].corr(rank, method="spearman"))
+        say("    evidence " + " ".join(f"L{k}={int(lv.get(k, 0)):,}" for k in (1, 2, 3))
+            + "   (1 no donor / 2 homolog / 3 direct)")
+        # Stated every run: the consensus adds little over the column the axis ranks on.
+        say(f"    rho(studiedness_consensus, n_papers_uniprot_prokaryotic) = {rho:+.3f}"
+            f"   -- rank on the count inside this axis; the consensus is for cross-axis use")
+        amb = int((rank == 0).sum())
+        if amb:
+            say(f"    of {amb:,} proteins reading 0, {int(((rank == 0) & (lvl == 1)).sum()):,} "
+                f"are level 1 -- i.e. the 0 means NO DONOR, not a donor with no papers")
+        audit_rows.append(pd.DataFrame({
+            "species": sp, "uniprot_ac": out["uniprot_ac"], "transfer_evidence": t,
+            "n_papers_uniprot_own": out["n_papers_uniprot_own"],
+            "n_papers_uniprot_prokaryotic": out["n_papers_uniprot_prokaryotic"],
+            "n_papers_pubtator_prokaryotic": out["n_papers_pubtator_prokaryotic"],
+            "studiedness_consensus": out["studiedness_consensus"],
+            "studiedness_evidence": out["studiedness_evidence"],
+        }))
 
         # from `tr`, not `out` -- `evidence` is no longer a deliverable column, but the
         # tier breakdown is still the most useful line in the run log.
@@ -305,6 +340,11 @@ def main() -> None:
                      "median_family_minus_own": int(gap)})
 
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    if audit_rows:
+        aud = pd.concat(audit_rows, ignore_index=True)
+        aud.to_csv(EVIDENCE_DIR / "consensus_audit.tsv", sep="\t", index=False)
+        say(f"  wrote evidence/consensus_audit.tsv  ({len(aud):,} rows) -- keeps the FIVE tiers, "
+            f"so the no_hit / below_floor split the ladder merges stays recoverable")
     pd.DataFrame(rows).to_csv(EVIDENCE_DIR / "manifest.tsv", sep="\t", index=False)
     if unk_rows:
         pd.DataFrame(unk_rows).to_csv(EVIDENCE_DIR / "unknome_agreement.tsv",

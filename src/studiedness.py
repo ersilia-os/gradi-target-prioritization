@@ -245,6 +245,121 @@ def _counts(df: pd.DataFrame, cols: tuple[str, ...]) -> pd.DataFrame:
     return df
 
 
+# The three counts the consensus ranks. All three are PAPER COUNTS -- homogeneous units, which is
+# the whole reason this is not the composite removed on 2026-09-22 (see `consensus()`).
+CONSENSUS_COLUMNS = ("n_papers_uniprot_own", "n_papers_uniprot_prokaryotic",
+                     "n_papers_pubtator_prokaryotic")
+
+# The five transfer tiers, collapsed onto the 1-3 ladder. `swissprot_direct` is a donor at >=95%
+# identity, i.e. effectively this protein's own literature.
+EVIDENCE_DIRECT = ("swissprot_direct",)
+EVIDENCE_HOMOLOG = ("swissprot_close", "swissprot_homolog")
+
+
+def consensus(df: pd.DataFrame) -> pd.Series:
+    """`studiedness_consensus`: how studied this protein is, 0-1, WITHIN-SPECIES.
+
+    Mean percentile rank over `CONSENSUS_COLUMNS`, with proteins carrying **no literature at all**
+    pinned to exactly 0 -- the zero-floor `src/ligandability.py` introduced, so a 0 means "nothing
+    anywhere" rather than an arbitrary mid-scale rank. **It fires only on S. aureus** (1,258
+    proteins): on Kp and Ec every protein has at least its genome paper in `n_papers_uniprot_own`,
+    so nothing qualifies.
+
+    **THIS IS NOT THE 0-1 COMPOSITE REMOVED ON 2026-09-22, and the difference is the whole point.**
+    That one was `0.6 x log-scaled paper count + 0.4 x (annotation_score - 1)/4` -- a literature
+    count blended with **UniProt's annotation-quality rating**, two different quantities on two
+    scales with hand-invented weights. All three of its recorded faults are faults of that
+    heterogeneity: the same value meant 13 papers at annotation 3 and 83 at annotation 1; the two
+    halves double-counted at r 0.64-0.70; and the weights did the opposite of what the code claimed,
+    because the annotation term's spread was nearly double. **Here every input is a count of papers**
+    -- no annotation score, no hand-chosen weights, and percentile ranking removes the unequal-spread
+    problem outright. `scaled()` stays unstored and is a different object again: one column,
+    log-compressed against a caller-chosen `ref`, magnitude-preserving and cross-species comparable,
+    where this is rank-only, reference-free and **within-species**.
+
+    **BE HONEST ABOUT WHAT IT ADDS: little.** It tracks the axis's designated ranking column
+    `n_papers_uniprot_prokaryotic` at rho **+0.974 Kp / +0.938 Ec / +0.963 Sa**. Anyone working
+    inside this axis should still rank on that column; this exists so a reader stacking ten
+    deliverables has one scale. The same candour `degradability_consensus` carries at rho 0.97.
+
+    **`NEVER a max() ACROSS THEM` is respected.** That rule exists because a `max()` or a sum
+    silently switches *which definition* a protein's number came from, row by row. An equal-weight
+    rank mean uses all three for every protein, so no row changes definition.
+
+    **The big tie block is the data, not this column.** Largest tie 34.3% (Kp) / 3.2% (Ec) / 43.5%
+    (Sa) -- above the axis's own `MAX_TIE_FRACTION` of 0.25 on two species, **and so is the column
+    it is built to summarise**: `n_papers_uniprot_prokaryotic` ties 34.4% / 14.2% / 44.2% and
+    `n_papers_uniprot_own` 95.1% / 9.7% / 63.7%. A third of K. pneumoniae simply has no curated
+    donor at 40% identity. This column is marginally *better* tied than the incumbent, not worse.
+
+    **`n_papers_pubtator_prokaryotic` carries real blanks** (Kp 2,149 · Ec 190 · Sa 1,356) meaning
+    "no in-scope donor had a GeneID" -- **not zero**. `percentile_consensus` skips them row-wise, so
+    those proteins are ranked on the other two. Never fill them.
+    """
+    from src import consensus as consensus_mod
+    cols = list(CONSENSUS_COLUMNS)
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        raise KeyError(f"studiedness_consensus needs {missing}; present: {list(df.columns)}")
+    has = pd.concat([pd.to_numeric(df[c], errors="coerce").fillna(0) for c in cols],
+                    axis=1).gt(0).any(axis=1)
+    out = pd.Series(0.0, index=df.index, dtype=float)
+    if has.any():
+        out.loc[has] = consensus_mod.percentile_consensus(df.loc[has], cols).to_numpy()
+    return out
+
+
+def evidence(species: str) -> pd.Series:
+    """`studiedness_evidence`, the 1-3 ladder, indexed like `load_transfer(species)`.
+
+        3  swissprot_direct                      a donor at >=95% -- this protein's own literature
+        2  swissprot_close | swissprot_homolog   a real donor at >=40%
+        1  below_floor | no_hit                  nothing in SwissProt resembles it
+
+    Counts: Kp 1,961 / 3,403 / 364 · Ec 29 / 519 / 3,855 · Sa 1,276 / 1,281 / 332.
+
+    **It takes a SPECIES, not a frame**, because the tiers live in
+    `evidence/transfer_<species>.tsv` rather than in the deliverable -- unlike every other axis's
+    `evidence()`. That file is 1:1 with the deliverable on `uniprot_ac`, verified, so the join
+    cannot fan out.
+
+    **THIS IS THE COLUMN'S REAL JUSTIFICATION AND IT IS STRONGER HERE THAN ON ANY OTHER AXIS.** The
+    deliverable dropped its `evidence` column on 2026-10-03, which left **a 0 in
+    `n_papers_uniprot_prokaryotic` ambiguous in the shipped table**: `no_hit` -- the strongest
+    novelty claim this axis makes -- and `below_floor` both read 0, and the reader was told to join
+    `load_transfer()` before treating a 0 as novelty. **Level 1 recovers exactly that class**: of
+    K. pneumoniae's 1,969 proteins reading 0, **1,961 are level 1**; only 8 are "a donor exists and
+    has no papers". So the pair puts the distinction back in the deliverable in the project-wide
+    form.
+
+    **It still merges `no_hit` with `below_floor`**, the stronger and weaker novelty claims, so the
+    five-tier column stays the finer instrument -- kept in `evidence/consensus_audit.tsv` and in
+    `load_transfer()`.
+
+    **NOTHING HERE IS AN EXPERIMENT**, so a 3 is not experimental corroboration and a 1 means "no
+    donor to look at" rather than "not yet measured" -- the pattern `function` and `orthology` set.
+
+    **DO NOT EXPECT THE CONSENSUS TO RISE WITH THE LEVEL.** Median consensus by level is Kp 0.284 /
+    0.603 / 0.741 but **Ec 0.028 / 0.555 / 0.501** and **Sa 0.275 / 0.698 / 0.646** -- level 2 above
+    level 3 on two species. That is correct and is the proof the two columns are complementary: on
+    E. coli `swissprot_direct` covers 3,855 proteins including obscure ones, while `close`/`homolog`
+    are the conserved families whose donors are famous. **Evidence grades how directly the count was
+    measured, not how large it is.**
+    """
+    _check(species)
+    tiers = load_transfer(species).set_index("uniprot_ac")["evidence"]
+    acc = load(species)["uniprot_ac"]
+    t = acc.map(tiers)
+    if t.isna().any():
+        raise ValueError(
+            f"{species}: {int(t.isna().sum())} proteins missing from "
+            f"evidence/transfer_{species}.tsv -- run scripts/studiedness/transfer.py first")
+    level = pd.Series(1, index=acc.index, dtype="Int64")
+    level[t.isin(EVIDENCE_HOMOLOG)] = 2
+    level[t.isin(EVIDENCE_DIRECT)] = 3
+    return level
+
+
 def load(species: str) -> pd.DataFrame:
     """The deliverable: one row per protein, canonical order, no nulls in either count.
 
@@ -313,6 +428,14 @@ def load(species: str) -> pd.DataFrame:
     # integer semantics -- a count of papers is never fractional.
     if "n_papers_pubtator_prokaryotic" in df.columns:
         df["n_papers_pubtator_prokaryotic"] = df["n_papers_pubtator_prokaryotic"].astype("Int64")
+    # The two standard columns. `_read()` returns EVERY column as `str` and this function coerces a
+    # hand-kept list, with no prefix rule to piggyback on -- so an unregistered column stays text,
+    # `>= 0.5` raises TypeError and a sort puts '0.9' above '0.12'. Fifth axis to need this.
+    if "studiedness_consensus" in df.columns:
+        df["studiedness_consensus"] = pd.to_numeric(df["studiedness_consensus"], errors="coerce")
+    if "studiedness_evidence" in df.columns:
+        df["studiedness_evidence"] = pd.to_numeric(
+            df["studiedness_evidence"], errors="coerce").astype("Int64")
     return df
 
 

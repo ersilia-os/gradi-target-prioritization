@@ -270,18 +270,37 @@ COLUMNS: dict[str, dict[str, str]] = {
     },
     "studiedness": AC | {
         "n_papers_uniprot_own": "curated SwissProt references on THIS accession. A paper count, nothing "
-                        "scaled. Near-dead on Kp -- 5,710 of 5,728 carry exactly one id, the genome "
+                        "scaled. Near-dead on Kp -- 5,446 of 5,728 carry exactly one id, the genome "
                         "paper -- and that IS the measurement of darkness. Do not rank Kp or Sa on it.",
         "n_papers_uniprot_prokaryotic": "references on the best-cited prokaryotic SwissProt homolog. RANK ON "
                            "THIS. Beside `_own` it makes `dark in Klebsiella, famous in E. coli` "
                            "readable off one row.",
-        "n_papers_pubtator_prokaryotic": "PubTator3 TEXT-MINED papers on the donor's gene SYMBOL. A "
-                                    "third definition, NEVER summed with the other two. It "
-                                    "transfers measurably better (0.4054 vs 0.3428 on a held-out "
-                                    "E. coli control) but is NOT the ranking: that control is "
-                                    "E. coli-only, and E. coli symbols are exactly the ones that "
-                                    "entered human nomenclature. EMPTY means a donor exists with "
-                                    "no symbol to look up -- not a measured zero.",
+        "n_papers_pubtator_prokaryotic": "PubTator3 TEXT-MINED papers on the donor's NCBI GENEID -- "
+                                    "NOT its gene symbol. The symbol routes were built, measured "
+                                    "and REJECTED (Kp `crp` read 345,630, human C-reactive "
+                                    "protein, against 376 by GeneID). A GeneID names one gene in "
+                                    "one organism, so the species is already in the key. A third "
+                                    "definition, NEVER summed with the other two. It scores 0.3722 "
+                                    "on the held-out control against the curated column's 0.3398, "
+                                    "and is still NOT the ranking. EMPTY means no in-scope donor "
+                                    "carried a GeneID -- not a measured zero.",
+        "studiedness_consensus": "0-1 within-species, the mean percentile rank of all three counts, "
+                                 "with proteins having NO literature anywhere pinned to exactly 0 "
+                                 "(S. aureus only -- on Kp and Ec every protein has its genome "
+                                 "paper). NOT the 0-1 composite removed on 2026-09-22: that blended "
+                                 "a paper count with UniProt's ANNOTATION SCORE, two quantities on "
+                                 "two scales with invented weights. Here every input is a count of "
+                                 "papers. It adds little -- rho +0.94 to +0.97 with "
+                                 "`n_papers_uniprot_prokaryotic`; rank on that inside this axis.",
+        "studiedness_evidence": "1-3, how DIRECTLY the count was measured -- 3 a SwissProt donor at "
+                                ">=95% (this protein's own literature), 2 a donor at >=40%, 1 "
+                                "nothing in SwissProt resembles it. IT RESOLVES THE AMBIGUOUS "
+                                "ZERO the deliverable could not express: of Kp's 1,969 proteins "
+                                "reading 0, 1,961 are level 1, i.e. NO DONOR rather than a donor "
+                                "with no papers. Do NOT expect the consensus to rise with the "
+                                "level -- on Ec and Sa level 2 outranks level 3, because `direct` "
+                                "covers obscure proteins while `close` covers conserved families "
+                                "with famous donors.",
     },
 }
 
