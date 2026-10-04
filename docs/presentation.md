@@ -186,6 +186,7 @@ Reproducible from the deliverables; recorded here so they are not lost.
    25; `A D O R V W` carry no evidence either way). That is a legibility choice, not a statistical
    one — `--all` keeps them and the run log names every omitted category with its counts. It is
    also what makes the figure slide-shaped: 25 rows forced an aspect of 1.62, taller than 16:9.
+   Final shape is a 3.17 band, matching `degradability_cv.png` so the deck reads consistently.
 9. **Categories under 5 members are dropped from `enrichment.png`, as a correctness fix.** The
    Haldane +0.5 correction in `log2_or_adj` outvotes the data on a group of one: COG `Z`
    (cytoskeleton, 1 member, 0 hits, raw OR 0) comes out at **+1.58, reading as ENRICHED**. No row

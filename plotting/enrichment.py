@@ -238,7 +238,7 @@ def main() -> None:
     cog_pretty = {k: f"{k}  {v}" if len(k) == 1 else v
                   for k, v in zip(cog["key"], cog["label"])}
 
-    fig, axs = stylia.create_figure(1, 2, width_ratios=[3.1, 2.3], width=1.0, height=0.46)
+    fig, axs = stylia.create_figure(1, 2, width_ratios=[3.1, 2.3], width=1.0, height=0.32)
     plot_block(axs.next(), cog, cog_order, cog_pretty,
                "Function", lo, hi, show_legend=False)
     plot_block(axs.next(), loc, loc_order, LOC_PRETTY,
