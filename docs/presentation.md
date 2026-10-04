@@ -123,7 +123,10 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   the 5 CV folds, not a confidence interval** (per-fold AUROC 0.849–0.892 ADEP4, 0.742–0.799
   ONC212). The third panel is deployment, not validation: median score and % above the cut are
   Kp 0.080/16.4%, Ec 0.072/14.4%, Sa-seen 0.054/13.8%, Sa-unseen 0.098/30.9% under ADEP4 — only
-  Sa-seen is validated.
+  Sa-seen is validated. The length and cross-assay levels are drawn on the ROC panel as
+  **iso-AUROC reference curves** (binormal, area exactly 0.775 / 0.877 etc.) and labelled on the
+  curve rather than in the legend — an AUROC is an area, so a scalar cannot be drawn on an ROC axis
+  any other way, and these are LEVELS, not the baseline's measured path.
 - **enrichment**: hits are the top decile (Kp 573 of 5,728). Compartment is the clean story —
   `wholly cytoplasmic` is the strongest enrichment in the table, every membrane/export feature is
   depleted (TM helix, signal peptide, beta-barrel, inner membrane, periplasm), and **`extracellular`

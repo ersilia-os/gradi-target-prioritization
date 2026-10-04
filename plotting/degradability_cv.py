@@ -24,8 +24,11 @@ a single line. It is NOT a standard error and must not be read as one -- with 46
 recall for that reason alone.
 
 **The baseline is LENGTH, not 0.5.** Short proteins are degraded more, so a model that learned only
-size would already score 0.775 / 0.680 -- carried in the ROC legend, because the diagonal is not a
-meaningful reference for this problem. `CROSS_ASSAY_AUROC` (0.877 / 0.815) is beside it.
+size would already score 0.775 / 0.680. That and the cross-assay level (0.877 / 0.815) are drawn on
+the ROC panel as **iso-AUROC reference curves** -- binormal curves whose area is exactly that value.
+An AUROC is an area, so a scalar cannot be drawn on an ROC axis any other way. They are LEVELS, not
+measurements: the real length-only classifier traces some other path with the same area, and these
+curves must never be read as "what the baseline did".
 
 **The third panel is the deployment picture, not a validation.** S. aureus is the only organism with
 measurements, so it is split into the proteins the model was fitted on (`seen` -- scored
@@ -78,6 +81,7 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
+from scipy.stats import norm  # noqa: E402
 from sklearn.metrics import precision_recall_curve, roc_curve  # noqa: E402
 
 from plotting import palette as PAL  # noqa: E402
@@ -105,6 +109,20 @@ def _curves(activator: str) -> tuple[pd.DataFrame, pd.Series]:
 
 
 GRID = np.linspace(0.0, 1.0, 201)
+
+
+def _iso_auroc(auc: float) -> np.ndarray:
+    """A smooth ROC curve whose area is exactly `auc`, for drawing a reference LEVEL as a line.
+
+    An AUROC is an area, so a scalar baseline cannot be drawn on an ROC axis directly. This is the
+    standard binormal form -- equal-variance, `TPR = Phi(Phi^-1(FPR) + d)` with `d = sqrt(2)
+    Phi^-1(auc)` -- which integrates to `auc` by construction.
+
+    **It is a LEVEL, not a measurement.** The real length-only classifier would trace some other
+    path with the same area, so these curves must never be read as "what the baseline did", only as
+    "where a model of this quality sits". Labelled that way in the legend."""
+    f = np.clip(GRID, 1e-6, 1 - 1e-6)
+    return norm.cdf(norm.ppf(f) + np.sqrt(2.0) * norm.ppf(auc))
 
 
 def _fold_band(oof: pd.DataFrame, which: str) -> tuple[np.ndarray, np.ndarray]:
@@ -142,20 +160,30 @@ def plot_roc(ax, data: dict) -> None:
                 label=f"{ACT_LABEL[act]}   {cv.roc_auc_clustered:.3f} ± {cv.roc_auc_clustered_sd:.3f}")
     ax.plot([0, 1], [0, 1], color=PAL.MUTED, lw=1.0, ls="--", zorder=0)
 
-    # The references that lost their own panel. Grey proxy handles, so the legend carries the
-    # numbers the diagonal cannot.
-    extra = [
-        Line2D([], [], ls="", label=f"length only   "
-               f"{D.V1_LENGTH_ONLY_AUROC['adep4']:.3f} / {D.V1_LENGTH_ONLY_AUROC['onc212']:.3f}"),
-        Line2D([], [], ls="", label=f"cross-assay   "
-               f"{D.CROSS_ASSAY_AUROC['adep4']:.3f} / {D.CROSS_ASSAY_AUROC['onc212']:.3f}"),
-    ]
+    # The two reference LEVELS, as iso-AUROC curves in each activator's colour: what the model has
+    # to beat (length alone) and what the assay reproduces (cross-assay). Thin and translucent so
+    # they read as grid, not as data.
+    for act in data:
+        ax.plot(GRID, _iso_auroc(D.V1_LENGTH_ONLY_AUROC[act]), color=ACT_COLOR[act],
+                lw=1.1, ls=":", alpha=0.75, zorder=2)
+        ax.plot(GRID, _iso_auroc(D.CROSS_ASSAY_AUROC[act]), color=ACT_COLOR[act],
+                lw=1.1, ls=(0, (5, 2)), alpha=0.75, zorder=2)
+
+    # Named ON the curve, not in the legend: a reference level is a position on this axis, and a
+    # legend entry makes the reader hunt for which line it means. Annotated on the ADEP4 pair only
+    # -- the ONC212 pair repeats the line styles, so two labels carry four curves. The white box
+    # keeps the text legible where a model curve passes behind it.
+    x_at = 0.10
+    for auc_map, name in ((D.V1_LENGTH_ONLY_AUROC, "length only"),
+                          (D.CROSS_ASSAY_AUROC, "cross-assay")):
+        y_at = float(np.interp(x_at, GRID, _iso_auroc(auc_map["adep4"])))
+        ax.text(x_at + 0.03, y_at, name, fontsize=SS * 0.8, color=PAL.MUTED,
+                va="center", ha="left",
+                bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.2, "alpha": 0.85})
+
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    leg = ax.legend(handles=ax.get_legend_handles_labels()[0] + extra, fontsize=SS * 0.82,
-                    frameon=False, loc="lower right", handletextpad=0.5, labelspacing=0.35)
-    for t in leg.get_texts()[2:]:
-        t.set_color(PAL.MUTED)
+    ax.legend(fontsize=SS * 0.82, frameon=False, loc="lower right", handletextpad=0.5)
     stylia.label(ax, xlabel="False positive rate", ylabel="True positive rate",
                  title="ROC (band = 5 CV folds)")
 
@@ -270,7 +298,7 @@ def main() -> None:
             species_scores[(label, act)] = v
             counts[(label, act)] = len(v)
 
-    fig, axs = stylia.create_figure(1, 3, width_ratios=[1, 1, 1.35], width=1.0, height=0.40)
+    fig, axs = stylia.create_figure(1, 3, width_ratios=[1, 1, 1.35], width=1.0, height=0.55)
     plot_roc(axs.next(), data)
     plot_pr(axs.next(), data)
     plot_species(axs.next(), species_scores)
