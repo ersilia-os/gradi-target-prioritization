@@ -63,6 +63,14 @@ subset and sets the rest to exactly 0, in its OWN module -- `percentile_consensu
 because essentiality and degradability have continuous inputs and the largest tie block there is
 eight. Before reaching for the plain function, look at the largest tie block.
 
+**AN AXIS MAY SHIP A CONSENSUS WHOSE DOMINANT SIGNAL IS A KNOWN CONFOUND**, provided the confound
+is QUANTIFIED in that column's own docstring and reported by the stage on every run. `pockets` does
+this (project owner, 2026-10-04): `pockets_consensus` correlates with protein length at rho
+0.64-0.66, because its strongest input does so at 0.72. The column is still worth having for
+cross-axis comparability -- but a reader who does not know that will over-read it, so the number
+travels with the column rather than living only in the docs. The honest form of such a column
+names the confound first.
+
 **Level 0 does not exist.** Every protein in every axis has a prediction, so "no evidence
 whatever" is unreachable and a 0 would mean the source count is broken.
 

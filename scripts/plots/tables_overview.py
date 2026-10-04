@@ -235,6 +235,22 @@ COLUMNS: dict[str, dict[str, str]] = {
         "af_plddt": "mean pLDDT of the AlphaFold model. NA means NO MODEL -- and an NA in the "
                     "pocket columns is 'could not look', not 'looked and found nothing'. A "
                     "protein WITH a model and no admitted pocket gets 0. Never fillna(0).",
+        "pockets_consensus": "0-1 structural ligandability. READ THE CONFOUND FIRST: this column "
+                             "is SUBSTANTIALLY A RANKING BY PROTEIN LENGTH -- rho +0.663 (Kp) / "
+                             "+0.638 (Ec) / +0.654 (Sa), because p2rank_score alone is rho 0.72, "
+                             "nearly as length-confounded as the pocket COUNT this axis deleted "
+                             "for that (0.84). It is druggability() returning, removed 2026-10-03 "
+                             "as 'no defensible weighting exists', and it ships on the owner's "
+                             "instruction given AFTER these numbers were measured. Excludes "
+                             "af_plddt (model quality) and n_pdb_structures (the denominator). "
+                             "NEVER score it against n_ligands_pdb -- that is one of its inputs.",
+        "pockets_evidence": "1-3 PROVENANCE, not outcome, which is what keeps it independent of "
+                            "the consensus (within L2/L3 they correlate NEGATIVELY, -0.35 to "
+                            "-0.43). 3 = MEASURED, this protein has its own PDB structure; 2 = "
+                            "MODELLED, an AlphaFill transplant and no structure; 1 = PREDICTED, "
+                            "pocket scores only. 'No model' is NOT a level -- only 2 proteins "
+                            "project-wide lack one, and the ladder does not need one: Sa ebh has "
+                            "no model and 2 PDB structures, so it is correctly a 3.",
     },
     "function": AC | {
         "cog_categories": "`;`-joined COG2024 category letters, vocabulary order. Empty = not "

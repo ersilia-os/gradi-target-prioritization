@@ -1026,12 +1026,48 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
 
 - **`pockets/structures.py`** → **`esmfold.py`** → **`predict.py`** → **`pdb_coverage.py`** →
   **`alphafill.py`** → **`holo.py`** → **`merge.py`** — **structural ligandability**: can a small
-  molecule bind this fold? Deliverable `pockets_<species>.tsv`, **7 columns**, complete and
+  molecule bind this fold? Deliverable `pockets_<species>.tsv`, **9 columns**, complete and
   canonical for the three bacteria: `p2rank_score` · `fpocket_score` (predicted, on AlphaFold v6
   models) · `n_ligands_pdb` (**measured**: drug-like ligands in this protein's OWN PDB structures)
   · `n_ligands_alphafill` (**modelled**: drug-like ligands AlphaFill transplanted onto its model)
   · `n_pdb_structures` (PDB entries that ARE this protein, ligand or not; partial structures
   count; coverage is in `evidence/pdb_<sp>.tsv`) · `af_plddt`.
+
+  **`pockets_consensus` IS SUBSTANTIALLY A RANKING BY PROTEIN LENGTH — read this before using
+  it.** ρ with length **+0.663 Kp · +0.638 Ec · +0.654 Sa**, because `p2rank_score` alone is
+  **ρ 0.72**, nearly as confounded as the pocket COUNT this axis **deleted** for that (0.84).
+  Against a measured PDB ligand, `p2rank_score` scores 0.615/0.659/0.702 where **LENGTH ALONE
+  scores 0.673/0.652/0.657** — on the anchor, length wins — and within length deciles P2Rank is
+  **0.494** on Kp, i.e. chance. **IT IS `druggability()` RETURNING**, removed 2026-10-03 as *"no
+  defensible weighting exists"*; it ships on the **owner's instruction of 2026-10-04, given AFTER
+  these numbers were measured and put to them**. What distinguishes it: `druggability()` was an
+  intra-axis VERDICT, `<axis>_consensus` is for CROSS-AXIS comparability. Inputs are the four
+  ligandability columns; **`af_plddt` (model quality) and `n_pdb_structures` (the denominator) are
+  excluded**, the rule degradability and ligands already use. **NEVER score it against
+  `n_ligands_pdb`** — that is one of its inputs, and the 0.958 it returns is circular.
+  `merge.py` prints the ρ every run and **exits non-zero above 0.75**.
+
+  **`pockets_evidence` grades PROVENANCE, not outcome** — **3** this protein has its OWN PDB
+  structure · **2** an AlphaFill transplant and no structure · **1** pocket scores only. Kp
+  **3,862/1,297/569** · Ec **2,013/497/1,893** · Sa **1,811/483/595**. That split keeps it
+  independent of the consensus: within L2/L3 they correlate **negatively** (−0.35 to −0.43).
+  **"NO MODEL" IS NOT A LEVEL and the ladder does not need one** — only 2 proteins project-wide
+  lack a model, and **Sa `ebh` has no model and 2 PDB structures, so it is correctly a 3**. An
+  assertion that model-less proteins must be level 1 was written during development and was wrong.
+
+  **`e881e47` BROKE TWO AXES, NOT ONE.** The same rename-vs-eosvc defect fixed in ligands by
+  `4780e61` also left `pockets/evidence/pdb_<sp>.tsv` carrying `pdb_n_structures` while `merge.py`
+  read `n_pdb_structures` — **the stage raised `KeyError` and could not run at all**. Repaired by
+  renaming the header in place (every other column already matched), with the values asserted
+  unchanged. **After renaming a column, regenerate every file that carries it** — and check whether
+  more than one axis reads it.
+
+  **Two `COLUMNS` lists must BOTH be updated** — `src/pockets.py` and `scripts/pockets/merge.py`.
+  Unlike the other axes, `src/pockets.py` does **no dtype coercion** (pandas inference, because
+  `NA` is sodium's PDB code), so the failure here is different: `load()` ends `return d[COLUMNS]`,
+  and an unregistered column is **silently DROPPED, not mistyped**. `merge.py` also needs
+  `SOURCE_COLUMNS` (what `build()` assembles) kept apart from `COLUMNS` (what ships), or the slice
+  runs before the two derived columns exist.
 
   **NEVER SUM THE TWO LIGAND COUNTS** — a co-crystal of this protein (88 Kp / 308 Ec / 90 Sa
   proteins) and a transplant from a ~30%-identity homolog (1,533 / 1,196 / 704) are different

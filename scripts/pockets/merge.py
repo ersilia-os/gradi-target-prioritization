@@ -99,13 +99,18 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from src import matrices as M  # noqa: E402
+from src import pockets as K  # noqa: E402
 from src import proteomes as P  # noqa: E402
 
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
 TASK_DIR = REPO_ROOT / "data" / "processed" / "pockets"
 EVIDENCE_DIR = TASK_DIR / "evidence"
-COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "n_ligands_pdb",
-           "n_ligands_alphafill", "n_pdb_structures", "af_plddt"]
+# What `build()` assembles from the evidence tables...
+SOURCE_COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "n_ligands_pdb",
+                  "n_ligands_alphafill", "n_pdb_structures", "af_plddt"]
+# ...and what ships: the same, plus the two standard columns DERIVED from them at the end of
+# `build()`. The split matters -- slicing with COLUMNS before they are computed raises KeyError.
+COLUMNS = SOURCE_COLUMNS + ["pockets_consensus", "pockets_evidence"]
 # `evidence` stays a WORKING column -- the completeness checks below read it -- but is not shipped
 # (owner's call, 2026-10-03). It is a function of two columns that ARE shipped:
 #     af_plddt.notna()      a model exists, so the pocket columns could be computed
@@ -197,7 +202,7 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
                 how="left")
     d = d.merge(pdb[["uniprot_ac", "n_pdb_structures"]], on="uniprot_ac", how="left")
 
-    out = M.reindex(d[COLUMNS + ["seq_length"]], species)   # seq_length: working only
+    out = M.reindex(d[SOURCE_COLUMNS + ["seq_length"]], species)   # seq_length: working only
     M.assert_canonical(out["uniprot_ac"], species)
     for c in ("n_ligands_pdb", "n_ligands_alphafill", "n_pdb_structures"):
         if out[c].isna().any():
@@ -206,6 +211,10 @@ def build(species: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     model_rows = out["af_plddt"].notna()
     if out.loc[model_rows, ["p2rank_score", "fpocket_score", "af_plddt"]].isna().any().any():
         sys.exit(f"FATAL {species}: a protein with a model has an NA pocket column")
+
+    # The two standard columns, through `src/pockets.py` so the file and the loader cannot drift.
+    out["pockets_consensus"] = K.consensus(out).round(6)
+    out["pockets_evidence"] = K.evidence(out)
     return out, pk
 
 
@@ -262,16 +271,42 @@ def main() -> None:
         "complete, canonical)")
     say("=" * 92)
 
-    rows, failed = [], []
+    rows, failed, audit_rows = [], [], []
     for sp in args.species:
         say(f"\n[{sp}]")
         out, pk = build(sp)
         path = TASK_DIR / f"pockets_{sp}.tsv"
         out[COLUMNS].to_csv(path, sep="\t", index=False)   # `evidence` is working-only
         say(f"  wrote {path.relative_to(REPO_ROOT)}  ({len(out):,} rows, canonical)")
+
+        lv = out["pockets_evidence"].value_counts()
+        rho = float(out["pockets_consensus"].corr(out["seq_length"], method="spearman"))
+        say("  evidence " + " ".join(f"L{k}={int(lv.get(k, 0)):,}" for k in (1, 2, 3))
+            + f"   (1 predicted / 2 modelled / 3 measured)")
+        # Printed EVERY run, not buried in the docs: this column is substantially protein size.
+        say(f"  rho(pockets_consensus, length) = {rho:+.3f}   "
+            f"-- the confound; p2rank_score alone is +0.69..+0.74")
+        if rho > K.MAX_LENGTH_RHO:
+            failed.append(f"consensus-length rho {rho:.3f} > {K.MAX_LENGTH_RHO}")
+        audit_rows.append(pd.DataFrame({
+            "species": sp, "uniprot_ac": out["uniprot_ac"],
+            "n_pdb_structures": out["n_pdb_structures"],
+            "n_ligands_pdb": out["n_ligands_pdb"],
+            "n_ligands_alphafill": out["n_ligands_alphafill"],
+            "af_plddt_isna": out["af_plddt"].isna(),
+            "seq_length": out["seq_length"],
+            "pockets_consensus": out["pockets_consensus"],
+            "pockets_evidence": out["pockets_evidence"],
+            "consensus_length_rho": round(rho, 4),
+        }))
         res, f = checks(sp, out, pk)
         rows.append(res)
         failed += [f"{sp}: {x}" for x in f]
+
+    if audit_rows:
+        aud = pd.concat(audit_rows, ignore_index=True)
+        aud.to_csv(EVIDENCE_DIR / "consensus_audit.tsv", sep="\t", index=False)
+        say(f"\n  wrote evidence/consensus_audit.tsv  ({len(aud):,} rows)")
 
     say("\n" + "-" * 92)
     say("SUMMARY")

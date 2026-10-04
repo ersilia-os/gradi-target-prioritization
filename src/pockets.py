@@ -70,7 +70,23 @@ TASK_DIR = REPO_ROOT / "data" / "processed" / "pockets"
 EVIDENCE_DIR = TASK_DIR / "evidence"
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
 COLUMNS = ["uniprot_ac", "p2rank_score", "fpocket_score", "n_ligands_pdb", "n_ligands_alphafill",
-           "n_pdb_structures", "af_plddt"]
+           "n_pdb_structures", "af_plddt", "pockets_consensus", "pockets_evidence"]
+
+# The columns the consensus ranks on -- the four that measure LIGANDABILITY.
+#
+# `af_plddt` is EXCLUDED: it is model quality, and including it would claim a confidently-modelled
+# protein is more druggable. `n_pdb_structures` is EXCLUDED as the DENOMINATOR -- exactly what
+# `n_assayed` is to `n_ligands` in the ligands axis: how often anyone crystallised this protein,
+# not whether anything binds. In the consensus it would add a fame component that
+# `studiedness/confounds.py` warns against double-counting; it does real work in the ladder.
+# Same rule as degradability excluding `nn_similarity` (reach) and ligands excluding `n_assayed_*`.
+CONSENSUS_COLUMNS = ("p2rank_score", "fpocket_score", "n_ligands_pdb", "n_ligands_alphafill")
+
+# Spearman rho between `pockets_consensus` and protein length, measured 2026-10-04:
+# Kp +0.663 · Ec +0.638 · Sa +0.654. The stage FAILS above this, which would mean the consensus had
+# become more length-driven than `p2rank_score` itself (rho 0.72). It is a drift guard, NOT an
+# endorsement -- see `consensus()`.
+MAX_LENGTH_RHO = 0.75
 
 
 def _check(species: str) -> None:
@@ -90,13 +106,17 @@ def _read(path: Path, hint: str) -> pd.DataFrame:
 # ---------------------------------------------------------------- the deliverable
 
 def load(species: str) -> pd.DataFrame:
-    """One species, 7 columns, canonical row order (asserted).
+    """One species, 9 columns, canonical row order (asserted).
 
-    **No `evidence` column** (owner's call, 2026-10-03): it was a function of columns that ARE
-    here -- `af_plddt` is NA exactly when no model exists, and `n_ligands_pdb > 0` exactly when a
-    drug-like ligand was seen on this protein. The one thing the labels added and these columns
-    cannot is the model's provenance, AlphaFold DB vs ESMFold; that is `model_source` in
-    `evidence/alphafold_<species>.tsv`, via `load_alphafold()`.
+    **The old four-label `evidence` column is gone** (owner's call, 2026-10-03), replaced since
+    2026-10-04 by the standard `pockets_evidence` (1-3), which is a different quantity -- see
+    `evidence()`. **The reconstructibility that justified removing it was checked against
+    `holo_identity > 0`**, not against `n_ligands_pdb > 0`: `holo_identity` was itself deleted hours
+    later the same day. Restating the claim in terms of the surviving column, as earlier versions of
+    this docstring and of `docs/pockets.md` did, makes it a tautology rather than a verification.
+    The one thing those labels added and these columns cannot is the model's provenance, AlphaFold
+    DB vs ESMFold; that is `model_source` in `evidence/alphafold_<species>.tsv`, via
+    `load_alphafold()`.
     """
     from src import matrices as M
 
@@ -104,6 +124,97 @@ def load(species: str) -> pd.DataFrame:
     d = _read(TASK_DIR / f"pockets_{species}.tsv", "scripts/pockets/merge.py")
     M.assert_canonical(d["uniprot_ac"], species, "pockets table")
     return d[COLUMNS]
+
+
+def consensus(df: pd.DataFrame) -> pd.Series:
+    """`pockets_consensus`: structural ligandability, 0-1, within-species.
+
+    Mean percentile rank over `CONSENSUS_COLUMNS`; see that constant for what is left out and why.
+    Plain `consensus.percentile_consensus` -- no zero-floor, unlike ligands: P2Rank reads exactly 0
+    on 22.2% (Kp) / 19.4% (Ec) / 26.1% (Sa) of a proteome, large but nothing like the 97% that
+    forced that deviation.
+
+    **THIS COLUMN IS SUBSTANTIALLY A RANKING BY PROTEIN LENGTH. READ THIS BEFORE USING IT.**
+
+        rho(p2rank_score, length)        Kp +0.723  Ec +0.693  Sa +0.736
+        rho(THIS COLUMN, length)         Kp +0.663  Ec +0.638  Sa +0.654
+        AUROC vs a measured PDB ligand -- p2rank_score   0.615 / 0.659 / 0.702
+        AUROC vs a measured PDB ligand -- LENGTH ALONE   0.673 / 0.652 / 0.657
+        p2rank_score WITHIN length deciles               0.494 / 0.561 / 0.619
+
+    **On the anchor, protein length beats the pocket score, and within length deciles P2Rank sits
+    at chance.** `p2rank_score` (rho 0.72) is nearly as length-confounded as `p2rank_n_pockets`
+    (rho 0.84), which this axis DELETED for exactly that.
+
+    **IT IS `druggability()` RETURNING, AND PRETENDING OTHERWISE WOULD BE DISHONEST.** That helper
+    averaged percentile ranks of `p2rank_score` and the old `holo_identity` -- mechanically this
+    function -- and was removed on 2026-10-03 because *"no defensible weighting exists across a
+    weak prior, a sparse measurement and a third party's model"*, a decision named in CLAUDE.md's
+    NO COMPOSITE SCORE, EVER section.
+
+    **It ships on the project owner's instruction, 2026-10-04** -- *"do consensus based on all the
+    columns. it may not be perfect, but it is something"* -- given AFTER the table above was
+    measured and put to them. So this is a decision taken with the cost in view, not an oversight.
+
+    The one thing that distinguishes the two: **`druggability()` was an intra-axis VERDICT, while
+    `<axis>_consensus` exists for CROSS-AXIS COMPARABILITY** -- a reader stacking ten deliverables
+    reads one scale without knowing any axis's internals. That justifies the column existing. It
+    does not make the confound go away, which is why the confound is quoted here.
+
+    **NEVER VALIDATE THIS AGAINST `n_ligands_pdb`**: that column is one of its inputs, so the 0.958
+    AUROC such a check returns is circular and means nothing. The honest external comparison is the
+    length row above.
+    """
+    from src import consensus as consensus_mod
+    return consensus_mod.percentile_consensus(df, list(CONSENSUS_COLUMNS))
+
+
+def evidence(df: pd.DataFrame) -> pd.Series:
+    """`pockets_evidence`, the 1-3 ladder, as a nullable integer.
+
+        3  MEASURED  -- this protein has its own PDB structure
+        2  MODELLED  -- no structure, but AlphaFill transplanted a drug-like ligand
+        1  PREDICTED -- pocket scores on a model, nothing else
+
+    Counts: Kp 3,862 / 1,297 / 569 · Ec 2,013 / 497 / 1,893 · Sa 1,811 / 483 / 595.
+
+    **"No model" is NOT a level -- only TWO proteins project-wide lack one** (Kp `irp1` 3,163 aa,
+    Sa `ebh` 9,535 aa; both above AlphaFold DB's 2,700-aa cut and left unfolded on the owner's
+    decision at ~18 h CPU each). A level built on two proteins would be degenerate.
+
+    **AND THE LADDER DELIBERATELY DOES NOT DEPEND ON HAVING A MODEL** -- an experiment does not stop
+    counting because AlphaFold declined the sequence. Sa `ebh` has **no model and 2 PDB structures**,
+    so it is level 3, correctly: fragments of it have been crystallised even though the full-length
+    fold was never predicted. Kp `irp1` has neither and is level 1. An assertion that model-less
+    proteins must be level 1 was written during development and was WRONG; `ebh` is the case that
+    caught it.
+
+    Their `pockets_consensus` rests on the two COUNT columns alone, since
+    `percentile_consensus` skips NaN row-wise -- two inputs instead of four, for two proteins.
+
+    **It grades PROVENANCE, not outcome** -- the pattern `ligands_evidence` set, which is what keeps
+    it independent of the consensus. Measured: within L2/L3 the two correlate NEGATIVELY (-0.37 Kp
+    / -0.35 Ec / -0.43 Sa), because level 3 holds crystallised proteins that often have no drug-like
+    ligand at all, while level 2 has a transplanted one by definition.
+
+    **It is not the removed `evidence` column returning.** That one was four provenance labels
+    verified reconstructible from `af_plddt` NA plus `holo_identity > 0` -- a column deleted hours
+    later the same day. This ladder is built from `n_pdb_structures` and `n_ligands_alphafill`, and
+    its purpose is cross-axis comparability.
+
+    **`fillna(0)` here touches only the COUNT columns**, which have no NA by assertion upstream.
+    Never `fillna(0)` a pocket score: an NA there means "could not look", and filling it was the v1
+    mistake.
+    """
+    need = ("n_pdb_structures", "n_ligands_alphafill")
+    missing = [c for c in need if c not in df.columns]
+    if missing:
+        raise KeyError(f"pockets_evidence needs {missing}; present: {list(df.columns)}")
+    num = lambda c: pd.to_numeric(df[c], errors="coerce").fillna(0)
+    level = pd.Series(1, index=df.index, dtype="int64")
+    level[num("n_ligands_alphafill") > 0] = 2
+    level[num("n_pdb_structures") > 0] = 3
+    return level
 
 
 def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:

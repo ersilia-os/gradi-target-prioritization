@@ -23,11 +23,98 @@ bacteria (`python -m src.matrices`):
 | `n_pdb_structures` | measured, int | PDB entries with a chain that IS this protein (≥ 95% identity, ≥ 50% of the chain aligned), ligand or not; 0 = none |
 | `af_plddt` | confidence | mean AlphaFold pLDDT; **NA means no model** |
 
+### The two standard columns
+
+Added **2026-10-04**; the deliverable is now **9 columns**.
+
+#### `pockets_consensus` — read the confound before using it
+
+**This column is substantially a ranking by protein length.**
+
+| | Kp | Ec | Sa |
+|---|---|---|---|
+| ρ(`p2rank_score`, length) | **+0.723** | +0.693 | +0.736 |
+| ρ(`fpocket_score`, length) | +0.385 | +0.379 | +0.317 |
+| ρ(**`pockets_consensus`**, length) | **+0.663** | +0.638 | +0.654 |
+| AUROC vs a measured PDB ligand — `p2rank_score` | 0.615 | 0.659 | 0.702 |
+| AUROC vs a measured PDB ligand — **length alone** | **0.673** | 0.652 | 0.657 |
+| `p2rank_score` **within** length deciles | **0.494** | 0.561 | 0.619 |
+
+**On the anchor, protein length beats the pocket score**, and within length deciles P2Rank sits at
+chance. `p2rank_score` (ρ 0.72) is nearly as length-confounded as `p2rank_n_pockets` (ρ 0.84), which
+this axis **deleted** for exactly that.
+
+**It is `druggability()` returning, and saying otherwise would be dishonest.** That helper averaged
+percentile ranks of `p2rank_score` and the old `holo_identity` — mechanically
+`consensus.percentile_consensus` — and was removed on 2026-10-03 because *"no defensible weighting
+exists across a weak prior, a sparse measurement and a third party's model"*, a decision named in
+CLAUDE.md's *NO COMPOSITE SCORE, EVER*.
+
+**It ships on the project owner's instruction, 2026-10-04** — *"do consensus based on all the
+columns. it may not be perfect, but it is something"* — given **after** the table above was measured
+and put to them. A decision taken with the cost in view.
+
+The one thing that distinguishes the two: **`druggability()` was an intra-axis verdict, while
+`<axis>_consensus` exists for cross-axis comparability** — a reader stacking ten deliverables reads
+one scale without knowing any axis's internals. That justifies the column existing; it does not make
+the confound go away, which is why the confound is quoted in the column's own docstring and printed
+by `merge.py` on **every run**.
+
+Inputs are the four columns that measure ligandability: `p2rank_score` · `fpocket_score` ·
+`n_ligands_pdb` · `n_ligands_alphafill`. **`af_plddt` is excluded** as model quality — it would
+claim a confidently-modelled protein is more druggable — and **`n_pdb_structures` as the
+denominator**, exactly what `n_assayed` is to `n_ligands` in the ligands axis; in the consensus it
+would add a fame component `studiedness/confounds.py` warns against double-counting. Same rule as
+degradability excluding `nn_similarity` and ligands excluding `n_assayed_*`.
+
+**Never score this column against `n_ligands_pdb`** — that column is one of its inputs, so the 0.958
+AUROC such a check returns is circular. The honest external comparison is the length row.
+
+No zero-floor, unlike ligands: P2Rank reads exactly 0 on 22.2% / 19.4% / 26.1% of a proteome, large
+but nothing like the 97% that forced that deviation.
+
+#### `pockets_evidence`
+
+```
+3  MEASURED  -- this protein has its own PDB structure
+2  MODELLED  -- no structure, but AlphaFill transplanted a drug-like ligand
+1  PREDICTED -- pocket scores on a model, nothing else
+```
+
+| | L1 | L2 | L3 |
+|---|---|---|---|
+| Kp | 3,862 | 1,297 | 569 |
+| Ec | 2,013 | 497 | 1,893 |
+| Sa | 1,811 | 483 | 595 |
+
+**It grades provenance, not outcome** — the pattern `ligands_evidence` set, and what keeps it
+independent of the consensus: within L2/L3 the two correlate **negatively** (−0.37 Kp / −0.35 Ec /
+−0.43 Sa), because level 3 holds crystallised proteins that often carry no drug-like ligand while
+level 2 has a transplanted one by definition.
+
+**"No model" is not a level** — only two proteins project-wide lack one (Kp `irp1` 3,163 aa, Sa
+`ebh` 9,535 aa) — **and the ladder deliberately does not depend on having one.** An experiment does
+not stop counting because AlphaFold declined the sequence: **Sa `ebh` has no model and 2 PDB
+structures, so it is correctly a 3.** An assertion that model-less proteins must be level 1 was
+written during development and was wrong; `ebh` is the case that caught it. Those two proteins'
+consensus rests on the two count columns alone, since `percentile_consensus` skips NaN row-wise.
+
+**It is not the old `evidence` column returning** — that was four provenance labels verified against
+a column since deleted (below); this is the project-wide 1–3 ladder, and its purpose is cross-axis
+comparability.
+
 ### There is no `evidence` column
 
 Dropped on the project owner's instruction, **2026-10-03**. It held
-`pdb+af` · `af_only` · `pdb_only` · `none`, and every one of those is a function of two columns
-that are still here — verified exactly reconstructible on all three species before removal:
+`pdb+af` · `af_only` · `pdb_only` · `none`, each a function of two columns, verified exactly
+reconstructible on all three species before removal.
+
+**But read the verification carefully, because the column it was done against no longer exists.**
+It was checked against `af_plddt` NA plus **`holo_identity > 0`** (commit `6e7ddf5`), and
+`holo_identity` was itself deleted hours later the same day by `ac15dad`. The table below restates
+it in terms of `n_ligands_pdb > 0`, which was **never re-verified** — and since the four labels are
+*defined* by those predicates, the restated version is a tautology, not a check. It is kept because
+it is still the right way to recover the labels; it is not evidence of anything.
 
 | old label | = |
 |---|---|
@@ -135,7 +222,7 @@ carries no signal. Raw counts and every pocket's residues stay in `evidence/pock
 **Zero is not missing, and the NA is now the only thing that says so.** With a model and no
 admitted pocket the columns are **0** — the tools looked and found nothing. Without a model they
 are **NA** — nobody could look. Those are different claims, and `fillna(0)` collapses them, which
-is the v1 mistake (`legacy/HISTORY.md:199`). Affected rows are few (Kp 1, Ec 30, Sa 1) but they
+is the v1 mistake (`legacy/HISTORY.md:199`). Affected rows are few (**Kp 1, Ec 0, Sa 1** — all 32 E. coli proteins AFDB skips got ESMFold models, so an earlier "Ec 30" here was stale) but they
 are exactly the proteins with no structural information at all.
 
 ## What counts as a drug-like ligand
