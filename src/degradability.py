@@ -60,6 +60,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src import consensus as consensus_mod
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEGRADABILITY_DIR = REPO_ROOT / "data" / "processed" / "degradability"
 EVIDENCE_DIR = DEGRADABILITY_DIR / "evidence"
@@ -223,7 +225,15 @@ SIMILARITY_BANDS: tuple[tuple[float, float], ...] = (
     (0.00, 0.80), (0.80, 0.90), (0.90, 0.95), (0.95, 1.01),
 )
 
-OUT_COLUMNS = ["uniprot_ac", "adep4_prob", "onc212_prob", "nn_similarity"]
+# The lower edge of the lowest band `evidence/domain_bands.tsv` can score. The two bands below it
+# carry a NaN `roc_auc` -- too few labeled proteins to estimate one at all -- while `[0.90,0.95)`
+# measures 0.8002 and `[0.95,1.01)` 0.8549. So this is not a tuned threshold: it is the distance
+# beyond which the model has never been validated. Derived from SIMILARITY_BANDS so the two cannot
+# drift apart. **Do not retune it** -- rerun the bands and read the new edge off them.
+VALIDATED_SIMILARITY = SIMILARITY_BANDS[2][0]
+
+OUT_COLUMNS = ["uniprot_ac", "adep4_prob", "onc212_prob", "nn_similarity",
+               "degradability_consensus", "degradability_evidence"]
 
 
 def sequence_features(sequences: pd.Series) -> pd.DataFrame:
@@ -445,6 +455,62 @@ def measured(activator: str) -> pd.Series:
     # The labels file names its call columns exactly `adep4` / `onc212`.
     lab = load_labels().set_index("uniprot_ac")[activator]
     return lab[lab.notna()].round(0).astype("Int64")
+
+
+def consensus(df: pd.DataFrame) -> pd.Series:
+    """`degradability_consensus`: the within-species percentile rank of the two activators, meaned.
+
+    The axis's standard 0-1 scale, computed exactly as every other axis computes it
+    (`src.consensus.percentile_consensus`). **Within-species only** -- the ranks are taken over the
+    frame handed in, so ranking a stacked `load_all()` frame would mix three proteomes.
+
+    **`nn_similarity` is deliberately not an input.** It says how far the prediction reached in
+    ESM-C space, not how degradable the protein is; averaging it in would rank a well-covered
+    non-substrate above a poorly-covered substrate. It belongs to `degradability_evidence`.
+
+    **BE HONEST ABOUT WHAT THIS ADDS: very little.** It correlates with either activator alone at
+    rho 0.970-0.973 on all three species, because the two probabilities themselves sit at rho 0.884
+    -- CLAUDE.md's "one opinion wearing two hats", both read off the same embedding. Contrast
+    essentiality, whose inputs are at rho 0.13-0.57 and whose consensus genuinely combines them.
+    This one mostly averages noise out of a single opinion. It earns its place as the axis's
+    comparable scale, **not** as two-source corroboration.
+    """
+    return consensus_mod.percentile_consensus(df, [f"{a}_prob" for a in ACTIVATORS])
+
+
+def evidence(df: pd.DataFrame) -> pd.Series:
+    """`degradability_evidence`, the 1-3 ladder, as a nullable integer.
+
+        3  measured -- the protein was in an activator screen
+        2  not measured, but nn_similarity >= VALIDATED_SIMILARITY, i.e. the prediction sits in a
+           band where the model has a validated AUROC
+        1  not measured, and in a band with no AUROC estimate at all
+
+    **E. coli and K. pneumoniae cannot reach 3, and that is a consequence rather than a rule.**
+    The activated-ClpP screens are *S. aureus* only, so `measured()` is all-NA on the other two
+    and the cap falls out. Counts: Kp 1,175 / 4,553 / 0 -- Ec 541 / 3,862 / 0 -- Sa 221 / 959 /
+    1,709. Level 1 reproduces CLAUDE.md's "a fifth of Kp sits in bands with no estimate at all":
+    20.5%.
+
+    **"IN THE LABELS FILE" IS NOT "MEASURED", and the gap is 162 proteins.**
+    `evidence/labels_saureus.tsv` holds 1,871 rows, but 162 of them carry NaN for BOTH activators
+    -- sequence-mapped to the proteome, never called by either screen. Level 3 tests
+    `measured()`, which drops them, so it is 1,709 and not 1,871. Testing membership of the file
+    instead would promote 162 proteins to "experimentally measured" on the strength of a
+    successful sequence join alone.
+
+    **THIS AXIS DEVIATES FROM THE GENERIC LADDER IN `src/consensus.py`, which defines level 3 as
+    ">=2 sources, unanimous, concordant with the consensus". Here a 3 is ONE measurement** (project
+    owner, 2026-10-04), so do not read it as corroboration. The reason it is right here: the two
+    activators are not two sources in that sense. Their probabilities are one opinion (rho 0.884),
+    and an activator a protein was simply never tested against is missing data, not a dissenting
+    source. Where both WERE measured the labels are genuinely independent (rho 0.436) and agree
+    823/1,013 (81.2%) -- that detail is kept in `evidence/consensus_audit.tsv`, not in this column.
+    """
+    n_measured = sum(df["uniprot_ac"].map(measured(a)).notna().astype(int) for a in ACTIVATORS)
+    priced = pd.to_numeric(df["nn_similarity"], errors="coerce") >= VALIDATED_SIMILARITY
+    level = np.where(n_measured >= 1, 3, np.where(priced, 2, 1))
+    return pd.Series(level, index=df.index, dtype="Int64")
 
 
 def with_measured(df: pd.DataFrame) -> pd.DataFrame:

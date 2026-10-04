@@ -626,12 +626,37 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   `data/source/cdd/cog_func_category.tsv`: a schema that depends on a pip install is not
   reproducible. Details: `docs/function.md`.
 
-- **`degradability/predict.py`** → `degradability_<species>.tsv`, **4 columns**: `uniprot_ac` ·
-  `adep4_prob` · `onc212_prob` · `nn_similarity`. Is this protein a substrate of activated
+- **`degradability/predict.py`** → `degradability_<species>.tsv`, **6 columns**: `uniprot_ac` ·
+  `adep4_prob` · `onc212_prob` · `nn_similarity` · `degradability_consensus` ·
+  `degradability_evidence`. Is this protein a substrate of activated
   partnerless ClpP? A binary **TabPFN-3.5** classifier on ESM-C embeddings, trained on the two
   *S. aureus* activator screens and applied to the rest of Sa and all of Ec/Kp. `<act>_prob` is the
   **seed-averaged out-of-fold** probability for every protein, so it is one comparable scale across
   all 13,020.
+
+  **The standard pair, added 2026-10-04** — the first axis with both a magnitude and an experiment,
+  so unlike function and proteomes it ships both. **`degradability_consensus` ADDS VERY LITTLE and
+  must not be sold as corroboration**: it tracks either activator alone at **rho 0.970–0.973**,
+  because the two probabilities are themselves at rho 0.884. `nn_similarity` is deliberately **not**
+  an input — it measures reach, not degradability, and belongs to the evidence column.
+
+  `degradability_evidence`: **3** measured, in an activator screen · **2** predicted inside a band
+  with a validated AUROC (`nn_similarity >= 0.90`) · **1** predicted beyond any validated band.
+  Counts Kp **1,175 / 4,553 / 0** · Ec **541 / 3,862 / 0** · Sa **221 / 959 / 1,709**.
+  **Kp and Ec cannot exceed 2 and that needed no special-casing** (owner's constraint): the screens
+  are Sa-only, so the cap falls out of the ladder — asserted anyway, so a future non-Sa label set
+  widens it loudly. **The 0.90 cut is READ OFF `evidence/domain_bands.tsv`, not chosen** — the two
+  bands below it carry a NaN `roc_auc`, so level 1 means *never validated this far out*;
+  `VALIDATED_SIMILARITY` derives from `SIMILARITY_BANDS[2][0]` so the two cannot drift. **HERE A 3
+  IS ONE MEASUREMENT, deviating from the generic ladder in `src/consensus.py`** ("≥2 sources,
+  unanimous, concordant"), because the two activators are not two sources: an activator a protein
+  was never tested against is missing data, not dissent. The 823-agree / 190-disagree split among
+  the 1,013 measured by both lives in `evidence/consensus_audit.tsv`.
+
+  **"In the labels file" is NOT "measured" — the gap is 162 proteins.** `labels_saureus.tsv` holds
+  1,871 rows of which **162 are NaN for BOTH activators**, sequence-mapped but never called, so
+  level 3 reads 1,709. A membership test against the file would promote them to "measured" on the
+  strength of a successful join alone.
 
   **THE MEASURED CALLS ARE NOT COLUMNS** (owner's call, 2026-10-03). `<act>_hit`/`<act>_source` were
   dropped: `_hit` was empty for **10,131 of 13,020** proteins and `_source` read `predicted` for all

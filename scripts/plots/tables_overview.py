@@ -127,6 +127,17 @@ COLUMNS: dict[str, dict[str, str]] = {
                        "at rho 0.89 while the labels agree at only 0.52.",
         "nn_similarity": "max ESM-C cosine to the S. aureus training set -- the price of the "
                          "extrapolation. A fifth of Kp sits in bands with no AUROC estimate at all.",
+        "degradability_consensus": "0-1, the mean WITHIN-SPECIES percentile rank of the two "
+                                   "activator probabilities. ADDS LITTLE: it tracks either one "
+                                   "alone at rho 0.97, because the two are one opinion (rho 0.88). "
+                                   "`nn_similarity` is deliberately not an input -- it measures "
+                                   "reach, not degradability.",
+        "degradability_evidence": "1-3. 3 = the protein was in an activator screen; 2 = predicted "
+                                  "within a band where the model has a validated AUROC "
+                                  "(nn_similarity >= 0.90); 1 = predicted beyond any validated "
+                                  "band. KP AND EC CANNOT EXCEED 2 -- the screens are S. aureus "
+                                  "only, so the cap is a consequence, not a rule. Here a 3 is ONE "
+                                  "measurement, unlike the generic ladder in src/consensus.py.",
     },
     "essentiality": AC | {
         "geptop_ess": "Geptop 2.0 orthology+phylogeny score, 0-1, always present. CIRCULAR on Ec "

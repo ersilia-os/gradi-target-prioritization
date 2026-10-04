@@ -43,6 +43,13 @@ THE EVIDENCE LADDER IS COUNT + CONCORDANCE
     2  exactly one source, OR two or more that conflict -- with each other or with the consensus
     1  no experimental measurement at all: prediction only
 
+**AN AXIS MAY DEVIATE, AND MUST SAY SO IN BOTH PLACES.** `degradability` reads level 3 as ONE
+measurement rather than two agreeing ones (project owner, 2026-10-04), because its two activators
+are not two sources in this sense: their probabilities are one opinion (rho 0.884), and an
+activator a protein was simply never tested against is missing data, not dissent. A reader who
+assumes the generic rule will over-read that column's 3. Any future deviation gets the same
+treatment -- named here and in the axis's own docstring, never in only one.
+
 **Level 0 does not exist.** Every protein in every axis has a prediction, so "no evidence
 whatever" is unreachable and a 0 would mean the source count is broken.
 

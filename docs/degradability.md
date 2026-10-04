@@ -333,6 +333,73 @@ a way a pickled forest does not.
 |---|---|
 | `<act>_prob` | the model's probability, for **every** protein — **out-of-fold** where labeled, and **averaged over the 5 CV seeds** |
 | `nn_similarity` | cosine to the nearest *S. aureus* training protein in ESM-C space |
+| `degradability_consensus` | 0–1, the mean within-species percentile rank of the two `_prob` columns |
+| `degradability_evidence` | 1–3, how far the value rests on a measurement |
+
+### The two standard columns
+
+Added **2026-10-04**, the axis's share of the project-wide pair defined in `src/consensus.py`.
+This is the first axis with both a real magnitude and a real experiment, so unlike function and
+proteomes it ships the consensus as well as the evidence.
+
+**`degradability_consensus` adds very little, and the docstring says so.** It correlates with
+either activator alone at **rho 0.970–0.973** on all three species, because the two probabilities
+are themselves at **rho 0.884** — one opinion wearing two hats, both read off the same embedding.
+Compare essentiality, whose three inputs sit at rho 0.13–0.57 and whose consensus genuinely
+combines them. This one mostly averages noise out of a single opinion. It earns its place as the
+axis's comparable 0–1 scale, **not** as two-source corroboration.
+
+**`nn_similarity` is deliberately not an input to it.** It measures how far the prediction reached
+in ESM-C space, not how degradable the protein is; averaging it in would rank a well-covered
+non-substrate above a poorly-covered substrate. It belongs to the evidence column instead.
+
+```
+3  measured -- the protein was in an activator screen
+2  not measured, but nn_similarity >= 0.90, i.e. inside a band with a validated AUROC
+1  not measured, and beyond any band the model was ever validated in
+```
+
+| | L1 | L2 | L3 |
+|---|---|---|---|
+| Kp | 1,175 | 4,553 | — |
+| Ec | 541 | 3,862 | — |
+| Sa | 221 | 959 | 1,709 |
+
+**Kp and Ec cannot exceed 2, and that needed no special-casing** (project owner's constraint,
+2026-10-04). The activated-ClpP screens are *S. aureus* only, so `measured()` is all-NA on the
+other two and the cap falls out of the ladder. It is asserted anyway: a future non-Sa label set
+should widen the ladder loudly, not silently.
+
+**The 0.90 cut is read off `evidence/domain_bands.tsv`, not chosen.** The two bands below it carry
+a **NaN `roc_auc`** — too few labeled proteins to estimate one — while `[0.90,0.95)` measures
+0.8002 and `[0.95,1.01)` 0.8549. So level 1 means exactly *the model has never been validated this
+far out*, and it reproduces this doc's own "a fifth of Kp": 0.4% + 20.3% = 20.7% of the bands,
+1,175/5,728 = 20.5% of the ladder. `VALIDATED_SIMILARITY` is derived from `SIMILARITY_BANDS[2][0]`
+so the two cannot drift apart — **do not retune it**; rerun the bands and read the new edge off
+them.
+
+**Level 3 is "measured at all", not "measured twice and agreeing"** (project owner, 2026-10-04),
+chosen over the alternative with its cost in view: it keeps the cap legible — 3 is an experiment,
+2 is a trustworthy prediction — at the price of not separating the **823** proteins whose two
+labels agree from the **190** that disagree. That distinction is not lost; it is per protein in
+`evidence/consensus_audit.tsv`.
+
+**This deviates from the generic ladder in `src/consensus.py`**, which defines 3 as "≥2 sources,
+unanimous, concordant with the consensus". A reader who assumes the generic rule will over-read a
+3. The deviation is right here because the two activators are not two sources in that sense: their
+probabilities are one opinion (rho 0.884), and although their *labels* are genuinely independent
+(rho 0.436, agreeing 823/1,013 = 81.2%), an activator a protein was never tested against is
+missing data rather than a dissenting source.
+
+**"In the labels file" is NOT "measured", and the gap is 162 proteins.**
+`evidence/labels_saureus.tsv` holds **1,871 rows, of which 162 are NaN for both activators** —
+sequence-mapped to the proteome, never called by either screen. Level 3 tests `measured()`, which
+drops them, so it reads 1,709 and not 1,871. A membership test against the file would promote 162
+proteins to "experimentally measured" on the strength of a successful sequence join alone. This
+was caught by the verification assertion, not by inspection.
+
+**Polarity control**: on *S. aureus* the consensus median is **0.753 at measured hits against
+0.384 at measured non-hits**. A range check cannot see a sign flip; this can.
 
 **`_prob` is one comparable scale across all 13,020 proteins**, because a labeled protein carries
 its out-of-fold value rather than a 1.0 that would outrank every uncertain prediction. It is the

@@ -845,6 +845,7 @@ def main() -> None:
     # Out-of-fold probability for the labeled proteins, so `_prob` is one comparable scale.
     oof_prob = {a: dict(zip(oofs[a]["uniprot_ac"], oofs[a]["oof_esmc"])) for a in args.activator}
     rows = []
+    audit_rows = []
     for sp in args.species:
         f = feats if sp == "saureus" else feature_frame(sp)
         cols = D.block_columns("esmc", f)
@@ -879,17 +880,45 @@ def main() -> None:
         # them -- but they are not written. Both are exactly reconstructible from
         # `evidence/labels_saureus.tsv` via `D.measured()`, and as columns they were empty for the
         # 10,131 Ec/Kp rows that have no measurement anywhere.
+
+        # The two standard columns every axis ships. Both are derivations of what is already in
+        # `out`, computed through `src/degradability.py` so the file and the loader cannot drift.
+        out["degradability_consensus"] = D.consensus(out).round(6)
+        out["degradability_evidence"] = D.evidence(out)
+
         path = (SCRATCH_DIR / f"smoke_degradability_{sp}.tsv") if args.limit \
             else (OUT_DIR / f"degradability_{sp}.tsv")
         out[D.OUT_COLUMNS].to_csv(path, sep="\t", index=False)
+
+        # The ladder says only "measured", so the agree/disagree detail would otherwise be lost.
+        # It is the one thing a reader might expect a 3 to mean, so keep it checkable per protein.
+        n_meas_act = out["adep4_hit"].notna().astype(int) + out["onc212_hit"].notna().astype(int)
+        audit_rows.append(pd.DataFrame({
+            "species": sp,
+            "uniprot_ac": out["uniprot_ac"],
+            "adep4_measured": out["adep4_hit"],
+            "onc212_measured": out["onc212_hit"],
+            "n_measured": n_meas_act,
+            # NA, not False, where fewer than two measurements exist: an activator a protein was
+            # never tested against is missing data, not a dissenting source.
+            "labels_agree": pd.array(
+                np.where(n_meas_act == 2, out["adep4_hit"] == out["onc212_hit"], None),
+                dtype="boolean"),
+            "nn_similarity": out["nn_similarity"],
+            "band_validated": out["nn_similarity"] >= D.VALIDATED_SIMILARITY,
+            "degradability_consensus": out["degradability_consensus"],
+            "degradability_evidence": out["degradability_evidence"],
+        }))
 
         # Median over PREDICTED rows only: a training protein is its own nearest neighbour, so
         # including the measured ones would report a trivial 1.000 for S. aureus.
         pr_rows = out[(out["adep4_source"] == "predicted") | (out["onc212_source"] == "predicted")]
         med = float(pr_rows["nn_similarity"].median()) if len(pr_rows) else float("nan")
         n_meas = int(out["adep4_hit"].notna().sum() + out["onc212_hit"].notna().sum())
+        lv = out["degradability_evidence"].value_counts()
         say(f"  {sp:<14} {len(out):>6} rows   measured cells {n_meas:>5}   "
-            f"nn_similarity median (predicted) {med:.3f}")
+            f"nn_similarity median (predicted) {med:.3f}   "
+            f"evidence " + " ".join(f"L{k}={int(lv.get(k, 0)):,}" for k in (1, 2, 3)))
         rows.append({"species": sp, "n": len(out), "n_expected": len(P.load(sp)),
                      "measured_cells": n_meas,
                      "adep4_measured": int(out["adep4_hit"].notna().sum()),
@@ -901,6 +930,15 @@ def main() -> None:
                      "path": str(path.relative_to(REPO_ROOT)),
                      "run_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
     pd.DataFrame(rows).to_csv((SCRATCH_DIR if pre else EVIDENCE_DIR) / f"{pre}manifest.tsv", sep="\t", index=False)
+
+    audit = pd.concat(audit_rows, ignore_index=True)
+    audit.to_csv((SCRATCH_DIR if pre else EVIDENCE_DIR) / f"{pre}consensus_audit.tsv",
+                 sep="\t", index=False)
+    both = audit[audit["n_measured"] == 2]
+    if len(both):
+        say(f"  both activators measured {len(both):,}   labels agree "
+            f"{int(both['labels_agree'].sum()):,} ({100 * both['labels_agree'].mean():.1f}%)"
+            f"   -- NOT in the ladder, which reads level 3 as 'measured at all'")
     say()
 
     rule()
