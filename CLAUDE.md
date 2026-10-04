@@ -949,7 +949,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   which ChEMBL by construction does not contain.
 
 - **`ligands/ligands.py`** + **`src/precedents.py`** — **THE AXIS DELIVERABLE**,
-  `ligands_<species>.tsv`, 8 columns; also a query tool for ANY sequence, needing no database
+  `ligands_<species>.tsv`, **10 columns**; also a query tool for ANY sequence, needing no database
   (three cached extracts, 82 MB, ~1 s).
 
   **`chembl_<species>.tsv` was DEMOTED to `evidence/` on 2026-10-03** (owner's call), because
@@ -961,6 +961,38 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   series), the identity bands broken out (direct 21 / close 79 / remote 113 proteins), the match
   provenance (`best_target`/`best_pident`/`best_organism`) and `allorg_*`. **What ONLY the
   deliverable has is the denominator**, `n_assayed_*` — the axis's only real negatives.
+
+  **The standard pair, added 2026-10-04, divides the axis's own two questions.**
+  **`ligands_consensus`** is the OUTCOME: mean within-species percentile over `n_ligands_own` ·
+  `n_ligands_bacterial` · `best_pactivity_bacterial`. **`n_ligands_human` is EXCLUDED** — a
+  liability pointing the other way — and so is `n_assayed_*`, which is effort, not ligandability.
+  **THE ZERO BLOCK IS PINNED TO 0, a deliberate deviation from `percentile_consensus()`**: ranking
+  runs only within the ~3% with any evidence (Kp 180 · Ec 160 · Sa 119), because under average-rank
+  ties the other 97% would read **0.491**, mid-scale, and "nobody looked" would appear moderately
+  ligandable. For scale, `essentiality_consensus`'s largest tie block is **8**.
+  **`percentile_consensus()` itself is unchanged.**
+
+  **`ligands_evidence` grades PROVENANCE, NOT OUTCOME** — **3** somebody assayed THIS protein ·
+  **2** only a bacterial homolog was assayed · **1** nothing in ChEMBL, so the 0 beside it is an
+  open question, never a measured negative. Kp **5,453/264/11** · Ec **4,151/79/173** · Sa
+  **2,726/94/69**. The split keeps the two columns independent: overall ρ 0.79–0.85 but **only
+  0.11–0.24 within the evidence-bearing subset**, and **62 Ec proteins sit at evidence 3 with
+  consensus 0** — assayed directly, nothing potent, which no single column can say.
+  **KP'S 11 IS THE FINDING**: `bla`, `KPC-2`, `blaSHV-11`, `blaCTX-M-14`, `ybtE`, `rfbD`, `rpsR`,
+  `atsA`, `dxs`, `uppS`, `acpP` — **the only K. pneumoniae proteins anyone has screened directly
+  are the resistance enzymes.** **It is NOT the dropped four-tier `precedent_evidence`**, which was
+  an identity-band vocabulary; every `<axis>_evidence` is derivable from its own axis, and the
+  point is cross-axis comparability. Both columns match **no rule in `_read()`** and are registered
+  by name in `_coerce_precedents()` plus a new `DELIVERABLE_DTYPES` assertion — the trap this axis
+  first paid for as `best_pchembl`.
+
+  **A RENAME IN GIT DOES NOT REACH A FILE IN eosvc, and this axis proved it.** Commit `e881e47`
+  renamed six deliverable columns on 2026-10-03; `data/` is gitignored, so
+  `evidence/precedents_full_<sp>.tsv` kept `n_ligands`, `n_assayed`, `best_pactivity_bacteria`,
+  `n_targets_bacteria`, `best_pident_bacteria`, `n_measured` — and **`ligands/validate_api.py` was
+  silently broken for a day**, reading `n_ligands_own` off a file that had no such column. The
+  2026-10-04 regeneration repaired it. **After renaming a column, regenerate every file that
+  carries it**, and prefer re-running a stage to rewriting a deliverable in place.
 
   **TWO QUESTIONS, NOT ONE, and a single count conflates them**: `n_ligands_*` is POTENT (pChEMBL ≥ 6)
   and `n_assayed_*` is "has anyone looked", each over three scopes — this protein, the bacterial pool,

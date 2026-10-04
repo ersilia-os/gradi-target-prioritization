@@ -194,6 +194,21 @@ COLUMNS: dict[str, dict[str, str]] = {
         "n_assayed_human": "assayed against human targets.",
         "best_pactivity_bacterial": "max pChEMBL over the bacterial pool. This is ChEMBL's "
                                    "`pchembl_value` renamed, not a new quantity.",
+        "ligands_consensus": "0-1, how much POTENT precedent, ranked WITHIN the ~3% of proteins "
+                             "that have any. EVERYTHING ELSE IS EXACTLY 0 -- a deliberate "
+                             "departure from the other axes' plain percentile, because under "
+                             "average-rank ties the 97% with nothing would read 0.49, mid-scale, "
+                             "and 'nobody looked' would appear moderately ligandable. Excludes "
+                             "`n_ligands_human` (a liability, points the other way) and "
+                             "`n_assayed_*` (effort, not ligandability).",
+        "ligands_evidence": "1-3, and it grades PROVENANCE, not outcome -- the consensus already "
+                            "carries the outcome, so the two stay independent (rho 0.11-0.24 "
+                            "within the evidence-bearing set). 3 = somebody assayed THIS protein; "
+                            "2 = only a bacterial homolog was assayed, i.e. transfer, which this "
+                            "axis showed CANNOT be calibrated; 1 = nothing in ChEMBL, so the 0 "
+                            "beside it is an open question, never a measured negative. KP HAS 11 "
+                            "AT LEVEL 3 and they are almost all beta-lactamases -- the only "
+                            "K. pneumoniae proteins anyone has screened directly.",
     },
     "pockets": AC | {
         "p2rank_score": "best P2Rank score among ADMITTED pockets -- admitted means the lining "

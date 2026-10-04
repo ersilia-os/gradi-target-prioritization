@@ -389,6 +389,99 @@ all assayed and none measurable has no sequence at all and DIAMOND cannot reach 
 ligand rows by construction, which is why the potent counts reproduce 113 / 96 / 78 exactly after
 the change.
 
+## The two standard columns
+
+Added **2026-10-04**. The deliverable is now **10 columns**, and the pair divides this axis's own
+*"TWO QUESTIONS, NOT ONE"* cleanly: `ligands_consensus` carries the **outcome** (how much potent
+precedent), `ligands_evidence` carries the **provenance** (how directly it was measured).
+
+### `ligands_consensus`
+
+Mean within-species percentile over `n_ligands_own` · `n_ligands_bacterial` ·
+`best_pactivity_bacterial`. **Two deliberate exclusions**: `n_ligands_human` is a **liability
+pointing the other way** — averaging it in would rank a protein *up* for resembling a human target,
+the same reason orthology ships no consensus at all; and `n_assayed_*` is **effort, not
+ligandability** — a protein assayed 66,942 times with nothing potent is well-studied, not druggable.
+
+**THE ZERO BLOCK IS PINNED TO 0, NOT TO ITS AVERAGE RANK** (project owner, 2026-10-04), and this is
+a **deliberate deviation from the plain `consensus.percentile_consensus()`** that essentiality and
+degradability use. Ranking happens only among proteins with some positive evidence — Kp 180 (3.1%)
+· Ec 160 (3.6%) · Sa 119 (4.1%) — and everything else is exactly 0.
+
+The reason is zero-inflation. Under average-rank tie handling the ~97% with nothing would all read
+**0.491**, mid-scale, so *"nobody ever assayed this"* would look like moderate ligandability. For
+scale, `essentiality_consensus` has a largest tie block of **eight**; nothing else in this project
+is constant across 97% of a proteome. Spread after pinning: Kp 5,548 at 0 and 180 in
+(0.228, 0.981]. **`percentile_consensus()` itself is unchanged**, so the shipping axes are
+untouched.
+
+**A non-null `best_pactivity_bacterial` beside `n_ligands_bacterial == 0`** (Kp 67 · Ec 64 · Sa 41)
+is a measurable but sub-potent binder, and those rows correctly rank above the zero block.
+
+### `ligands_evidence`
+
+```
+3  n_assayed_own > 0 -- somebody assayed THIS protein
+2  only a bacterial homolog was assayed
+1  nothing in ChEMBL at all
+```
+
+| | L1 | L2 | L3 |
+|---|---|---|---|
+| Kp | 5,453 | 264 | **11** |
+| Ec | 4,151 | 79 | 173 |
+| Sa | 2,726 | 94 | 69 |
+
+**It grades PROVENANCE, not outcome** (project owner, 2026-10-04): the consensus already carries
+the outcome, so a 3 meaning "has a potent ligand" would give two columns that move together.
+Measured, they do not — overall ρ is +0.79 to +0.85, but that is entirely the shared
+"nothing known" block, and **within the evidence-bearing subset it falls to +0.11 (Ec) / +0.14 (Kp)
+/ +0.24 (Sa)**. The case that proves the pair earns its keep: **62 E. coli proteins sit at
+evidence 3 with consensus 0** — assayed directly, not one compound potent. No single column can
+say *"well measured, and the answer was no"*.
+
+**Kp's 11 is the finding, not a degenerate level.** It matches this axis's own "ChEMBL holds 21
+K. pneumoniae single-protein targets against 5,728", and the membership is the point: `bla`,
+`KPC-2`, `blaSHV-11`, `blaCTX-M-14`, `ybtE`, then `rfbD`, `rpsR`, `atsA`, `dxs`, `uppS`, `acpP` at
+1–11 compounds each. **The only K. pneumoniae proteins anyone has screened directly are the
+resistance enzymes** — a finding for the collaboration.
+
+**Level 2 is transfer, and this axis has already shown transfer cannot be calibrated** (see *The
+95/60/40 bands CANNOT be calibrated*), so a 2 means "the number beside this came from a homolog",
+with no implied reliability. **Level 1 is "nobody looked"** — its `n_ligands_*` of 0 is an open
+question, never a measured negative. The ladder is well-formed: `n_ligands_bacterial > 0` implies
+`n_assayed_bacterial > 0` on all three species (**0 orphans**), so a protein can never carry
+ligands while reading level 1.
+
+**This is NOT the four-tier `precedent_evidence` coming back** — the obvious objection, and it
+deserves a straight answer. That column was dropped because it was redundant *with this axis's own
+counts*, and in that narrow sense so is this one. But **every `<axis>_evidence` in this project is
+derivable from its axis's columns** — `orthology_evidence` from the dense table,
+`degradability_evidence` from the labels. The point is **cross-axis comparability**: a reader
+stacking ten deliverables reads `<axis>_evidence` on one scale without knowing any axis's
+internals. `precedent_evidence` was a ligands-only vocabulary (`direct`/`close`/`remote`/
+`no_homolog`) on a different question — identity band, not who was measured. The convention is in
+`src/consensus.py`.
+
+**A caveat that does not bite today but would.** `n_assayed_*` is `pd.NA` when the effort extract
+is missing, and `_read()`'s `n_`-prefix branch maps an empty field to **0** on the way back in — so
+an absent `scratch/chembl_assayed.tsv` would silently demote the whole proteome to level 1 rather
+than raising. `evidence()` therefore raises if every `n_assayed_*` is null. The extract is present
+and no row is NA, so the ladder is honest.
+
+Conditions per protein in **`evidence/consensus_audit.tsv`**.
+
+### The regeneration repaired `precedents_full_<species>.tsv`
+
+The run that added these columns also rewrote the full table, which had been **stale since commit
+`e881e47`** (2026-10-03): that commit renamed six columns in the deliverable but `data/` is
+gitignored, so the evidence file kept `n_ligands`, `n_assayed`, `best_pactivity_bacteria`,
+`n_targets_bacteria`, `best_pident_bacteria` and `n_measured`. **`scripts/ligands/validate_api.py`
+was broken against it** — it reads `n_ligands_own` and `n_targets_bacterial`, neither of which
+existed on disk — and `confounds.py` would have warned past it via its `except`. Both work now.
+The lesson is the two-track split's sharp edge: **a rename in Git does not reach a file in eosvc**,
+and nothing failed loudly in between.
+
 ## Validated against the live ChEMBL API
 
 Everything else in this axis descends from three cached extracts that `chembl.py` wrote from the

@@ -43,6 +43,7 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
+from src import ligandability as L  # noqa: E402
 from src import matrices as M  # noqa: E402
 from src import precedents as PR  # noqa: E402
 from src import proteomes as P  # noqa: E402
@@ -67,7 +68,11 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus")
 # extra: CLAUDE.md's standing rule is that every axis ships one, because a 0 here is read by
 # ~96% of every proteome and until now it meant three different things -- no homolog at all,
 # a homolog nobody ever screened, and a homolog somebody screened that yielded nothing.
-DELIVERABLE_COLUMNS = ("uniprot_ac", *PR.DELIVERABLE)
+# The two standard columns are appended here rather than in `src/precedents.py`: that module is a
+# per-sequence query tool with no species, and a within-species percentile rank is meaningless for
+# one protein. They exist only in the batch deliverable.
+DELIVERABLE_COLUMNS = ("uniprot_ac", *PR.DELIVERABLE,
+                       "ligands_consensus", "ligands_evidence")
 
 VERBOSE = True
 
@@ -178,6 +183,7 @@ def main() -> None:
 
     if a.species:
         rows = []
+        audit_rows = []
         for sp in a.species:
             d = P.load(sp)
             seqs = dict(zip(d["uniprot_ac"], d["sequence"].astype(str)))
@@ -191,8 +197,30 @@ def main() -> None:
             ev = OUT_DIR / "evidence"
             ev.mkdir(parents=True, exist_ok=True)
             out.to_csv(ev / f"precedents_full_{sp}.tsv", sep="\t", index=False)
+            # Computed through `src/ligandability.py` so the file and the loader cannot drift.
+            # The consensus ranks WITHIN this species, which is why it belongs here and not in
+            # `precedents.count()`.
+            out["ligands_consensus"] = L.consensus(out).round(6)
+            out["ligands_evidence"] = L.evidence(out)
             p = OUT_DIR / f"ligands_{sp}.tsv"
             out[list(DELIVERABLE_COLUMNS)].to_csv(p, sep="\t", index=False)
+            audit_rows.append(pd.DataFrame({
+                "species": sp, "uniprot_ac": out["uniprot_ac"],
+                "n_assayed_own": out["n_assayed_own"],
+                "n_assayed_bacterial": out["n_assayed_bacterial"],
+                "has_any_evidence": out["ligands_consensus"] > 0,
+                "ligands_consensus": out["ligands_consensus"],
+                "ligands_evidence": out["ligands_evidence"],
+            }))
+            lv = out["ligands_evidence"].value_counts()
+            say(f"    evidence " + " ".join(f"L{k}={int(lv.get(k, 0)):,}" for k in (1, 2, 3))
+                + f"   consensus: {int((out.ligands_consensus > 0).sum()):,} non-zero "
+                f"({100 * (out.ligands_consensus > 0).mean():.1f}%)")
+            l3 = out.loc[out.ligands_evidence == 3, "uniprot_ac"]
+            if len(l3) <= 25:
+                names = P.load(sp).set_index("uniprot_ac")["gene_name"]
+                say(f"    assayed on themselves: "
+                    + ", ".join(sorted(x for x in l3.map(names).fillna("?")) ) )
             say(f"    potent: exact {int((out.n_ligands_own > 0).sum()):5,}   "
                 f"bacterial {int((out.n_ligands_bacterial > 0).sum()):5,}   "
                 f"human {int((out.n_ligands_human > 0).sum()):5,}   |   "
@@ -201,6 +229,12 @@ def main() -> None:
                 f"({out.shape[0]} x {len(DELIVERABLE_COLUMNS)})   "
                 f"full {out.shape[1]} cols -> evidence/precedents_full_{sp}.tsv")
             rows.append(control_row(sp, out))
+        if audit_rows:
+            ev = OUT_DIR / "evidence"
+            ev.mkdir(parents=True, exist_ok=True)
+            aud = pd.concat(audit_rows, ignore_index=True)
+            aud.to_csv(ev / "consensus_audit.tsv", sep="\t", index=False)
+            say(f"  wrote evidence/consensus_audit.tsv  ({len(aud):,} rows)")
         if rows:
             ev = OUT_DIR / "evidence"
             ev.mkdir(parents=True, exist_ok=True)

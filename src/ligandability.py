@@ -336,6 +336,10 @@ def _coerce_precedents(d: pd.DataFrame) -> pd.DataFrame:
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
         elif c.startswith(("best_pactivity", "best_pident", "best_pchembl", "hit_rate")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
+        elif c == "ligands_consensus":
+            d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
+        elif c == "ligands_evidence":
+            d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
         elif c in ("exact_route", "exact_target"):
             # EMPTY STRING IS NOT A VALUE. `pd.NA` written to TSV comes back as "", and casting to
             # `string` dtype makes that a perfectly valid non-null entry -- so
@@ -368,6 +372,120 @@ def load_effort(refresh: bool = False) -> pd.DataFrame:
             f"{path} missing -- written by scripts/ligands/effort.py, which needs the ChEMBL dump "
             "restored (see data/raw/other/chembl/SOURCE.md).")
     return _read(path)
+
+
+# The columns the consensus ranks on: POTENT precedent only.
+#
+# `n_ligands_human` is EXCLUDED because it is a LIABILITY pointing the other way -- averaging it in
+# would rank a protein UP for resembling a human target, which is the reason `orthology` ships no
+# consensus at all. `n_assayed_*` is EXCLUDED because it is effort, not ligandability: a protein
+# assayed 66,942 times with nothing potent is well-studied, not druggable. That column is
+# `ligands_evidence`'s business, which is what keeps the two columns independent.
+CONSENSUS_COLUMNS = ("n_ligands_own", "n_ligands_bacterial", "best_pactivity_bacterial")
+
+# The deliverable's dtypes, asserted on every load -- the idiom `src/orthology.py` carries, added
+# here because this axis is where the string-dtype trap was first paid for: a round trip through
+# TSV turned `best_pchembl` into text, so `>= 6` raised TypeError and sorting put '9.02' above
+# '10.1'. The two standard columns match NO rule in `_read()` and are registered by explicit name
+# in `_coerce_precedents()` above, for exactly that reason.
+DELIVERABLE_DTYPES = {"uniprot_ac": "object", "n_ligands_own": "Int64",
+                      "best_pactivity_bacterial": "Float64",
+                      "ligands_consensus": "Float64", "ligands_evidence": "Int64"}
+
+
+def consensus(df: pd.DataFrame) -> pd.Series:
+    """`ligands_consensus`: how much POTENT ligand precedent, 0-1, within-species.
+
+    Mean percentile rank over `CONSENSUS_COLUMNS` -- see that constant for what is deliberately
+    left out and why.
+
+    **THE ZERO BLOCK IS PINNED TO 0, NOT TO ITS AVERAGE RANK** (project owner, 2026-10-04), and
+    this is a DELIBERATE DEVIATION from the plain `consensus.percentile_consensus()` that
+    essentiality and degradability use. Ranking happens only among proteins with some positive
+    evidence -- Kp 180 (3.1%) · Ec 160 (3.6%) · Sa 119 (4.1%) -- and every other protein is
+    exactly 0.
+
+    The reason is zero-inflation. Under average-rank tie handling the ~97% with no evidence would
+    all read **0.491**, mid-scale, so *"nobody ever assayed this"* would look like moderate
+    ligandability. For scale, `essentiality_consensus` has a largest tie block of EIGHT; this
+    project ships nothing else that is constant across 97% of a proteome. Pinning to 0 keeps a 0
+    meaning "no precedent". `percentile_consensus()` itself is unchanged, so the axes already
+    shipping are untouched.
+
+    **A protein can hold a non-null `best_pactivity_bacterial` while `n_ligands_bacterial` is 0**
+    (Kp 67 · Ec 64 · Sa 41 rows) -- a measurable but sub-potent binder. Those rows rank above the
+    zero block, which is correct: somebody found something, it just did not reach pChEMBL 6.
+    """
+    from src import consensus as consensus_mod
+    cols = list(CONSENSUS_COLUMNS)
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        raise KeyError(f"ligands_consensus needs {missing}; present: {list(df.columns)}")
+    has = pd.concat([pd.to_numeric(df[c], errors="coerce").fillna(0) for c in cols],
+                    axis=1).gt(0).any(axis=1)
+    out = pd.Series(0.0, index=df.index, dtype=float)
+    if has.any():
+        out.loc[has] = consensus_mod.percentile_consensus(df.loc[has], cols).to_numpy()
+    return out
+
+
+def evidence(df: pd.DataFrame) -> pd.Series:
+    """`ligands_evidence`, the 1-3 ladder, as a nullable integer.
+
+        3  n_assayed_own > 0 -- somebody assayed THIS protein
+        2  only a bacterial homolog was assayed
+        1  nothing in ChEMBL at all
+
+    Counts: Kp 5,453 / 264 / 11 · Ec 4,151 / 79 / 173 · Sa 2,726 / 94 / 69.
+
+    **IT GRADES PROVENANCE, NOT OUTCOME** (project owner, 2026-10-04). The consensus already
+    carries the outcome, so a level 3 meaning "has a potent ligand" would give two columns that
+    move together. Measured, they do not: overall rho is +0.79 to +0.85, but that is entirely the
+    shared "nothing known" block, and **within the evidence-bearing subset it falls to +0.11 (Ec)
+    / +0.14 (Kp) / +0.24 (Sa)**. The case that proves the pair earns its keep: **62 E. coli
+    proteins sit at evidence 3 with consensus 0** -- assayed directly, not one compound potent. No
+    single column can say "well measured, and the answer was no".
+
+    **KP'S 11 IS THE FINDING, NOT A DEGENERATE LEVEL.** It matches the axis's own "ChEMBL holds 21
+    K. pneumoniae single-protein targets against 5,728", and the membership is the point:
+    `bla`, `KPC-2`, `blaSHV-11`, `blaCTX-M-14`, `ybtE`, then `rfbD`, `rpsR`, `atsA`, `dxs`,
+    `uppS`, `acpP` at 1-11 compounds each. **The only K. pneumoniae proteins anyone has screened
+    directly are the resistance enzymes.**
+
+    **Level 2 is transfer, and this axis has already shown transfer CANNOT be calibrated** --
+    `transfer_calibration.py` found `P(potent | neighbour potent)` flat from 25% to 100% identity.
+    So a 2 means "the number beside this came from a homolog", with no implied reliability.
+
+    **Level 1 is "nobody looked", which is the distinction the axis exists to make**: a 0 against
+    158 assayed compounds is a measured discouragement (Kp `pyrH`), a 0 against 0 is an open
+    question. A level-1 protein's `n_ligands_*` of 0 is never a measured negative.
+
+    **This is NOT the dropped four-tier `precedent_evidence`.** That column was removed as
+    redundant with the counts, and so is this one in the same narrow sense -- but every
+    `<axis>_evidence` in this project is derivable from its axis's own columns. The point is
+    CROSS-AXIS comparability: a reader stacking ten deliverables reads `<axis>_evidence` without
+    knowing any axis's internals. See `src/consensus.py`.
+
+    **A caveat that does not bite today but would.** `n_assayed_*` is `pd.NA` when the effort
+    extract is missing, and `_read()`'s `n_`-prefix branch maps an empty field to 0 on the way
+    back in -- so an absent extract would silently demote every protein to level 1 rather than
+    raising. `chembl_assayed.tsv` is present and no row is NA, so the ladder is honest; this
+    raises if that ever changes rather than shipping a proteome of 1s.
+    """
+    need = ("n_assayed_own", "n_assayed_bacterial")
+    missing = [c for c in need if c not in df.columns]
+    if missing:
+        raise KeyError(f"ligands_evidence needs {missing}; present: {list(df.columns)}")
+    own, bact = df["n_assayed_own"], df["n_assayed_bacterial"]
+    if own.isna().all() and bact.isna().all():
+        raise ValueError(
+            "every n_assayed_* is NA -- the effort extract "
+            "(ligands/scratch/chembl_assayed.tsv) is missing, so the ladder would read 1 for the "
+            "whole proteome. Rebuild it rather than shipping that.")
+    level = pd.Series(1, index=df.index, dtype="Int64")
+    level[pd.to_numeric(bact, errors="coerce").fillna(0) > 0] = 2
+    level[pd.to_numeric(own, errors="coerce").fillna(0) > 0] = 3
+    return level
 
 
 def load(species: str) -> pd.DataFrame:

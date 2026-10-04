@@ -55,6 +55,14 @@ computational throughout, so there a 3 is method corroboration, never experiment
 and a 1 means "could not look" rather than "not yet measured". Say which an axis means in its own
 docstring; the words here assume an axis that can have an experiment, and most cannot.
 
+**A ZERO-INFLATED AXIS PINS ITS ZERO BLOCK TO 0 rather than to the average rank.** `ligands` does
+this (project owner, 2026-10-04): ~97% of each proteome has no ligand evidence at all, and under
+`percentile_consensus()`'s average-rank ties that whole block would read **0.491**, mid-scale, so
+"nobody ever assayed this" would look moderately ligandable. It ranks within the evidence-bearing
+subset and sets the rest to exactly 0, in its OWN module -- `percentile_consensus()` is unchanged,
+because essentiality and degradability have continuous inputs and the largest tie block there is
+eight. Before reaching for the plain function, look at the largest tie block.
+
 **Level 0 does not exist.** Every protein in every axis has a prediction, so "no evidence
 whatever" is unreachable and a 0 would mean the source count is broken.
 
