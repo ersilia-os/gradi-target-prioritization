@@ -144,7 +144,7 @@ def plot_tiers(ax, data: dict) -> None:
     ax.set_ylim(0, 100)
     ax.legend(fontsize=SS * 0.78, frameon=False, loc="lower center", bbox_to_anchor=(0.5, -0.155),
               ncol=1, handletextpad=0.4, labelspacing=0.25)
-    stylia.label(ax, xlabel="", ylabel="% of proteome", title="A zero is not the same claim")
+    stylia.label(ax, xlabel="", ylabel="% of proteome", title="Orthology literature donors")
 
 
 #: How many of the top-cited proteins to name on the ranked panel.
@@ -213,7 +213,7 @@ def plot_pubtator_rank(ax, data: dict, species: str, n_label: int) -> pd.DataFra
     ax.set_ylim(0, np.log1p(scored["pub"].max()) * 1.18)
     stylia.label(ax, xlabel=f"Rank within {LABELS[species]} (log)",
                  ylabel="PubTator mentions (prokaryotic donor)",
-                 title="A very short head, then a long tail")
+                 title="PubTator hits")
     return scored
 
 
