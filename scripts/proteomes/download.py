@@ -82,6 +82,9 @@ import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+from src import proteomes as P_SRC  # noqa: E402
+
 REGISTRY_PATH = REPO_ROOT / "src" / "proteome_registry.tsv"
 RAW_DIR = REPO_ROOT / "data" / "source" / "uniprot" / "proteomes"
 OUT_DIR = REPO_ROOT / "data" / "processed" / "proteomes"
@@ -634,7 +637,12 @@ IDENTITY_OUT = [
 # rule is "map by sequence, not by accession", so the column every external join needs belongs in
 # the table everything loads. `geneid` goes to evidence/ but is NOT idle: the literature axis keys
 # NCBI counts on it, through load_full().
-DELIVERABLE_OUT = ["uniprot_ac", "is_reviewed", "gene_name", "protein_name", "sequence"]
+# `is_reviewed` was swapped for `proteome_evidence` (owner's call, 2026-10-04): the boolean is
+# nearly degenerate per species -- Ec and human 100% reviewed, Kp 7 of 5,728 -- so on three of four
+# proteomes it separated nothing. The flag itself stays in the full table next door; the ladder
+# that replaces it is `src.proteomes.identity_evidence`, defined there so this writer and any
+# rebuild share ONE definition.
+DELIVERABLE_OUT = list(P_SRC.DELIVERABLE_COLUMNS)
 LOCUS_OUT = ["uniprot_ac", "locus_tag", "locus_tag_all"]
 
 
@@ -820,6 +828,7 @@ def main() -> None:
         fp = EVIDENCE_DIR / f"proteome_full_{sp}.tsv"
         ident.to_csv(fp, sep="\t", index=False)
         ip = OUT_DIR / f"proteome_{sp}.tsv"
+        ident["proteome_evidence"] = P_SRC.identity_evidence(ident)
         ident[DELIVERABLE_OUT].to_csv(ip, sep="\t", index=False)
         say(f"    wrote {ip.name}  ({len(ident)} rows x {len(DELIVERABLE_OUT)} cols)"
             f"  + evidence/{fp.name} ({ident.shape[1]} cols)")

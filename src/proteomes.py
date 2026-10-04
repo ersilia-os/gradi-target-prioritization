@@ -12,6 +12,7 @@ that `id_bridge()` replaces here.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -23,14 +24,69 @@ SCRATCH_DIR = PROTEOME_DIR / "scratch"
 SPECIES = ("kpneumoniae", "ecoli", "saureus", "human")
 
 
-DELIVERABLE_COLUMNS = ["uniprot_ac", "is_reviewed", "gene_name", "protein_name", "sequence"]
+DELIVERABLE_COLUMNS = ["uniprot_ac", "gene_name", "protein_name", "sequence",
+                       "proteome_evidence"]
+
+# A protein name that declares unknown function. `DUF` is literally "Domain of Unknown Function",
+# so `DUF1176 domain-containing protein` belongs here -- while `Lipoprotein`, `Oxidoreductase` and
+# `N-acetyltransferase domain-containing protein` name real functional classes and do not.
+GENERIC_NAME = re.compile(r"uncharacteri[sz]ed|hypothetical|unknown function|\bDUF\d+", re.I)
+
+
+def identity_evidence(full: pd.DataFrame) -> pd.Series:
+    """`proteome_evidence`, 1-3, from the 9-column table. The axis's half of the standard pair.
+
+        3  the entry carries its OWN identity -- SwissProt-reviewed, or a gene symbol on the
+           anchor entry itself -- AND a specific protein name
+        2  one of those two
+        1  neither: no symbol of its own, and a generic name
+
+    Kp 2,205 / 2,469 / 1,054 · Ec 0 / 648 / 3,755 · Sa 1,510 / 485 / 894 ·
+    human 0 / 490 / 19,926.
+
+    **It replaces `is_reviewed`, which was nearly degenerate per species** -- E. coli and human are
+    100% reviewed and K. pneumoniae is 7 of 5,728, so on three of four proteomes the boolean
+    separated nothing. The raw flag stays in `evidence/proteome_full_<species>.tsv`.
+
+    **"Own identity" is `is_reviewed OR gene_name_source == "anchor"`, and the second disjunct is
+    what rescues Kp**: only 7 Kp entries are reviewed, but 1,055 carry a gene symbol on the entry
+    itself. The two FILLED tiers (`species_exact`, `species_uniref90`) deliberately do NOT count --
+    that is the naming-gap work this axis did (Kp 18.4% -> 63.4%) and it is inference, not the
+    protein's own record. Mistaking the two would make an inferred symbol look like evidence.
+
+    **E. coli and human have no level 1, and that is correct.** Both are 100% SwissProt, so every
+    entry has been read by a curator and reaches at least 2.
+
+    **There is no `proteome_consensus`** -- identity is not a magnitude. The convention is evidence
+    always, consensus where the axis has one.
+    """
+    missing = [c for c in ("is_reviewed", "gene_name_source", "gene_name", "protein_name")
+               if c not in full.columns]
+    if missing:
+        raise KeyError(f"identity_evidence needs the FULL table; absent: {missing}. "
+                       f"Use load_full(), not load().")
+    reviewed = full["is_reviewed"].astype(str).str.lower().isin(("true", "1")) \
+        if full["is_reviewed"].dtype == object else full["is_reviewed"].astype(bool)
+    own = reviewed | full["gene_name_source"].fillna("").eq("anchor")
+    named = full["gene_name"].fillna("").astype(str).ne("")
+    specific = ~full["protein_name"].fillna("").astype(str).str.contains(GENERIC_NAME)
+
+    level = pd.Series(1, index=full.index, dtype="int64")
+    level[(own | (named & specific)).to_numpy()] = 2
+    level[(own & specific).to_numpy()] = 3
+    return level.astype("Int64")
 
 
 def load(species: str) -> pd.DataFrame:
     """`proteome_<species>.tsv` — 5 columns, keyed on `uniprot_ac`. **This file defines THE ROW
     ORDER** every other matrix in the project follows.
 
-        uniprot_ac  is_reviewed  gene_name  protein_name  sequence
+        uniprot_ac  gene_name  protein_name  sequence  proteome_evidence
+
+    **`proteome_evidence` (1-3) replaced `is_reviewed` on 2026-10-04** — see `identity_evidence()`
+    above for the ladder and why. The boolean was nearly degenerate per species (Ec and human 100%
+    reviewed, Kp 7 of 5,728); it survives byte-identically in `evidence/proteome_full_<species>.tsv`
+    via `load_full()`. There is no `proteome_consensus`: identity is not a magnitude.
 
     **`sequence` stays here deliberately.** The project's standing rule is *map by sequence, not by
     accession* — HS11286 is a dark TrEMBL proteome whose accessions ChEMBL, BindingDB and the PDB
@@ -64,6 +120,9 @@ def _read_identity(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
     if "is_reviewed" in df.columns:
         df["is_reviewed"] = df["is_reviewed"].map({"True": True, "False": False}).astype(bool)
+    if "proteome_evidence" in df.columns:
+        df["proteome_evidence"] = pd.to_numeric(df["proteome_evidence"],
+                                                errors="coerce").astype("Int64")
     return df
 
 

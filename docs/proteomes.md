@@ -23,10 +23,41 @@ ORDER** every other matrix in the project follows.
 
 | column | |
 |---|---|
-| `is_reviewed` | SwissProt-reviewed vs TrEMBL |
+| `proteome_evidence` | **1–3**, the identity ladder — see below |
 | `gene_name` | the symbol — **not a join key**, 63.4% on Kp and 44.6% on Sa |
 | `protein_name` | UniProt's recommended or submitted name |
 | `sequence` | **the real join key to every external database** |
+
+### `proteome_evidence` replaced `is_reviewed`
+
+Changed 2026-10-04. The boolean was nearly degenerate *per species* — E. coli and human are 100%
+SwissProt, K. pneumoniae is 7 of 5,728 — so on three of four proteomes it separated nothing.
+
+| level | rule | Kp | Ec | Sa | human |
+|---|---|---|---|---|---|
+| 3 | own identity **and** a specific protein name | 1,054 | 3,755 | 894 | 19,926 |
+| 2 | one of the two | 2,469 | 648 | 485 | 490 |
+| 1 | neither | 2,205 | 0 | 1,510 | 0 |
+
+**"Own identity" is `is_reviewed` OR `gene_name_source == "anchor"`**, and the second disjunct is
+what makes the column useful on the anchor: only 7 Kp entries are reviewed, but 1,055 carry a gene
+symbol on the entry itself. **The two filled tiers (`species_exact`, `species_uniref90`)
+deliberately do not count** — that is this axis's own naming work (Kp 18.4% → 63.4%), which is
+inference, not the protein's record. Treating it as evidence would make the axis grade its own
+homework.
+
+**"Specific protein name"** excludes `uncharacterized`, `hypothetical`, `unknown function` and
+`DUF\d+` — DUF is *Domain of Unknown Function*, so "DUF1176 domain-containing protein" declares
+unknown function, while "Lipoprotein", "Oxidoreductase" and "N-acetyltransferase domain-containing
+protein" name real functional classes and count as specific.
+
+**E. coli and human have no level 1, and that is correct** — every entry has been read by a
+curator, so nothing can fall below 2.
+
+`is_reviewed` survives byte-identically in `evidence/proteome_full_<species>.tsv` via
+`load_full()`. There is **no `proteome_consensus`**: identity is not a magnitude. The rule lives in
+`src.proteomes.identity_evidence()`, which `scripts/proteomes/download.py` imports, so the writer
+and any rebuild share one definition.
 
 **`sequence` stays here deliberately** (owner's call, 2026-10-03, when the table went from 9
 columns to 5). The project's standing rule is *map by sequence, not by accession* — HS11286 is a

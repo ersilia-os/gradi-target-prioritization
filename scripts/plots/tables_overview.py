@@ -83,8 +83,13 @@ AC = {"uniprot_ac": "UniProt accession. The canonical key in every table, and th
 
 COLUMNS: dict[str, dict[str, str]] = {
     "proteome": AC | {
-        "is_reviewed": "SwissProt-reviewed (true) vs TrEMBL. HS11286 is a dark TrEMBL proteome -- "
-                       "which is why external databases are reached by sequence, not accession.",
+        "proteome_evidence": "1-3, replacing is_reviewed, which was degenerate per species (Ec "
+                             "and human 100% reviewed, Kp 7 of 5,728). 3 = the entry carries its "
+                             "OWN identity (SwissProt-reviewed, or a gene symbol on the anchor "
+                             "entry) AND a specific protein name · 2 = one of those · 1 = neither. "
+                             "The two FILLED naming tiers do not count as own identity -- they are "
+                             "inference. Ec and human have no level 1 because every entry is "
+                             "curator-read. is_reviewed itself is in evidence/proteome_full_<sp>.tsv.",
         "gene_name": "gene symbol. Kp 63.4% / Sa 44.6% after three labelled filling tiers, from "
                      "18.4% / 28.2% raw. NEVER the join key -- use locus_tag.",
         "protein_name": "UniProt's recommended or submitted protein name.",
