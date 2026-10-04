@@ -57,6 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
+| `studiedness_essentiality.py` | `studiedness_essentiality.png` | how dark Kp is, and why "unexplored" and "essential" are not independent |
 | `degradability_cv.py` | `degradability_cv.png` | does the model work? ROC and PR with the across-fold band, and where the scores land per proteome |
 | `enrichment.py` | `enrichment.png` | what kind of protein ClpP reaches: COG function and compartment/topology |
 | `projection_pair.py` | `projection_pair.png` | one map read twice: compartment, then the top 250 essential |
@@ -113,6 +114,17 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   for random draws of the same size — they genuinely cluster, measured before being drawn. They are
   COG J (translation) 90 of 250, and 78.8% cytoplasmic against a 60.5% proteome background, with
   outer membrane enriched (8.4% vs 4.1%) and extracellular absent entirely.
+- **studiedness vs essentiality**: ρ(`studiedness_consensus`, `essentiality_consensus`) is
+  **+0.332 Kp / +0.440 Ec** over all proteins, **+0.433 / +0.448** at `studiedness_evidence >= 2`,
+  and **+0.639 / +0.456** at evidence 3 — it **strengthens** as the literature evidence improves,
+  so it is not an artifact of the zero block. Controlling for protein length changes nothing
+  (+0.364 Kp, +0.437 Ec). Median essentiality across studiedness bins: Kp 0.41 → 0.82 (8 bins, the
+  34% zero block is one tie), Ec 0.39 → 0.85 (10 bins). Cross-species: Kp median 4 papers with
+  **34.4% at zero** against Ec's 6 and 0.7%; evidence tiers **1,961/3,403/364** vs **29/519/3,855**,
+  i.e. Ec is 87.6% on its own curated literature where Kp is 6.4%. **The deck implication**: the
+  "unexplored and essential" quadrant in `novelty_vs_essentiality.png` is genuinely thinner than it
+  looks. Association only — people study essential genes, and easily-studied genes are easier to
+  call essential.
 - **degradability CV**: cluster-grouped, 5 folds x 5 seeds, TabPFN-3.5 on ESM-C. ADEP4
   **0.8738 ± 0.0029 AUROC / 0.6103 ± 0.0091 PR** on n=1,677 (base 0.137); ONC212
   **0.7671 ± 0.0060 / 0.5803 ± 0.0075** on n=1,045 (base 0.246). Length-only baseline 0.775 / 0.680;
@@ -135,6 +147,22 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   enriched. Two rows need a health warning — see below.
 - **pockets**: PDB 569 / 1,893 / 595; own drug-like ligands 88 / 308 / 90; AlphaFill 1,533 / 1,196 /
   704. Length-controlled AUROC P2Rank Kp **0.496** (raw 0.615), fpocket Kp **0.434** (raw 0.511).
+
+## Measured but not drawn
+
+Reproducible from the deliverables; recorded here so they are not lost.
+
+- **degradability ↔ pockets = −0.571 Kp / −0.557 Ec / −0.561 Sa**, falling to ≈ −0.22 controlling
+  for length but surviving on all three. The two chemistry-facing axes pull apart: a protein with a
+  good pocket is one ClpP is less likely to degrade, so a shortlist demanding both is fighting
+  itself.
+- **Protein length is a latent axis** across the prioritisation: ρ −0.68 (degradability), +0.66
+  (pockets), +0.32 (studiedness) on all three species, while essentiality (−0.04) and ligands
+  (+0.12) are nearly clean.
+- **degradability ↔ studiedness flips sign under length control** (Ec −0.053 → +0.176; Sa −0.101 →
+  +0.210) — a suppression effect.
+- **`ligands_consensus` is ~97% ties at exactly 0 on Kp** (the zero block is pinned by design), so
+  any Spearman involving it is dominated by that tie block and is not an ordinary correlation.
 
 ## Caveats that must travel with the deck
 

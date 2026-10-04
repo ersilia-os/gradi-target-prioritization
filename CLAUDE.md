@@ -1661,6 +1661,13 @@ and worth stating as a number: on Kp, median length is **88 aa for `unclassified
 length deciles `unclassified`'s top-decile rate ratio falls **3.85 -> 2.64** — a real residual, but a
 third of that bar is protein size wearing a category's name (measured 2026-10-04).
 
+**`<axis>_consensus` IS WITHIN-SPECIES, SO A CROSS-SPECIES PANEL CANNOT USE IT.** It is a mean of
+percentile ranks, so its distribution is uniform *by construction* — measured **mean 0.500 and
+median ~0.506 in BOTH Kp and Ec**. Two overlaid consensus histograms are identical and say nothing.
+`plotting/studiedness_essentiality.py` is the first figure where obeying `src/consensus.py`'s *rank
+within a species, never across* visibly changes the design: its cross-species panels use the RAW
+counts and the evidence tiers, and only the within-species panel uses the consensus.
+
 **Four stylia traps, every one silent, all four hit while building this axis:**
 
 1. **`create_figure(width=, height=)` takes FRACTIONS OF THE FORMAT SIZE, not inches.** `width=13`
