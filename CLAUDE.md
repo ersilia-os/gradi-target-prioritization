@@ -471,7 +471,11 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   Details: `docs/embeddings.md`. Provenance: `data/source/proteomelm/SOURCE.md`.
 
 - **`embeddings/projection.py`** → `projection_<species>.tsv`: `uniprot_ac · tsne_x · tsne_y`, 100%
-  coverage, **no colour column** — join anything else on `uniprot_ac`.
+  coverage, **no colour column** — join anything else on `uniprot_ac`. **This axis ships NEITHER
+  standard column** (owner's call, 2026-10-04): a t-SNE coordinate has no magnitude to rank and no
+  evidence to grade — it is a deterministic reduction of an embedding, not a claim about the
+  protein — so `<axis>_consensus`/`<axis>_evidence` would be constant for all 13,020 rows. **The
+  gap is deliberate; do not "complete" it.**
 
   **The recipe is inherited from v1, not re-derived** (openTSNE multiscale, cosine, PCA-50, `dof=0.8`,
   winner of a 33-config sweep). **Do not re-run that sweep** — the code was deleted, so the verdict

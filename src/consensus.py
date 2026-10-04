@@ -1,10 +1,22 @@
-"""The two standard columns every axis ships: `<axis>_consensus` and `<axis>_evidence`.
+"""The two standard columns an axis ships: `<axis>_consensus` and `<axis>_evidence`.
 
-Each of the ten deliverables answers one question in its own columns, on its own scale. These two
-make the axes comparable without a reader knowing any axis's internals:
+Each deliverable answers one question in its own columns, on its own scale. These two make the
+axes comparable without a reader knowing any axis's internals:
 
     <axis>_consensus   float 0-1   higher = more of whatever the axis measures
     <axis>_evidence    int 1-3     how well corroborated that value is
+
+**THE RULE IS: EVIDENCE ALWAYS, CONSENSUS WHERE THE AXIS HAS A MAGNITUDE.** A consensus needs a
+0-1 "how much of this property" to express; function and proteomes have none -- *how much function
+does a protein have* and *how much identity* are not quantities -- so those two ship the evidence
+column alone. A column is omitted, never shipped all-null: a null here means a real absence, and
+an all-null column invites someone to fill it.
+
+**EMBEDDINGS SHIPS NEITHER, by decision (project owner, 2026-10-04).** `projection_<sp>.tsv` is
+two t-SNE coordinates: there is no magnitude to rank and no evidence to grade, because the
+coordinates are a deterministic reduction of an embedding rather than a claim about the protein.
+Forcing the pair on would produce two columns that say the same thing for all 13,020 rows. The
+gap is deliberate -- do not "complete" it.
 
 **PREFIXED WITH THE AXIS, and that is not decoration.** The tables share a row set and row order
 so any two stack with `pd.concat(axis=1)`. A bare `consensus` would give ten identically-named
