@@ -307,6 +307,9 @@ scripts/
   plots/          10 scripts, ALL figures
   workers/        tabpfn_cv.py             transversal; every axis may call it
 
+plotting/         TOP-LEVEL, cross-axis, presentation-only. parents[1], NOT parents[2].
+                  filters.py = the shortlist predicates, defined once -> output/plots/presentation/
+
 src/              flat. one module per task + matrices.py, tabpfn.py, interest.py, proteomelm.py
 docs/             one .md per task, named for the task (docs/function.md, not docs/02_function.md)
 tools/            one-shot migration scripts, kept for the record
@@ -369,8 +372,22 @@ traps that fail silently. The measured tables, the rejected alternatives, the co
 the run log are in `docs/<task>.md`** — named at the end of each entry, and that doc is the record.
 
 - **`proteomes/download.py`** → `data/processed/proteomes/proteome_<species>.tsv`, four tables,
-  **5 columns**, keyed on `uniprot_ac`: `is_reviewed` · `gene_name` · `protein_name` · `sequence`
-  (owner's call, 2026-10-03 — it was 9). **`sequence` STAYS in the deliverable deliberately**: the
+  **5 columns**, keyed on `uniprot_ac`: `gene_name` · `protein_name` · `sequence` ·
+  **`proteome_evidence`** (owner's call, 2026-10-03 — it was 9).
+
+  **`proteome_evidence` (1–3) REPLACED `is_reviewed`** (2026-10-04), which was nearly degenerate
+  per species: Ec and human are **100% reviewed**, Kp is **7 of 5,728**, so on three of four
+  proteomes the boolean separated nothing. **3** = the entry carries its OWN identity
+  (SwissProt-reviewed, **or** a gene symbol on the anchor entry itself) AND a specific protein name
+  · **2** = one of those · **1** = neither. Kp 2,205/2,469/1,054 · Ec 0/648/3,755 · Sa
+  1,510/485/894 · human 0/490/19,926. **Ec and human have NO level 1 and that is correct** — every
+  entry is curator-read. **The two FILLED naming tiers deliberately do NOT count as own identity**:
+  that is this axis's own inference (Kp 18.4% → 63.4%), not the protein's record. Generic name =
+  `uncharacterized|hypothetical|unknown function|DUF\d+` — **DUF is Domain of Unknown Function**,
+  while `Oxidoreductase` and `N-acetyltransferase domain-containing protein` are real classes.
+  `is_reviewed` survives byte-identically in `evidence/proteome_full_<species>.tsv`. **No
+  `proteome_consensus`** — identity is not a magnitude. Rule in `src.proteomes.identity_evidence`,
+  shared by the writer so there is ONE definition. **`sequence` STAYS in the deliverable deliberately**: the
   standing rule is *map by sequence, not by accession*, so the column every external join needs
   belongs in the table everything loads. The four provenance columns — `gene_name_source`,
   `gene_synonyms`, `refseq`, `geneid` — are in **`evidence/proteome_full_<species>.tsv`** via
@@ -1379,6 +1396,57 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
 
   **A finding for the collaboration: the consortium's own panel is NOT novel** — `src/interest.py`
   sits at the 80th percentile (median) on Kp. Details: `docs/studiedness.md`.
+
+## Presentation figures live in `plotting/`, not `scripts/plots/`
+
+**Two folders, two jobs, and they must not be merged.** `scripts/plots/` holds the PER-AXIS
+DIAGNOSTICS — written to defend a stage, cited from `docs/<task>.md`. **`plotting/` is top-level,
+CROSS-AXIS and presentation-only**: it joins degradability to localization to essentiality to
+orthology to answer the only question the GraDi consortium asks, *which K. pneumoniae proteins
+should we pursue*. Outputs go to `output/plots/presentation/`, never to `output/plots/<task>/`.
+The record is `docs/presentation.md`.
+
+**`REPO_ROOT = Path(__file__).resolve().parents[1]` in `plotting/`, NOT `parents[2]`.** Rule 1 of
+*Four rules the layout depends on* says `parents[2]` because a stage script sits two levels
+deep under `scripts/<task>/`; a `plotting/` script is ONE level deep. Copying the `parents[2]` line resolves `REPO_ROOT` to the repo's
+PARENT, and the resulting ImportError names `src`, not the path — so it reads as a broken conda env.
+The check that proves it is running each script `--help` from ELSEWHERE.
+
+**NO COMPOSITE SCORE, EVER — a plotting script is exactly where one would sneak back in.** Three
+axes each REMOVED one: essentiality dropped `essentiality`/`essentiality_source` (it MIXED UNITS, a
+measured 1.0 against a predicted 1.0, and on Kp was a verbatim copy of `screens_ess_mean`);
+studiedness removed its 0-1 composite on 2026-09-22 (the two halves double-counted, r 0.64–0.70);
+pockets ships no `druggability()` because *"no defensible weighting exists"*. A weighted rank is
+invisible once drawn — a ranked list looks equally plausible whatever weights produced it.
+
+**So the shortlist is a CASCADE OF STATED PREDICATES**, defined ONCE in `plotting/filters.py` and
+imported, never restated: `build_filters()` · `cascade()` · `leave_one_out()` · `load_joined()`.
+That module is the ONE shared file; style constants stay copy-pasted per script, which is the
+existing `scripts/plots/` convention and is deliberate. Measured on Kp, 2026-10-04:
+**5,728 → 4,294 (not membrane) → 3,497 (no human ortholog) → 235 (essentiality top decile) →
+59 (ADEP4 ≥ 0.328)**.
+
+**`leave_one_out()` is not decoration — the filters are CONJUNCTIVE, so the funnel overstates the
+early rules.** Without `essential` the cascade gives 792; without `not_membrane` it gives **63
+against 59**. The membrane rule costs almost nothing because the degradability model already
+learned the mechanism, which is why `not_membrane` is a statement about mechanism and not a filter
+that earns its keep numerically.
+
+**Four stylia traps, every one silent, all four hit while building this axis:**
+
+1. **`create_figure(width=, height=)` takes FRACTIONS OF THE FORMAT SIZE, not inches.** `width=13`
+   asks for thirteen slide-widths and yields a **4-gigapixel, 16 MB PNG** — and the script exits 0.
+2. **`label(..., xlabel=None)` writes the literal placeholder `"X-axis / Units"`** onto the figure.
+   Pass `""` for no label.
+3. **`set_style("ersilia")` MUST precede `NamedColors()`.** Without it `NamedColors()` returns
+   `ArticleColors`, whose palette is `amber/cobalt/crimson/...`, and every `NC.plum` raises
+   `AttributeError` — which reads as a broken stylia install.
+4. **Run plot scripts ONE AT A TIME** (the known `rmtree` trap). A tight loop over `plotting/*.py`
+   reports a *different* spurious subset as broken each run.
+
+Each script prints its own numbers and its own caveats after the figures, and **no figure asserts a
+value its own script did not compute** — that is how these ten were validated against the measured
+tables already in this file.
 
 ## Legacy
 
