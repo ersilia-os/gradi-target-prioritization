@@ -308,7 +308,8 @@ scripts/
   workers/        tabpfn_cv.py             transversal; every axis may call it
 
 plotting/         TOP-LEVEL, cross-axis, presentation-only. parents[1], NOT parents[2].
-                  filters.py = the shortlist predicates, defined once -> output/plots/presentation/
+                  filters.py = the shortlist predicates, defined once
+                  palette.py = stylia's npg palette, NOT its ersilia one -> output/plots/presentation/
 
 src/              flat. one module per task + matrices.py, tabpfn.py, interest.py, proteomelm.py
 docs/             one .md per task, named for the task (docs/function.md, not docs/02_function.md)
@@ -1498,8 +1499,7 @@ invisible once drawn — a ranked list looks equally plausible whatever weights 
 
 **So the shortlist is a CASCADE OF STATED PREDICATES**, defined ONCE in `plotting/filters.py` and
 imported, never restated: `build_filters()` · `cascade()` · `leave_one_out()` · `load_joined()`.
-That module is the ONE shared file; style constants stay copy-pasted per script, which is the
-existing `scripts/plots/` convention and is deliberate. Measured on Kp, 2026-10-04:
+Measured on Kp, 2026-10-04:
 **5,728 → 4,294 (not membrane) → 3,497 (no human ortholog) → 235 (essentiality top decile) →
 59 (ADEP4 ≥ 0.328)**.
 
@@ -1509,15 +1509,38 @@ against 59**. The membrane rule costs almost nothing because the degradability m
 learned the mechanism, which is why `not_membrane` is a statement about mechanism and not a filter
 that earns its keep numerically.
 
+**COLOURS COME FROM STYLIA'S `npg` PALETTE, NOT STYLIA'S `ersilia` PALETTE.** Standing instruction
+from the project owner, 2026-10-04. `set_style` and the palette are **two different knobs** and only
+the second is constrained: `stylia.set_style("ersilia")` still sets typography, grid and spines, but
+`stylia.NamedColors()` — which returns the ersilia plum/orange/mint set — **must not be used**.
+Colours come from `stylia.CategoricalPalette("npg")` via **`plotting/palette.py`**, under SEMANTIC
+names (`PRIMARY`/`SECONDARY`/`TERTIARY`/`ACCENT`/`MUTED`/`INK`/`BACKDROP`), because `NPG[5]` at a
+call site says nothing about intent and changes meaning silently if the palette is reordered.
+
+**`plotting/palette.py` is the SECOND shared module, and centralising it is a deliberate departure
+from `scripts/plots/`**, where style constants are copy-pasted by design. The reason the exception
+holds: a palette stops being per-script taste once the owner sets it as a rule, and **a deck
+rendered half in one palette and half in another is a defect no single script can see**.
+`plotting/filters.py` is the other shared module, for the same class of reason — it carries a
+claim, not a preference.
+
+**`src/localization.py:LOC_CLASS_COLOR` IS ALREADY npg** (#E64B35, #00A087, #3C5488, #F39B7F,
+#8491B4, #7E6148 are ggsci `pal_npg`) and is **imported, never redefined** — restating those six in
+`plotting/` is how the deck drifts away from the localization axis's own figures.
+
+**Capitalise axis labels** (`"Proteins remaining"`, not `"proteins remaining"`) — a standing
+convention, and one these figures got wrong on the first pass.
+
 **Four stylia traps, every one silent, all four hit while building this axis:**
 
 1. **`create_figure(width=, height=)` takes FRACTIONS OF THE FORMAT SIZE, not inches.** `width=13`
    asks for thirteen slide-widths and yields a **4-gigapixel, 16 MB PNG** — and the script exits 0.
 2. **`label(..., xlabel=None)` writes the literal placeholder `"X-axis / Units"`** onto the figure.
    Pass `""` for no label.
-3. **`set_style("ersilia")` MUST precede `NamedColors()`.** Without it `NamedColors()` returns
-   `ArticleColors`, whose palette is `amber/cobalt/crimson/...`, and every `NC.plum` raises
-   `AttributeError` — which reads as a broken stylia install.
+3. **`label(..., xlabel=None)` writes the placeholder, and `set_style` gates `NamedColors()`.**
+   Without `set_style("ersilia")` first, `NamedColors()` returns `ArticleColors` and `NC.plum`
+   raises `AttributeError`, reading as a broken install — moot here, since `plotting/` takes its
+   colours from `palette.py` and must not call `NamedColors()` at all.
 4. **Run plot scripts ONE AT A TIME** (the known `rmtree` trap). A tight loop over `plotting/*.py`
    reports a *different* spurious subset as broken each run.
 

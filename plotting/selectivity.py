@@ -28,7 +28,8 @@ names `src`, not the path, so it reads as a broken conda env.
 
 `stylia.label(..., xlabel=None)` writes the placeholder "X-axis / Units"; pass "" for no label.
 `stylia.create_figure(width=, height=)` takes FRACTIONS of the format size, not inches.
-`stylia.set_style("ersilia")` MUST precede `NamedColors()`, or NC.plum raises AttributeError.
+Colours come from `plotting/palette.py` (stylia's **npg** palette), never from
+`stylia.NamedColors()`, which returns the ersilia plum/orange/mint set.
 
 Run with the `gradi` env, ONE PLOT SCRIPT AT A TIME:
     python plotting/selectivity.py
@@ -53,14 +54,17 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from src import orthology as O  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 SPECIES = ["kpneumoniae", "ecoli", "saureus"]
@@ -71,9 +75,9 @@ def plot_counts(ax, dense: dict, abc: str) -> None:
     x = np.arange(len(SPECIES))
     width = 0.26
     series = [
-        ("OrthoFinder", "n_orthologs_of_human", NC.blue),
-        ("RBH", "n_orthologs_rbh_human", NC.orange),
-        ("union (shipped)", "has_human_ortholog", NC.plum),
+        ("OrthoFinder", "n_orthologs_of_human", PAL.TERTIARY),
+        ("RBH", "n_orthologs_rbh_human", PAL.SECONDARY),
+        ("union (shipped)", "has_human_ortholog", PAL.PRIMARY),
     ]
     for i, (name, col, color) in enumerate(series):
         vals = []
@@ -84,7 +88,7 @@ def plot_counts(ax, dense: dict, abc: str) -> None:
             vals.append(v.mean() * 100)
         ax.bar(x + (i - 1) * width, vals, width=width, color=color, label=name)
         for xi, v in zip(x + (i - 1) * width, vals):
-            ax.text(xi, v + 0.3, f"{v:.0f}", ha="center", fontsize=SS * 0.8, color=NC.black)
+            ax.text(xi, v + 0.3, f"{v:.0f}", ha="center", fontsize=SS * 0.8, color=PAL.INK)
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
@@ -95,7 +99,7 @@ def plot_counts(ax, dense: dict, abc: str) -> None:
 def plot_identity(ax, dense: dict, abc: str) -> None:
     """Identity of the human calls. The 40-50% band is where the two methods disagree and where
     ortholog-vs-paralog is genuinely ambiguous -- so identity ships as a column, never a filter."""
-    for sp, color in zip(SPECIES, [NC.plum, NC.orange, NC.blue]):
+    for sp, color in zip(SPECIES, [PAL.PRIMARY, PAL.SECONDARY, PAL.TERTIARY]):
         d = dense[sp]
         v = pd.to_numeric(d.loc[d["has_human_ortholog"].astype(bool), "best_identity_human"],
                           errors="coerce").dropna()
@@ -103,10 +107,10 @@ def plot_identity(ax, dense: dict, abc: str) -> None:
             continue
         ax.hist(v, bins=40, histtype="step", lw=2, color=color,
                 label=f"{LABELS[sp]}  median {v.median():.1f}%")
-    ax.axvspan(40, 50, color=NC.gray, alpha=0.35)
-    ax.text(45, ax.get_ylim()[1] * 0.93, "ambiguous", fontsize=SS, color=NC.black, ha="center")
+    ax.axvspan(40, 50, color=PAL.MUTED, alpha=0.35)
+    ax.text(45, ax.get_ylim()[1] * 0.93, "ambiguous", fontsize=SS, color=PAL.INK, ha="center")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
-    stylia.label(ax, xlabel="% identity to the human ortholog", ylabel="proteins",
+    stylia.label(ax, xlabel="% identity to the human ortholog", ylabel="Proteins",
                  title="Identity is a column, not a filter", abc=abc)
 
 
@@ -116,15 +120,15 @@ def plot_selectivity_gain(ax, dense: dict, abc: str) -> None:
     width = 0.38
     before = [len(dense[sp]) for sp in SPECIES]
     after = [int((~dense[sp]["has_human_ortholog"].astype(bool)).sum()) for sp in SPECIES]
-    ax.bar(x - width / 2, before, width=width, color=NC.gray, label="proteome")
-    ax.bar(x + width / 2, after, width=width, color=NC.plum, label="no human ortholog")
+    ax.bar(x - width / 2, before, width=width, color=PAL.MUTED, label="proteome")
+    ax.bar(x + width / 2, after, width=width, color=PAL.PRIMARY, label="no human ortholog")
     for xi, b, a in zip(x, before, after):
         ax.text(xi + width / 2, a + 60, f"{a / b * 100:.0f}%", ha="center", fontsize=SS,
-                color=NC.black)
+                color=PAL.INK)
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
-    stylia.label(ax, xlabel="", ylabel="proteins", title="What the filter keeps", abc=abc)
+    stylia.label(ax, xlabel="", ylabel="Proteins", title="What the filter keeps", abc=abc)
 
 
 def main() -> None:

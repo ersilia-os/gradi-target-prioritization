@@ -26,7 +26,8 @@ names `src`, not the path, so it reads as a broken conda env.
 
 `stylia.label(..., xlabel=None)` writes the placeholder "X-axis / Units"; pass "" for no label.
 `stylia.create_figure(width=, height=)` takes FRACTIONS of the format size, not inches.
-`stylia.set_style("ersilia")` MUST precede `NamedColors()`, or NC.plum raises AttributeError.
+Colours come from `plotting/palette.py` (stylia's **npg** palette), never from
+`stylia.NamedColors()`, which returns the ersilia plum/orange/mint set.
 
 Run with the `gradi` env, ONE PLOT SCRIPT AT A TIME:
     python plotting/degradability.py
@@ -51,18 +52,21 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from src import degradability as D  # noqa: E402
 from src import localization as LOC  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
-ACT_COLOR = {"adep4": NC.plum, "onc212": NC.orange}
+ACT_COLOR = {"adep4": PAL.PRIMARY, "onc212": PAL.SECONDARY}
 
 
 def plot_distribution(ax, deg: pd.DataFrame, abc: str) -> None:
@@ -72,10 +76,10 @@ def plot_distribution(ax, deg: pd.DataFrame, abc: str) -> None:
         ax.hist(v, bins=60, histtype="step", lw=2, color=ACT_COLOR[act],
                 label=f"{act.upper()}  max {v.max():.3f}")
         ax.axvline(D.BASE_RATE_THRESHOLD[act], color=ACT_COLOR[act], lw=1.2, ls="--")
-    ax.axvline(0.5, color=NC.black, lw=1.4, ls=":")
-    ax.text(0.5, ax.get_ylim()[1] * 0.55, " 0.5 (wrong)", fontsize=SS, color=NC.black)
+    ax.axvline(0.5, color=PAL.INK, lw=1.4, ls=":")
+    ax.text(0.5, ax.get_ylim()[1] * 0.55, " 0.5 (wrong)", fontsize=SS, color=PAL.INK)
     ax.legend(fontsize=SS, frameon=False, loc="upper right", bbox_to_anchor=(1.0, 0.98))
-    stylia.label(ax, xlabel="predicted probability", ylabel="proteins",
+    stylia.label(ax, xlabel="Predicted probability", ylabel="Proteins",
                  title="Dashed = the cut that applies", abc=abc)
 
 
@@ -101,12 +105,12 @@ def plot_hit_rate(ax, abc: str) -> None:
                label=act.upper())
         for xi, r, n in zip(x + (i - 0.5) * width, rates, ns):
             if not np.isnan(r):
-                ax.text(xi, r + 0.008, f"{n}", ha="center", fontsize=SS * 0.8, color=NC.black)
+                ax.text(xi, r + 0.008, f"{n}", ha="center", fontsize=SS * 0.8, color=PAL.INK)
 
     ax.set_xticks(x)
     ax.set_xticklabels([LOC.LOC_CLASS_ABBREV[c] for c in order], fontsize=SS)
     ax.legend(fontsize=SS, frameon=False, loc="upper left")
-    stylia.label(ax, xlabel="compartment (measured, S. aureus)", ylabel="hit rate",
+    stylia.label(ax, xlabel="Compartment (measured, S. aureus)", ylabel="Hit rate",
                  title="Secreted proteins ARE reachable", abc=abc)
 
 
@@ -120,7 +124,7 @@ def plot_extrapolation(ax, species: list[str], abc: str) -> None:
         ax.hist(v, bins=60, histtype="step", lw=2,
                 label=f"{LABELS[sp]}  median {v.median():.3f}")
     ax.legend(fontsize=SS, frameon=False, loc="upper left")
-    stylia.label(ax, xlabel="cosine to nearest labelled S. aureus protein", ylabel="proteins",
+    stylia.label(ax, xlabel="Cosine to nearest labelled S. aureus protein", ylabel="Proteins",
                  title="What the model is extrapolating across", abc=abc)
 
 

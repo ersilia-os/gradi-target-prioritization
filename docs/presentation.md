@@ -57,7 +57,28 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
+| `projection_pair.py` | `projection_pair.png` | one map read twice: compartment, then the top 250 essential |
 | `shortlist.py` | `shortlist.png`, `shortlist_kpneumoniae.tsv` | five rules, 59 proteins, and what each rule cost |
+
+## Palette: stylia's `npg`, not stylia's `ersilia`
+
+Owner's instruction, 2026-10-04. `set_style` and the palette are two different knobs and only the
+second is constrained: `stylia.set_style("ersilia")` still sets typography, grid and spines, but
+`stylia.NamedColors()` (the plum/orange/mint set) is not used. Colours come from
+`stylia.CategoricalPalette("npg")` through **`plotting/palette.py`**, under semantic names —
+`PRIMARY` · `SECONDARY` · `TERTIARY` · `ACCENT` · `MUTED` · `INK` · `BACKDROP` — because `NPG[5]` at
+a call site says nothing about intent.
+
+`plotting/palette.py` is the second shared module, beside `filters.py`, and centralising it is a
+deliberate departure from `scripts/plots/`'s copy-paste convention: a palette stops being
+per-script taste once it is a rule, and a deck rendered half in one palette and half in another is
+a defect no single script can see.
+
+**`src/localization.py:LOC_CLASS_COLOR` is already npg** (#E64B35, #00A087, #3C5488, #F39B7F,
+#8491B4, #7E6148 are ggsci `pal_npg`) and is imported rather than redefined, so the deck and the
+localization axis's own plots cannot drift apart.
+
+**Axis labels are capitalised** — a standing convention these figures got wrong on the first pass.
 
 ## Measured values these figures printed
 
@@ -78,6 +99,10 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   documented 0.38–0.50, so ranking on `screens_ess_mean` buys a less circular quadrant.
 - **selectivity**: human orthologs Kp 951 / Ec 838 / Sa 624 (union); **RBH-only 180 on Kp**.
 - **ligands**: potent Kp 113 / Ec 96 / Sa 78; screened-but-nothing-potent Kp 64; never looked 5,453.
+- **projection pair**: the top 250 essential have mean pairwise map distance **24.3 against 50.9**
+  for random draws of the same size — they genuinely cluster, measured before being drawn. They are
+  COG J (translation) 90 of 250, and 78.8% cytoplasmic against a 60.5% proteome background, with
+  outer membrane enriched (8.4% vs 4.1%) and extracellular absent entirely.
 - **pockets**: PDB 569 / 1,893 / 595; own drug-like ligands 88 / 308 / 90; AlphaFill 1,533 / 1,196 /
   704. Length-controlled AUROC P2Rank Kp **0.496** (raw 0.615), fpocket Kp **0.434** (raw 0.511).
 

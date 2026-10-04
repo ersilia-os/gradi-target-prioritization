@@ -31,7 +31,8 @@ names `src`, not the path, so it reads as a broken conda env.
 
 `stylia.label(..., xlabel=None)` writes the placeholder "X-axis / Units"; pass "" for no label.
 `stylia.create_figure(width=, height=)` takes FRACTIONS of the format size, not inches.
-`stylia.set_style("ersilia")` MUST precede `NamedColors()`, or NC.plum raises AttributeError.
+Colours come from `plotting/palette.py` (stylia's **npg** palette), never from
+`stylia.NamedColors()`, which returns the ersilia plum/orange/mint set.
 
 Run with the `gradi` env, ONE PLOT SCRIPT AT A TIME:
     python plotting/ligandability.py
@@ -56,14 +57,17 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from src import ligandability as LG  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 SPECIES = ["kpneumoniae", "ecoli", "saureus"]
@@ -75,19 +79,19 @@ def plot_quadrant(ax, lg: pd.DataFrame, abc: str) -> None:
     x = np.log1p(pd.to_numeric(lg["n_assayed_bacterial"], errors="coerce").fillna(0))
     y = np.log1p(pd.to_numeric(lg["n_ligands_bacterial"], errors="coerce").fillna(0))
     jitter = np.random.default_rng(0).normal(0, 0.045, len(x))
-    ax.scatter(x + jitter, y + jitter, s=5, color=NC.plum, alpha=0.45, linewidths=0,
+    ax.scatter(x + jitter, y + jitter, s=5, color=PAL.PRIMARY, alpha=0.45, linewidths=0,
                rasterized=True)
 
     discouraged = int(((pd.to_numeric(lg["n_assayed_bacterial"], errors="coerce").fillna(0) >= 10)
                        & (pd.to_numeric(lg["n_ligands_bacterial"], errors="coerce").fillna(0) == 0)).sum())
     ax.text(0.97, 0.13, f"screened, nothing potent: {discouraged:,}", transform=ax.transAxes,
-            fontsize=SS, color=NC.black, ha="right")
+            fontsize=SS, color=PAL.INK, ha="right")
     ticks = [0, 1, 10, 100, 1000]
     ax.set_xticks(np.log1p(ticks))
     ax.set_xticklabels([str(t) for t in ticks], fontsize=SS)
     ax.set_yticks(np.log1p(ticks))
     ax.set_yticklabels([str(t) for t in ticks], fontsize=SS)
-    stylia.label(ax, xlabel="compounds assayed (bacterial)", ylabel="potent compounds",
+    stylia.label(ax, xlabel="Compounds assayed (bacterial)", ylabel="Potent compounds",
                  title="A 0 is not always a 0", abc=abc)
 
 
@@ -100,9 +104,9 @@ def plot_fraction(ax, data: dict, abc: str) -> None:
         n = int((pd.to_numeric(lg["n_ligands_bacterial"], errors="coerce").fillna(0) > 0).sum())
         ns.append(n)
         vals.append(n / len(lg) * 100)
-    ax.bar(x, vals, color=NC.plum, width=0.55)
+    ax.bar(x, vals, color=PAL.PRIMARY, width=0.55)
     for xi, v, n in zip(x, vals, ns):
-        ax.text(xi, v + 0.05, f"{n}\n{v:.1f}%", ha="center", fontsize=SS, color=NC.black)
+        ax.text(xi, v + 0.05, f"{n}\n{v:.1f}%", ha="center", fontsize=SS, color=PAL.INK)
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.set_ylim(0, max(vals) * 1.35)
@@ -114,19 +118,19 @@ def plot_scope(ax, data: dict, abc: str) -> None:
     bacterial count -- clpP carries 106 human compounds against 61 bacterial."""
     x = np.arange(len(SPECIES))
     width = 0.26
-    series = [("this protein", "n_ligands_own", NC.plum),
-              ("bacterial homolog", "n_ligands_bacterial", NC.orange),
-              ("human (liability)", "n_ligands_human", NC.blue)]
+    series = [("this protein", "n_ligands_own", PAL.PRIMARY),
+              ("bacterial homolog", "n_ligands_bacterial", PAL.SECONDARY),
+              ("human (liability)", "n_ligands_human", PAL.TERTIARY)]
     for i, (name, col, color) in enumerate(series):
         vals = [int((pd.to_numeric(data[sp][col], errors="coerce").fillna(0) > 0).sum())
                 for sp in SPECIES]
         ax.bar(x + (i - 1) * width, vals, width=width, color=color, label=name)
         for xi, v in zip(x + (i - 1) * width, vals):
-            ax.text(xi, v + 2, f"{v}", ha="center", fontsize=SS * 0.8, color=NC.black)
+            ax.text(xi, v + 2, f"{v}", ha="center", fontsize=SS * 0.8, color=PAL.INK)
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
-    stylia.label(ax, xlabel="", ylabel="proteins with a potent compound",
+    stylia.label(ax, xlabel="", ylabel="Proteins with a potent compound",
                  title="Homology transfer is the whole game", abc=abc)
 
 

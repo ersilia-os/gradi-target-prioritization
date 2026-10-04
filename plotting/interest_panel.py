@@ -25,7 +25,8 @@ names `src`, not the path, so it reads as a broken conda env.
 
 `stylia.label(..., xlabel=None)` writes the placeholder "X-axis / Units"; pass "" for no label.
 `stylia.create_figure(width=, height=)` takes FRACTIONS of the format size, not inches.
-`stylia.set_style("ersilia")` MUST precede `NamedColors()`, or NC.plum raises AttributeError.
+Colours come from `plotting/palette.py` (stylia's **npg** palette), never from
+`stylia.NamedColors()`, which returns the ersilia plum/orange/mint set.
 
 Run with the `gradi` env, ONE PLOT SCRIPT AT A TIME:
     python plotting/interest_panel.py
@@ -50,15 +51,18 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from plotting import filters as F  # noqa: E402
 from src import interest as I  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 
@@ -76,16 +80,16 @@ AXES = [
 def plot_found(ax, cov: pd.DataFrame, abc: str) -> None:
     """Found vs missing per family. Missing is a naming gap far more often than an absence."""
     y = np.arange(len(cov))[::-1]
-    ax.barh(y, cov["n_found"], color=NC.plum, height=0.6, label="found by symbol")
-    ax.barh(y, cov["n_panel"] - cov["n_found"], left=cov["n_found"], color=NC.gray,
+    ax.barh(y, cov["n_found"], color=PAL.PRIMARY, height=0.6, label="found by symbol")
+    ax.barh(y, cov["n_panel"] - cov["n_found"], left=cov["n_found"], color=PAL.MUTED,
             height=0.6, label="not matched")
     for yi, f_, n_ in zip(y, cov["n_found"], cov["n_panel"]):
-        ax.text(n_ + 0.25, yi, f"{f_}/{n_}", va="center", fontsize=SS, color=NC.black)
+        ax.text(n_ + 0.25, yi, f"{f_}/{n_}", va="center", fontsize=SS, color=PAL.INK)
     ax.set_yticks(y)
     ax.set_yticklabels(cov["family"], fontsize=SS * 0.95)
     ax.set_xlim(0, cov["n_panel"].max() * 1.25)
     ax.legend(fontsize=SS, frameon=False, loc="lower right")
-    stylia.label(ax, xlabel="panel members", ylabel="", title="Is the panel findable?", abc=abc)
+    stylia.label(ax, xlabel="Panel members", ylabel="", title="Is the panel findable?", abc=abc)
 
 
 def plot_percentiles(ax, panel: pd.DataFrame, full: pd.DataFrame, abc: str) -> None:
@@ -102,15 +106,15 @@ def plot_percentiles(ax, panel: pd.DataFrame, full: pd.DataFrame, abc: str) -> N
 
     y = np.arange(len(rows))[::-1]
     for yi, (_n, q1, med, q3) in zip(y, rows):
-        color = NC.orange if med < 50 else NC.plum
+        color = PAL.SECONDARY if med < 50 else PAL.PRIMARY
         ax.plot([q1, q3], [yi, yi], color=color, lw=4, solid_capstyle="round", alpha=0.55)
         ax.plot([med], [yi], "o", color=color, markersize=7)
-        ax.text(med, yi + 0.33, f"{med:.0f}", fontsize=SS, color=NC.black, ha="center")
-    ax.axvline(50, color=NC.black, lw=1.0, ls="--")
+        ax.text(med, yi + 0.33, f"{med:.0f}", fontsize=SS, color=PAL.INK, ha="center")
+    ax.axvline(50, color=PAL.INK, lw=1.0, ls="--")
     ax.set_yticks(y)
     ax.set_yticklabels([r[0] for r in rows], fontsize=SS)
     ax.set_xlim(0, 100)
-    stylia.label(ax, xlabel="percentile within proteome", ylabel="",
+    stylia.label(ax, xlabel="Percentile within proteome", ylabel="",
                  title="Right biology, wrong chemistry", abc=abc)
 
 
@@ -120,16 +124,16 @@ def plot_degradability(ax, panel: pd.DataFrame, full: pd.DataFrame, abc: str) ->
     Survival rather than a histogram because the question is "how far up the ranking does this set
     reach", which a cumulative curve answers directly and a binned count does not."""
     for data, name, color in (
-        (full["adep4_prob"], f"proteome (n={len(full):,})", NC.gray),
-        (panel["adep4_prob"], f"consortium panel (n={len(panel)})", NC.plum),
+        (full["adep4_prob"], f"proteome (n={len(full):,})", PAL.MUTED),
+        (panel["adep4_prob"], f"consortium panel (n={len(panel)})", PAL.PRIMARY),
     ):
         v = np.sort(pd.to_numeric(data, errors="coerce").dropna().to_numpy())[::-1]
         ax.step(v, np.arange(1, len(v) + 1) / len(v) * 100, where="post", color=color, lw=2,
                 label=name)
     from src import degradability as D
 
-    ax.axvline(D.BASE_RATE_THRESHOLD["adep4"], color=NC.orange, lw=1.3, ls="--")
-    ax.text(D.BASE_RATE_THRESHOLD["adep4"], 86, " base-rate cut", fontsize=SS, color=NC.orange)
+    ax.axvline(D.BASE_RATE_THRESHOLD["adep4"], color=PAL.SECONDARY, lw=1.3, ls="--")
+    ax.text(D.BASE_RATE_THRESHOLD["adep4"], 86, " base-rate cut", fontsize=SS, color=PAL.SECONDARY)
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
     stylia.label(ax, xlabel="ADEP4 probability", ylabel="% of set at or above",
                  title="The panel is depleted, not enriched", abc=abc)

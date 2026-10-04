@@ -30,7 +30,8 @@ names `src`, not the path, so it reads as a broken conda env.
 
 `stylia.label(..., xlabel=None)` writes the placeholder "X-axis / Units"; pass "" for no label.
 `stylia.create_figure(width=, height=)` takes FRACTIONS of the format size, not inches.
-`stylia.set_style("ersilia")` MUST precede `NamedColors()`, or NC.plum raises AttributeError.
+Colours come from `plotting/palette.py` (stylia's **npg** palette), never from
+`stylia.NamedColors()`, which returns the ersilia plum/orange/mint set.
 
 Run with the `gradi` env, ONE PLOT SCRIPT AT A TIME:
     python plotting/pockets.py
@@ -55,15 +56,18 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from src import pockets as PK  # noqa: E402
 from src import proteomes as P  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 SHORT = {"kpneumoniae": "Kp", "ecoli": "Ec", "saureus": "Sa"}
@@ -91,11 +95,11 @@ def plot_coverage(ax, data: dict, abc: str) -> None:
         pk = data[sp]
         modelled.append(pd.to_numeric(pk["af_plddt"], errors="coerce").notna().mean() * 100)
         solved.append((pd.to_numeric(pk["n_pdb_structures"], errors="coerce").fillna(0) > 0).mean() * 100)
-    ax.bar(x - width / 2, modelled, width=width, color=NC.plum, label="AlphaFold model")
-    ax.bar(x + width / 2, solved, width=width, color=NC.orange, label="experimental PDB")
+    ax.bar(x - width / 2, modelled, width=width, color=PAL.PRIMARY, label="AlphaFold model")
+    ax.bar(x + width / 2, solved, width=width, color=PAL.SECONDARY, label="experimental PDB")
     for xi, m, s in zip(x, modelled, solved):
-        ax.text(xi - width / 2, m + 1, f"{m:.0f}%", ha="center", fontsize=SS, color=NC.black)
-        ax.text(xi + width / 2, s + 1, f"{s:.0f}%", ha="center", fontsize=SS, color=NC.black)
+        ax.text(xi - width / 2, m + 1, f"{m:.0f}%", ha="center", fontsize=SS, color=PAL.INK)
+        ax.text(xi + width / 2, s + 1, f"{s:.0f}%", ha="center", fontsize=SS, color=PAL.INK)
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.set_ylim(0, 112)
@@ -112,16 +116,16 @@ def plot_ligands(ax, data: dict, abc: str) -> None:
            for sp in SPECIES]
     af = [int((pd.to_numeric(data[sp]["n_ligands_alphafill"], errors="coerce").fillna(0) > 0).sum())
           for sp in SPECIES]
-    ax.bar(x - width / 2, pdb, width=width, color=NC.orange, label="measured (own PDB)")
-    ax.bar(x + width / 2, af, width=width, color=NC.blue, label="modelled (AlphaFill)")
+    ax.bar(x - width / 2, pdb, width=width, color=PAL.SECONDARY, label="measured (own PDB)")
+    ax.bar(x + width / 2, af, width=width, color=PAL.TERTIARY, label="modelled (AlphaFill)")
     for xi, a, b in zip(x, pdb, af):
-        ax.text(xi - width / 2, a + 18, f"{a}", ha="center", fontsize=SS, color=NC.black)
-        ax.text(xi + width / 2, b + 18, f"{b:,}", ha="center", fontsize=SS, color=NC.black)
+        ax.text(xi - width / 2, a + 18, f"{a}", ha="center", fontsize=SS, color=PAL.INK)
+        ax.text(xi + width / 2, b + 18, f"{b:,}", ha="center", fontsize=SS, color=PAL.INK)
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.set_ylim(0, max(af) * 1.28)
     ax.legend(fontsize=SS, frameon=False, loc="upper center", ncol=2)
-    stylia.label(ax, xlabel="", ylabel="proteins with a drug-like ligand",
+    stylia.label(ax, xlabel="", ylabel="Proteins with a drug-like ligand",
                  title="Never sum these two", abc=abc)
 
 
@@ -146,9 +150,9 @@ def plot_length_control(ax, data: dict, lengths: dict, abc: str) -> None:
             rows.append((sp, name, raw, within))
 
     x = np.arange(len(rows))
-    ax.bar(x - 0.19, [r[2] for r in rows], width=0.38, color=NC.gray, label="raw AUROC")
-    ax.bar(x + 0.19, [r[3] for r in rows], width=0.38, color=NC.plum, label="within length deciles")
-    ax.axhline(0.5, color=NC.black, lw=1.1, ls="--")
+    ax.bar(x - 0.19, [r[2] for r in rows], width=0.38, color=PAL.MUTED, label="raw AUROC")
+    ax.bar(x + 0.19, [r[3] for r in rows], width=0.38, color=PAL.PRIMARY, label="within length deciles")
+    ax.axhline(0.5, color=PAL.INK, lw=1.1, ls="--")
     ax.set_xticks(x)
     ax.set_xticklabels([f"{r[1]}\n{SHORT[r[0]]}" for r in rows], fontsize=SS * 0.78)
     ax.set_ylim(0, 1)

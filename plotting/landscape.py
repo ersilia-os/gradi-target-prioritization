@@ -41,17 +41,20 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from src import function as FN  # noqa: E402
 from src import localization as LOC  # noqa: E402
 from src import projections as PROJ  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia -- set_style MUST precede NamedColors().
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py`, which is stylia's **npg** palette and not stylia's ersilia palette
+# (owner's instruction). Do not reintroduce `stylia.NamedColors()` here.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 
@@ -64,13 +67,7 @@ COG_GROUP_SHORT = {
     "METABOLISM": "metabolism",
     "POORLY CHARACTERIZED": "poorly characterised",
 }
-COG_GROUP_COLOR = {
-    "information": "#00A087",
-    "cellular processes": "#3C5488",
-    "metabolism": "#E64B35",
-    "poorly characterised": "#B0B0AC",
-    "not classified": "#E8E8E4",
-}
+COG_GROUP_COLOR = PAL.COG_GROUP_COLOR
 
 
 def _scatter(ax, xy, colors, s=1.6):
@@ -119,7 +116,7 @@ def plot_cog_bars(ax, df, abc: str) -> None:
     y = np.arange(len(order))[::-1]
     ax.barh(y, vals, color=[COG_GROUP_COLOR[k] for k in order], height=0.6)
     for yi, v in zip(y, vals):
-        ax.text(v + 1, yi, f"{v:.0f}%", va="center", fontsize=SS, color=NC.black)
+        ax.text(v + 1, yi, f"{v:.0f}%", va="center", fontsize=SS, color=PAL.INK)
     ax.set_yticks(y)
     ax.set_yticklabels(order, fontsize=SS)
     ax.set_xlim(0, max(vals) * 1.22)

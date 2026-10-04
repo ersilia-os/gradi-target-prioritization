@@ -26,7 +26,8 @@ names `src`, not the path, so it reads as a broken conda env.
 
 `stylia.label(..., xlabel=None)` writes the placeholder "X-axis / Units"; pass "" for no label.
 `stylia.create_figure(width=, height=)` takes FRACTIONS of the format size, not inches.
-`stylia.set_style("ersilia")` MUST precede `NamedColors()`, or NC.plum raises AttributeError.
+Colours come from `plotting/palette.py` (stylia's **npg** palette), never from
+`stylia.NamedColors()`, which returns the ersilia plum/orange/mint set.
 
 Run with the `gradi` env, ONE PLOT SCRIPT AT A TIME:
     python plotting/essentiality.py
@@ -52,20 +53,23 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from src import essentiality as E  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 
 PREDICTORS = ["screens_ess_mean", "proteomelm_ess", "geptop_ess"]
 PRED_SHORT = {"screens_ess_mean": "screens", "proteomelm_ess": "ProteomeLM", "geptop_ess": "Geptop"}
-PRED_COLOR = {"screens_ess_mean": NC.plum, "proteomelm_ess": NC.blue, "geptop_ess": NC.orange}
+PRED_COLOR = {"screens_ess_mean": PAL.PRIMARY, "proteomelm_ess": PAL.TERTIARY, "geptop_ess": PAL.SECONDARY}
 
 
 def plot_distributions(ax, ess: pd.DataFrame, abc: str) -> None:
@@ -77,7 +81,7 @@ def plot_distributions(ax, ess: pd.DataFrame, abc: str) -> None:
                 label=f"{PRED_SHORT[col]}  {(v == 0).mean() * 100:.0f}% tied at 0")
     ax.set_yscale("log")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
-    stylia.label(ax, xlabel="predicted essentiality", ylabel="proteins (log)",
+    stylia.label(ax, xlabel="Predicted essentiality", ylabel="Proteins (log)",
                  title="Three predictors, three shapes", abc=abc)
 
 
@@ -86,9 +90,9 @@ def plot_agreement(ax, ess: pd.DataFrame, abc: str) -> None:
     pairs = list(itertools.combinations(PREDICTORS, 2))
     vals = [ess[a].corr(ess[b], method="spearman") for a, b in pairs]
     y = np.arange(len(pairs))[::-1]
-    ax.barh(y, vals, color=NC.plum, height=0.55)
+    ax.barh(y, vals, color=PAL.PRIMARY, height=0.55)
     for yi, v in zip(y, vals):
-        ax.text(v + 0.012, yi, f"{v:.2f}", va="center", fontsize=SS, color=NC.black)
+        ax.text(v + 0.012, yi, f"{v:.2f}", va="center", fontsize=SS, color=PAL.INK)
     ax.set_yticks(y)
     ax.set_yticklabels([f"{PRED_SHORT[a]} / {PRED_SHORT[b]}" for a, b in pairs], fontsize=SS)
     ax.set_xlim(0, 1)
@@ -102,9 +106,9 @@ def plot_overlap(ax, ess: pd.DataFrame, top: int, abc: str) -> None:
     tops = {c: set(ess.nlargest(top, c)["uniprot_ac"]) for c in PREDICTORS}
     vals = [len(tops[a] & tops[b]) for a, b in pairs]
     y = np.arange(len(pairs))[::-1]
-    ax.barh(y, vals, color=NC.orange, height=0.55)
+    ax.barh(y, vals, color=PAL.SECONDARY, height=0.55)
     for yi, v in zip(y, vals):
-        ax.text(v + top * 0.015, yi, f"{v}/{top}", va="center", fontsize=SS, color=NC.black)
+        ax.text(v + top * 0.015, yi, f"{v}/{top}", va="center", fontsize=SS, color=PAL.INK)
     ax.set_yticks(y)
     ax.set_yticklabels([f"{PRED_SHORT[a]} / {PRED_SHORT[b]}" for a, b in pairs], fontsize=SS)
     ax.set_xlim(0, top * 1.15)

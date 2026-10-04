@@ -21,7 +21,8 @@ names `src`, not the path, so it reads as a broken conda env.
 
 `stylia.label(..., xlabel=None)` writes the placeholder "X-axis / Units"; pass "" for no label.
 `stylia.create_figure(width=, height=)` takes FRACTIONS of the format size, not inches.
-`stylia.set_style("ersilia")` MUST precede `NamedColors()`, or NC.plum raises AttributeError.
+Colours come from `plotting/palette.py` (stylia's **npg** palette), never from
+`stylia.NamedColors()`, which returns the ersilia plum/orange/mint set.
 
 Run with the `gradi` env, ONE PLOT SCRIPT AT A TIME (stylia rmtree's the matplotlib cache dir):
     python plotting/coverage.py
@@ -46,6 +47,8 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from src import degradability as D  # noqa: E402
 from src import essentiality as E  # noqa: E402
 from src import function as FN  # noqa: E402
@@ -57,23 +60,18 @@ from src import studiedness as ST  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 
 # The five studiedness tiers, ordered strongest-evidence first. Two of them score 0 meaning
 # different things, which is the whole point of panel B.
 TIER_ORDER = ["swissprot_direct", "swissprot_close", "swissprot_homolog", "below_floor", "no_hit"]
-TIER_COLOR = {
-    "swissprot_direct": "#00A087",
-    "swissprot_close": "#4DBBA5",
-    "swissprot_homolog": "#9AD5C8",
-    "below_floor": "#F39B7F",
-    "no_hit": "#E64B35",
-}
+TIER_COLOR = PAL.TIER_COLOR
 
 
 def axis_coverage(sp: str) -> pd.DataFrame:
@@ -137,10 +135,10 @@ def plot_coverage(ax, cov: pd.DataFrame, abc: str) -> None:
     pct_i = cov["informative"] / cov["n"] * 100
     pct_u = cov["unknown"] / cov["n"] * 100
 
-    ax.barh(y, pct_i, color=NC.plum, height=0.62, label="axis can speak to this protein")
-    ax.barh(y, pct_u, left=pct_i, color=NC.gray, height=0.62, label="a 0 here means UNKNOWN")
+    ax.barh(y, pct_i, color=PAL.PRIMARY, height=0.62, label="axis can speak to this protein")
+    ax.barh(y, pct_u, left=pct_i, color=PAL.MUTED, height=0.62, label="a 0 here means UNKNOWN")
     for yi, pi in zip(y, pct_i):
-        ax.text(101, yi, f"{pi:.0f}%", va="center", fontsize=SS, color=NC.black)
+        ax.text(101, yi, f"{pi:.0f}%", va="center", fontsize=SS, color=PAL.INK)
 
     ax.set_yticks(y)
     ax.set_yticklabels(cov["axis"], fontsize=SS)
@@ -159,11 +157,11 @@ def plot_tiers(ax, tr: pd.DataFrame, abc: str) -> None:
 
     ax.barh(y, vals, color=[TIER_COLOR[t] for t in order], height=0.62)
     for yi, v in zip(y, vals):
-        ax.text(v + max(vals) * 0.02, yi, f"{v:,}", va="center", fontsize=SS, color=NC.black)
+        ax.text(v + max(vals) * 0.02, yi, f"{v:,}", va="center", fontsize=SS, color=PAL.INK)
     ax.set_yticks(y)
     ax.set_yticklabels(order, fontsize=SS)
     ax.set_xlim(0, max(vals) * 1.2)
-    stylia.label(ax, xlabel="proteins", ylabel="",
+    stylia.label(ax, xlabel="Proteins", ylabel="",
                  title="Studiedness: both red tiers read 0", abc=abc)
 
 

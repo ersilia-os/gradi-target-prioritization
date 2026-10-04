@@ -48,17 +48,18 @@ sys.path.insert(0, str(REPO_ROOT))
 os.makedirs(matplotlib.get_cachedir(), exist_ok=True)
 import stylia  # noqa: E402
 
+from plotting import palette as PAL  # noqa: E402
+
 from plotting import filters as F  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia -- change with stylia.set_format() / stylia.set_style()
-# set_style MUST precede NamedColors(): without it NamedColors returns ArticleColors and every
-# NC.plum below raises AttributeError.
+# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
+# `plotting/palette.py`, which is stylia's **npg** palette and not stylia's ersilia palette
+# (owner's instruction). Do not reintroduce `stylia.NamedColors()` here.
 stylia.set_format("slide")
 stylia.set_style("ersilia")
 
-NC = stylia.NamedColors()
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 
@@ -85,15 +86,15 @@ def plot_funnel(ax, steps: list[F.Step], n_start: int, abc: str) -> None:
     counts = [n_start] + [s.n_after for s in steps]
     y = np.arange(len(counts))[::-1]
 
-    colors = [NC.gray] + [NC.plum] * len(steps)
+    colors = [PAL.MUTED] + [PAL.PRIMARY] * len(steps)
     ax.barh(y, counts, color=colors, height=0.62)
     for yi, c in zip(y, counts):
-        ax.text(c + n_start * 0.015, yi, f"{c:,}", va="center", fontsize=SS, color=NC.black)
+        ax.text(c + n_start * 0.015, yi, f"{c:,}", va="center", fontsize=SS, color=PAL.INK)
 
     ax.set_yticks(y)
     ax.set_yticklabels(names, fontsize=SS)
     ax.set_xlim(0, n_start * 1.16)
-    stylia.label(ax, xlabel="proteins remaining", ylabel="", title="Four rules, in order", abc=abc)
+    stylia.label(ax, xlabel="Proteins remaining", ylabel="", title="Four rules, in order", abc=abc)
 
 
 def plot_cost(ax, loo: dict[str, int], n_final: int, abc: str) -> None:
@@ -105,19 +106,19 @@ def plot_cost(ax, loo: dict[str, int], n_final: int, abc: str) -> None:
     vals = [loo[k] for k in loo]
     y = np.arange(len(vals))[::-1]
 
-    ax.barh(y, vals, color=NC.orange, height=0.62)
-    ax.axvline(n_final, color=NC.black, lw=1.2, ls="--")
+    ax.barh(y, vals, color=PAL.SECONDARY, height=0.62)
+    ax.axvline(n_final, color=PAL.INK, lw=1.2, ls="--")
     ax.text(
         n_final + max(vals) * 0.02, y.min() - 0.42, f"all four: {n_final}",
-        fontsize=SS, color=NC.black, ha="left", va="center",
+        fontsize=SS, color=PAL.INK, ha="left", va="center",
     )
     for yi, v in zip(y, vals):
-        ax.text(v + max(vals) * 0.02, yi, f"{v:,}", va="center", fontsize=SS, color=NC.black)
+        ax.text(v + max(vals) * 0.02, yi, f"{v:,}", va="center", fontsize=SS, color=PAL.INK)
 
     ax.set_yticks(y)
     ax.set_yticklabels(names, fontsize=SS)
     ax.set_xlim(0, max(vals) * 1.18)
-    stylia.label(ax, xlabel="survivors without this rule", ylabel="", title="What each rule costs", abc=abc)
+    stylia.label(ax, xlabel="Survivors without this rule", ylabel="", title="What each rule costs", abc=abc)
 
 
 def plot_survivors(ax, surv: pd.DataFrame, full: pd.DataFrame, top: int, abc: str) -> None:
@@ -139,13 +140,13 @@ def plot_survivors(ax, surv: pd.DataFrame, full: pd.DataFrame, top: int, abc: st
         pct = vals.apply(lambda v: np.nan if pd.isna(v) else (ref < v).mean() * 100.0)
         mat[:, j] = pct if higher else 100.0 - pct
 
-    im = ax.imshow(mat, aspect="auto", cmap="BuPu", vmin=0, vmax=100)
+    im = ax.imshow(mat, aspect="auto", cmap=PAL.SEQUENTIAL, vmin=0, vmax=100)
     ax.set_xticks(range(len(HEATMAP_COLUMNS)))
     ax.set_xticklabels([n for _c, n, _h in HEATMAP_COLUMNS], rotation=35, ha="right", fontsize=SS)
     ax.set_yticks(range(len(show)))
     ax.set_yticklabels(labels, fontsize=SS * 0.8)
     cb = ax.figure.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
-    cb.set_label("percentile within proteome", fontsize=SS)
+    cb.set_label("Percentile within proteome", fontsize=SS)
     cb.ax.tick_params(labelsize=SS)
     stylia.label(ax, xlabel="", ylabel="", title=f"Top {len(show)} survivors", abc=abc)
 
