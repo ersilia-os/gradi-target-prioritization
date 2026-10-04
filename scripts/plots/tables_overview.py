@@ -120,6 +120,18 @@ COLUMNS: dict[str, dict[str, str]] = {
         "proteomelm_ess": "ProteomeLM-Ess, the authors' own head. An independent fifth opinion "
                           "(rho 0.44 with geptop) -- and its meaning differs per anchor: Ec "
                           "held-out, Sa in-training, Kp unseen species.",
+        "essentiality_consensus": "0-1, the mean WITHIN-SPECIES percentile rank of the three "
+                                  "predictors -- ranked first because they are not comparable as "
+                                  "values. PREDICTORS ONLY: no measurement enters it. The three "
+                                  "agree only loosely (rho 0.13-0.57), so this is a consensus of "
+                                  "differing opinions. Never compare it across species.",
+        "essentiality_evidence": "1-3. 3 = two or more experimental sources, unanimous, AND "
+                                 "agreeing with the consensus · 2 = one source, or several that "
+                                 "conflict · 1 = no measurement. NOT purely experimental -- a "
+                                 "measurement the models contradict lands at 2, so do not read 2 "
+                                 "as 'the experiment was weak'. Kp reaches 3 for 3,973 proteins "
+                                 "and NOT ONE is measured on HS11286: all rest on >=2 screened "
+                                 "K. pneumoniae strains.",
         "screens_ess_mean": "mean probability over the ten published-screen models. The headline "
                         "column's fallback since 2026-10-03 -- it reaches AUROC 0.89-0.96 on the "
                         "three measured Kp screens against Geptop's 0.59-0.81.",

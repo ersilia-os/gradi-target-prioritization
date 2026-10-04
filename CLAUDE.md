@@ -1124,9 +1124,32 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   overlap is a real information channel. The first is the honest generalisation measure; the second
   is the operationally relevant one for Kp. Catalogue: `docs/essentiality_screens.md`.
 
-- **`essentiality/merge.py`** + **`registry.py`** → `essentiality_<species>.tsv`, **4 columns —
-  `uniprot_ac` + THREE PREDICTORS (`geptop_ess`, `proteomelm_ess`, `screens_ess_mean`) AND NO VERDICT**
-  — plus `deg_<species>.tsv` for the measurement. Joined **by sequence, not accession**.
+- **`essentiality/strain_homologs.py`** → **`merge.py`** + **`registry.py`** →
+  `essentiality_<species>.tsv`, **6 columns**: `uniprot_ac` + three predictors (`geptop_ess`,
+  `proteomelm_ess`, `screens_ess_mean`) + **`essentiality_consensus`** (0–1) and
+  **`essentiality_evidence`** (1–3) — plus `deg_<species>.tsv` for the measurement. Joined **by
+  sequence, not accession**.
+
+  **THE TWO STANDARD COLUMNS EVERY AXIS WILL SHIP** — convention in **`src/consensus.py`**, which
+  the other nine axes reuse. `<axis>_consensus` is the mean **within-species percentile rank** of
+  that axis's predictors (ranked first because the inputs are not comparable as values; **never
+  compare it across species**). `<axis>_evidence` is **count + concordance**: **3** = ≥2
+  independent experimental sources, unanimous, AND agreeing with the consensus · **2** = one
+  source, or several that conflict · **1** = no measurement. **Level 0 cannot occur** — every
+  protein has a prediction.
+
+  **`<axis>_evidence` IS NOT PURELY EXPERIMENTAL** (owner's call, 2026-10-04): a protein measured
+  twice, unanimously, whose consensus contradicts it lands at **2**. Do not read 2 as "the
+  experiment was weak". Concordance uses a **base-rate cut, never 0.5** — essentials are 11–17% of
+  a proteome — recorded per run in `evidence/consensus_audit.tsv`.
+
+  **`strain_homologs.py` is why Kp has any evidence at all.** DEG has **no Klebsiella** and exact
+  sequence matching against ALL of DEG reaches **29 of 5,728 Kp proteins (0.5%)**. A DIAMOND join
+  at **≥95% identity / ≥50% subject coverage** to the three screened Kp strains reaches **4,725
+  (82.5%), 4,390 in 2+ strains**. **It is a FLAG, NOT A LABEL TRANSFER** — the measured call never
+  enters the consensus, so the rejected label-transfer stays rejected. **Kp reaches level 3 for
+  3,973 proteins and NOT ONE is measured on HS11286**; `evidence/strain_homologs_<species>.tsv`
+  records which strains covered each, so that stays checkable.
 
   **`essentiality`/`essentiality_source` were dropped** (owner's call, 2026-10-03), so **which
   column to rank on is now an explicit choice**. Two reasons, both measured: the merge **MIXED

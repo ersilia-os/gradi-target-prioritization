@@ -94,6 +94,7 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
+from src import consensus as C  # noqa: E402
 from src import essentiality as Es  # noqa: E402
 from src import proteomes as P  # noqa: E402
 
@@ -157,6 +158,81 @@ def measured(sp: str, lab: pd.DataFrame) -> pd.DataFrame:
         {"deg_n_datasets": 0, "deg_n_essential": 0})
 
 
+CONSENSUS_INPUTS = ["geptop_ess", "proteomelm_ess", "screens_ess_mean"]
+
+
+def consensus_and_evidence(sp: str, df: pd.DataFrame):
+    """`essentiality_consensus` (0-1) and `essentiality_evidence` (1-3). See `src/consensus.py`.
+
+    THE CONSENSUS IS PREDICTORS ONLY -- the mean within-species percentile rank of the three
+    shipped columns. No measurement enters it, so it stays comparable across all three species and
+    every protein, and it is NOT the old `essentiality` column that was dropped for mixing units.
+
+    THE EVIDENCE IS COUNT + CONCORDANCE, over three independent experimental sources:
+
+        DEG screens on this exact strain        deg_n_datasets / deg_n_essential
+        the OGEE measured label                 ogee_evidence (1.0 / 0.0 / null)
+        a >=95% counterpart in a screened        strain_homologs_<sp>.tsv
+          strain of the same species
+
+    Each contributes binary calls; `unanimous` is simply whether the pooled positives are all or
+    none. **Concordance is judged against a BASE-RATE CUT, not 0.5**: essentials are ~8-16% of a
+    proteome, so a ranking agrees with a positive call when the protein sits in the top
+    `base_rate` fraction. Same reason `src.degradability.hits()` abandoned 0.5. The rate is
+    measured per species from the covered proteins and written to `evidence/consensus_audit.tsv`.
+
+    **A measurement that the models contradict lands at 2, not 3** (owner's call, 2026-10-04).
+    That is a deliberate property of the pair, not a claim that the experiment was weak -- the
+    per-protein breakdown stays in `evidence/strain_homologs_<sp>.tsv` and the per-source tables.
+    """
+    cons = C.percentile_consensus(df, CONSENSUS_INPUTS)
+
+    # EVERY SOURCE IS READ FROM ITS OWN FILE, never from `df`. The first version trusted `df` to
+    # carry `ogee_evidence` behind an `if ... in df.columns` guard; it does not -- the join loop
+    # above merges `ogee_ess` only -- so OGEE was silently omitted from every evidence level and
+    # 25 E. coli proteins whose screens and OGEE disagree were promoted to 3. A missing source
+    # must be loud, so an absent file raises here rather than quietly lowering the count.
+    key = df["uniprot_ac"]
+    n_calls = pd.Series(0, index=df.index, dtype=int)
+    n_pos = pd.Series(0, index=df.index, dtype=int)
+
+    deg = Es.load_deg(sp).set_index("uniprot_ac").reindex(key)
+    n_calls += deg["deg_n_datasets"].fillna(0).astype(int).to_numpy()
+    n_pos += deg["deg_n_essential"].fillna(0).astype(int).to_numpy()
+
+    og = pd.to_numeric(Es.load_ogee(sp).set_index("uniprot_ac").reindex(key)["ogee_evidence"],
+                       errors="coerce")
+    n_calls += og.notna().astype(int).to_numpy()
+    n_pos += (og == 1).astype(int).to_numpy()
+
+    sh_path = OUT_DIR / "evidence" / f"strain_homologs_{sp}.tsv"
+    if not sh_path.exists():
+        sys.exit(f"FATAL missing {sh_path.relative_to(REPO_ROOT)} -- run "
+                 f"scripts/essentiality/strain_homologs.py first. Skipping it would silently "
+                 f"drop every proxy measurement from the evidence level.")
+    sh = pd.read_csv(sh_path, sep="\t").set_index("uniprot_ac").reindex(key)
+    n_strains = int((sh["n_strains_measured"] > 0).sum())
+    n_calls += sh["n_strains_measured"].fillna(0).astype(int).to_numpy()
+    n_pos += sh["n_strains_essential"].fillna(0).astype(int).to_numpy()
+
+    covered = n_calls > 0
+    unanimous = covered & ((n_pos == 0) | (n_pos == n_calls))
+    # base rate among COVERED proteins only: an uncovered protein is not a measured negative.
+    base = float((n_pos[covered] > 0).mean()) if covered.any() else float("nan")
+    cut = C.base_rate_cut(cons, base) if covered.any() and 0 < base < 1 else float("nan")
+    called_pos = n_pos > 0
+    predicted_pos = cons >= cut if cut == cut else pd.Series(False, index=df.index)
+    concordant = called_pos.eq(predicted_pos)
+
+    level = C.evidence_level(n_calls, unanimous, concordant)
+    info = {"n_covered": int(covered.sum()), "n_proxy_only": n_strains,
+            "base_rate": round(base, 4) if base == base else None,
+            "consensus_cut": round(cut, 4) if cut == cut else None,
+            "level_1": int((level == 1).sum()), "level_2": int((level == 2).sum()),
+            "level_3": int((level == 3).sum())}
+    return cons.round(4), level, info
+
+
 def main() -> None:
     global VERBOSE
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
@@ -184,7 +260,7 @@ def main() -> None:
     rule()
     say("JOIN")
     rule()
-    rows = []
+    rows, cons_rows = [], []
     for sp in args.species:
         g = (Es.load_geptop(sp)[["uniprot_ac", "geptop_score", "geptop_evidence",
                                  "geptop_in_reference_set"]]
@@ -279,7 +355,12 @@ def main() -> None:
         #   essentiality             where(measured, deg_essential_any, screens_ess_mean)
         #   essentiality_source      where(deg_essential_any.notna(), measured, predicted_...)
         #   essentiality_rule        a 1:1 function of essentiality_source
-        head = ["uniprot_ac", "geptop_ess", "proteomelm_ess", "screens_ess_mean"]
+        df["essentiality_consensus"], df["essentiality_evidence"], cons_info = \
+            consensus_and_evidence(sp, df)
+        cons_rows.append({"species": sp, **cons_info})
+
+        head = ["uniprot_ac", "geptop_ess", "proteomelm_ess", "screens_ess_mean",
+                "essentiality_consensus", "essentiality_evidence"]
         out = OUT_DIR / f"essentiality_{sp}.tsv"
         df[[c for c in head if c in df.columns]].to_csv(out, sep="\t", index=False)
         n_meas = int(has.sum())
@@ -296,6 +377,8 @@ def main() -> None:
                      "rule": args.rule})
     pd.DataFrame(rows).to_csv(OUT_DIR / "evidence" / "essentiality_merge_manifest.tsv",
                               sep="\t", index=False)
+    pd.DataFrame(cons_rows).to_csv(OUT_DIR / "evidence" / "consensus_audit.tsv",
+                                   sep="\t", index=False)
     rule("=")
     say("merged essentiality complete.")
     rule("=")

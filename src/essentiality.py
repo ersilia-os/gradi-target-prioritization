@@ -127,11 +127,42 @@ MERGE_SPECIES = ("kpneumoniae", "ecoli", "saureus")
 
 
 def load(species: str) -> pd.DataFrame:
-    """`essentiality_<species>.tsv` — **three predictors side by side, and no verdict.**
+    """`essentiality_<species>.tsv` — three predictors, their consensus, and its evidence level.
 
         geptop_ess       continuous 0–1, ALWAYS present. Geptop 2.0's orthology+phylogeny score.
         proteomelm_ess   the ProteomeLM authors' own essentiality head.
         screens_ess_mean     mean probability over the nine published-screen models.
+        essentiality_consensus   0–1, the mean WITHIN-SPECIES percentile rank of those three.
+        essentiality_evidence    1–3, how well corroborated that consensus is.
+
+    **The consensus is PREDICTORS ONLY.** No measurement enters it, so it is comparable across
+    every protein and all three species, and it is NOT the old `essentiality` column that was
+    dropped for mixing units. Ranked before averaging because the inputs are not comparable as
+    values — a proteome-relative min-max score and two differently-calibrated probabilities. It is
+    a WITHIN-species quantity; comparing it between species is a mistake the number will not stop
+    you making. The three inputs agree only loosely (Spearman 0.13–0.57), so this is a consensus of
+    differing opinions, not three views of one.
+
+    **The evidence level is COUNT + CONCORDANCE**, over three independent experimental sources —
+    DEG screens on this exact strain, the OGEE measured label, and a ≥95% counterpart in a screened
+    strain of the same species (`evidence/strain_homologs_<species>.tsv`):
+
+        3  two or more sources, unanimous, AND agreeing with the consensus
+        2  exactly one source, or several that conflict — with each other or with the consensus
+        1  no experimental measurement at all
+
+    **It is NOT purely experimental — do not read 2 as "the experiment was weak."** A protein
+    measured twice, unanimously, whose consensus contradicts the measurements lands at 2 (owner's
+    call, 2026-10-04). The pair is meant to be read together, so a high consensus beside a 3 means
+    "corroborated, and the models agree". Concordance is judged against a base-rate cut, never 0.5
+    — essentials are 11–17% of a proteome — and the cut is recorded per run in
+    `evidence/consensus_audit.tsv`.
+
+    **K. pneumoniae reaches level 3 for 3,973 proteins and NOT ONE is measured on HS11286.** Kp is
+    absent from DEG and from OGEE; every one rests on ≥2 of the ECL8 / RH201207 / ATCC 43816
+    screens, under the house `exact` rule that a protein does not stop being itself between
+    strains. `evidence/strain_homologs_<species>.tsv` records which strains covered each protein,
+    so "no measurement on the anchor itself" stays checkable.
 
     **There is deliberately no merged column** (owner's call, 2026-10-03). `essentiality` and
     `essentiality_source` were dropped because the merge MIXED UNITS — a measured call pinned to

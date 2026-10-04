@@ -664,8 +664,49 @@ live there, and the directory contract's own test settles it: *would you cite or
 ### The merged column, and the units it mixes
 
 
-`essentiality_<species>.tsv`, written by `scripts/essentiality/merge.py` — **9 columns, one per
-prediction source plus the merged column**:
+`essentiality_<species>.tsv`, written by `scripts/essentiality/merge.py` — **6 columns**: three
+predictors, their consensus, and its evidence level.
+
+### `essentiality_consensus` and `essentiality_evidence`
+
+The two standard columns every axis will ship; the convention lives in `src/consensus.py`.
+
+**`essentiality_consensus`** (0–1) is the mean **within-species percentile rank** of `geptop_ess`,
+`proteomelm_ess` and `screens_ess_mean`. Ranked before averaging because the three are not
+comparable as values — a proteome-relative min-max score against two differently-calibrated
+probabilities. **Predictors only**: no measurement enters it. It agrees with each input at
+Spearman 0.59–0.78, so no single source dominates, and the inputs agree with *each other* at only
+0.13–0.57 — this is a consensus of differing opinions.
+
+Polarity control: ribosomal proteins median **0.98**, `gyrA`/`gyrB`/`dnaA`/`rpoB`/`ftsZ`/`secA`
+**0.98–0.99**, textbook dispensables **0.38–0.59**, proteome median 0.45.
+
+**`essentiality_evidence`** (1–3) is **count + concordance** over three experimental sources — DEG
+on this exact strain, the OGEE label, and a ≥95% counterpart in a screened same-species strain:
+
+| | rule | Kp | Ec | Sa |
+|---|---|---|---|---|
+| 3 | ≥2 sources, unanimous, agreeing with the consensus | 3,973 | 3,364 | 2,302 |
+| 2 | one source, or several that conflict | 752 | 929 | 522 |
+| 1 | no experimental measurement | 1,003 | 110 | 65 |
+
+**Not purely experimental.** A protein measured twice, unanimously, whose consensus contradicts
+the measurements lands at 2 — owner's call, 2026-10-04. Do not read 2 as "the experiment was
+weak". Concordance uses a **base-rate cut, never 0.5** (essentials are 11–17% of a proteome); the
+rate and cut are written per run to `evidence/consensus_audit.tsv`.
+
+Verified: all 490 split DEG screens and all 38 DEG-vs-OGEE disagreements on *E. coli* land at
+level 2, as do Sa's 116 and 80.
+
+**K. pneumoniae reaches level 3 for 3,973 proteins and not one is measured on HS11286.** Kp is
+absent from DEG and from OGEE. Every one rests on ≥2 of the ECL8 / RH201207 / ATCC 43816 screens
+via `strain_homologs.py` — a DIAMOND join at ≥95% identity / ≥50% subject coverage that reaches
+**4,725 Kp proteins (82.5%), 4,390 in two or more strains**, against the **29 (0.5%)** exact
+sequence matching finds across all of DEG. It is a **flag, not a label transfer**: the measured
+call never enters the consensus. `evidence/strain_homologs_<species>.tsv` records which strains
+covered each protein.
+
+### The former 9-column shape
 
 | column | domain | meaning |
 |---|---|---|
