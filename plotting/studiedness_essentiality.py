@@ -117,49 +117,6 @@ TIER_LABEL = {1: "1  no usable donor", 2: "2  one donor", 3: "3  its own literat
 TIER_COLOR = {1: PAL.NPG[0], 2: PAL.NPG[1], 3: PAL.NPG[4]}
 
 
-def plot_papers(ax, data: dict) -> None:
-    """How much literature each protein has, as a violin per species.
-
-    **A VIOLIN CANNOT REPRESENT A POINT MASS, and 34% of K. pneumoniae sits at exactly zero.** The
-    kernel smears that spike into a smooth hump and, unclipped, puts density below zero where no
-    protein can be. So the body is clipped at zero and the zero fraction is written on the panel as
-    a number -- the one part of this distribution the shape genuinely cannot carry.
-
-    Counts are log1p because the range is 0-58 with a median of 4: on a linear axis both proteomes
-    collapse against the bottom."""
-    for i, sp in enumerate(SPECIES):
-        v = data[sp][PAPERS].to_numpy(float)
-        parts = ax.violinplot([np.log1p(v)], positions=[i], widths=0.8, showextrema=False)
-        for b in parts["bodies"]:
-            # clip the kernel's tail at zero: it is an artifact of the smoothing, not data
-            pv = b.get_paths()[0].vertices
-            pv[:, 1] = np.clip(pv[:, 1], 0.0, None)
-            b.set_alpha(1.0)
-            b.set_facecolor(PAL.SPECIES_COLOR[sp])
-            b.set_edgecolor("white")
-            b.set_linewidth(1.0)
-
-        med = float(np.median(v))
-        ax.scatter([i], [np.log1p(med)], s=26, color=PAL.INK, zorder=5)
-        ax.text(i, np.log1p(med) + 0.17, f"median {med:.0f}", ha="center", fontsize=SS * 0.8,
-                color=PAL.INK)
-
-    ticks = [0, 1, 2, 5, 10, 20, 50]
-    ax.set_yticks(np.log1p(ticks))
-    ax.set_yticklabels([str(t) for t in ticks], fontsize=SS)
-    ax.set_ylim(-0.1, np.log1p(70))
-    ax.set_xticks(range(len(SPECIES)))
-    # The zero fraction rides in the tick label: as free-floating text under the violin it
-    # collided with the species name, and it is the number the violin shape cannot carry.
-    ax.set_xticklabels(
-        [f"{LABELS[sp]}\n{(data[sp][PAPERS] == 0).mean() * 100:.1f}% at zero" for sp in SPECIES],
-        fontsize=SS * 0.9,
-    )
-    ax.set_xlim(-0.65, len(SPECIES) - 0.35)
-    stylia.label(ax, xlabel="", ylabel="Curated papers (UniProt, prokaryotic donor)",
-                 title="K. pneumoniae is a dark proteome")
-
-
 def plot_tiers(ax, data: dict) -> None:
     """The evidence tiers, as a proportion bar per species.
 
@@ -188,6 +145,76 @@ def plot_tiers(ax, data: dict) -> None:
     ax.legend(fontsize=SS * 0.78, frameon=False, loc="lower center", bbox_to_anchor=(0.5, -0.155),
               ncol=1, handletextpad=0.4, labelspacing=0.25)
     stylia.label(ax, xlabel="", ylabel="% of proteome", title="A zero is not the same claim")
+
+
+#: How many of the top-cited proteins to name on the ranked panel.
+N_LABEL = 10
+
+
+def plot_pubtator_rank(ax, data: dict, species: str, n_label: int) -> pd.DataFrame:
+    """Every protein ranked by PubTator citations, with the most-cited named.
+
+    **Both axes are logarithmic, and both have to be.** The values span 0 to 2,541 against a median
+    of 10, and the proteins worth naming are the first ~0.3% of the rank order -- on linear axes the
+    head is a single pixel column against a flat floor. Log-log turns the same data into the shape
+    that is actually the point: a very short head, then four orders of magnitude of tail.
+
+    **PubTator, not UniProt, and this is the panel where that matters most.** It is the stronger
+    predictor of essentiality on the anchor (rho +0.417 against the curated column's +0.312) and it
+    counts machine-read mentions across 36M abstracts rather than curated references, so the head of
+    this ranking is what the literature actually talks about.
+
+    **Shown for E. coli because K. pneumoniae's PubTator column is borrowed.** Its counts come from
+    whichever donor the transfer found, and for Kp that is usually the E. coli protein -- the two
+    species' top values are literally identical (rpoB 2,541, recA 633, rpoS 439, ...). Ranking Kp
+    here would draw E. coli's literature under a Klebsiella label."""
+    d = data[species].copy()
+    d["pub"] = pd.to_numeric(d["n_papers_pubtator_prokaryotic"], errors="coerce")
+    scored = d.dropna(subset=["pub"]).sort_values("pub", ascending=False).reset_index(drop=True)
+    scored["rank"] = np.arange(1, len(scored) + 1)
+
+    ax.plot(scored["rank"], np.log1p(scored["pub"]), color=PAL.SPECIES_COLOR[species], lw=2.0,
+            zorder=2)
+    ax.fill_between(scored["rank"], 0, np.log1p(scored["pub"]),
+                    color=PAL.SPECIES_COLOR[species], alpha=0.18, linewidth=0, zorder=1)
+
+    top = scored.head(n_label)
+    ax.scatter(top["rank"], np.log1p(top["pub"]), s=22, color=PAL.ACCENT, zorder=4,
+               linewidths=0.5, edgecolors="white")
+
+    # A LEADER-LINE LADDER, not labels pinned to their points. Ranks 4-10 differ by a few
+    # mentions (376 down to 330) and sit almost on top of each other, so text anchored to each
+    # marker overlaps into an unreadable smear. The ladder puts the names on an evenly spaced
+    # column to the right of the head and draws a thin line back to each point, which keeps the
+    # reading order identical to the rank order.
+    y_top = float(np.log1p(top["pub"].iloc[0]))
+    y_bot = float(np.log1p(top["pub"].iloc[-1])) * 0.62
+    ladder = np.linspace(y_top, y_bot, len(top))
+    for (_, r), y_lab in zip(top.iterrows(), ladder):
+        name = r["gene_name"] if isinstance(r["gene_name"], str) and r["gene_name"] else r["uniprot_ac"]
+        ax.annotate(
+            f"{name}  {int(r['pub']):,}",
+            xy=(r["rank"], np.log1p(r["pub"])), xytext=(len(scored) ** 0.42, y_lab),
+            textcoords="data", ha="left", va="center", fontsize=SS * 0.72, color=PAL.INK,
+            arrowprops={"arrowstyle": "-", "lw": 0.6, "color": PAL.MUTED,
+                        "shrinkA": 0, "shrinkB": 2},
+        )
+
+    med = float(scored["pub"].median())
+    ax.axhline(np.log1p(med), color=PAL.MUTED, lw=1.0, ls="--", zorder=0)
+    ax.text(len(scored), np.log1p(med) + 0.16, f"median {med:.0f}", ha="right",
+            fontsize=SS * 0.78, color=PAL.MUTED)
+
+    ax.set_xscale("log")
+    ax.set_xlim(1, len(scored) * 1.05)
+    yt = [0, 1, 10, 100, 1000]
+    ax.set_yticks(np.log1p(yt))
+    ax.set_yticklabels([f"{t:,}" for t in yt], fontsize=SS)
+    ax.set_ylim(0, np.log1p(scored["pub"].max()) * 1.18)
+    stylia.label(ax, xlabel=f"Rank within {LABELS[species]} (log)",
+                 ylabel="PubTator mentions (prokaryotic donor)",
+                 title="A very short head, then a long tail")
+    return scored
 
 
 def plot_relationship(ax, data: dict, n_bins: int) -> tuple[dict, dict]:
@@ -237,6 +264,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--bins", type=int, default=10,
                     help="studiedness bins for the median curve (Kp yields fewer; see --help)")
+    ap.add_argument("--rank-species", default="ecoli", choices=SPECIES,
+                    help="species for the ranked PubTator panel (Kp's counts are donor-borrowed)")
+    ap.add_argument("--label", type=int, default=N_LABEL, help="how many top proteins to name")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()
     say = (lambda m: None) if args.quiet else (lambda m: print(m, flush=True))
@@ -248,13 +278,13 @@ def main() -> None:
         d = ST.load(sp).merge(E.load(sp), on="uniprot_ac")
         for c in ("studiedness_consensus", "essentiality_consensus", PAPERS):
             d[c] = pd.to_numeric(d[c], errors="coerce")
-        pr = P.load(sp)[["uniprot_ac", "sequence"]].copy()
+        pr = P.load(sp)[["uniprot_ac", "gene_name", "sequence"]].copy()
         pr["length"] = pr["sequence"].str.len()
-        data[sp] = d.merge(pr[["uniprot_ac", "length"]], on="uniprot_ac")
+        data[sp] = d.merge(pr[["uniprot_ac", "gene_name", "length"]], on="uniprot_ac")
 
-    fig, axs = stylia.create_figure(1, 3, width_ratios=[1.25, 0.8, 1.25], width=1.0, height=0.42)
-    plot_papers(axs.next(), data)
+    fig, axs = stylia.create_figure(1, 3, width_ratios=[0.72, 1.35, 1.2], width=1.0, height=0.42)
     plot_tiers(axs.next(), data)
+    scored = plot_pubtator_rank(axs.next(), data, args.rank_species, args.label)
     curves, rhos = plot_relationship(axs.next(), data, args.bins)
     out = OUT_DIR / "studiedness_essentiality.png"
     stylia.save_figure(str(out))
@@ -286,6 +316,14 @@ def main() -> None:
             out_cells.append(f"{r:+.3f} (n={len(s):,})")
         say(f"    {LABELS[sp]:<16} " + " ".join(f"{c:>18}" for c in out_cells))
     say("    It STRENGTHENS as the evidence improves -- so it is not an artifact of the zero block.")
+
+    say(f"\n  MOST-CITED IN {LABELS[args.rank_species].upper()}  (PubTator, prokaryotic donor)")
+    for i, r in scored.head(args.label).iterrows():
+        name = r["gene_name"] if isinstance(r["gene_name"], str) and r["gene_name"] else r["uniprot_ac"]
+        say(f"    {i + 1:>3}. {name:<14} {int(r['pub']):>6,}")
+    say(f"    median {scored['pub'].median():.0f}   "
+        f"top {args.label} hold {100 * scored['pub'].head(args.label).sum() / scored['pub'].sum():.1f}% "
+        f"of all mentions in this proteome")
 
     say("\n  DOES THE SOURCE CHANGE THE ANSWER?  rho against essentiality_consensus")
     say(f"    {'':<16} {'consensus(3)':>14} {'uniprot_prok':>14} {'uniprot_own':>14} {'pubtator':>14}")

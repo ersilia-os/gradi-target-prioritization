@@ -57,7 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
-| `studiedness_essentiality.py` | `studiedness_essentiality.png` | how dark Kp is (violins), why a zero differs by organism, and why "unexplored" and "essential" are not independent |
+| `studiedness_essentiality.py` | `studiedness_essentiality.png` | why a zero differs by organism, what the literature actually talks about, and why "unexplored" and "essential" are not independent |
 | `degradability_cv.py` | `degradability_cv.png` | does the model work? ROC and PR with the across-fold band, and where the scores land per proteome |
 | `enrichment.py` | `enrichment.png` | what kind of protein ClpP reaches: COG function and compartment/topology |
 | `projection_pair.py` | `projection_pair.png` | one map read twice: compartment, then the top 250 essential |
@@ -133,7 +133,13 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   axis's own held-out control (0.3722 vs 0.3398). On Ec all three agree closely (0.381–0.417).
   `n_papers_pubtator_prokaryotic` carries **real blanks, not zeros** (Kp 2,149 = 37.5%; Ec 190),
   which `percentile_consensus()` skips row-wise — so the consensus rests on three columns for some
-  proteins and two for others.
+  proteins and two for others. The middle panel ranks every E. coli protein by PubTator mentions,
+  log-log, naming the top 10 — **rpoB 2,541 · recA 633 · rpoS 439 · crp 376 · ftsZ 370 · hscA 353 ·
+  dnaK 353 · dnaA 352 · sdiA 345 · lacI 330**, against a median of 10; the top 10 hold 6.0% of all
+  mentions in the proteome. **It is E. coli and not Kp on purpose**: Kp's PubTator counts are
+  borrowed from whichever donor the transfer found, usually the E. coli protein, so the two species'
+  top values are literally identical and ranking Kp would draw E. coli's literature under a
+  Klebsiella label.
 - **degradability CV**: cluster-grouped, 5 folds x 5 seeds, TabPFN-3.5 on ESM-C. ADEP4
   **0.8738 ± 0.0029 AUROC / 0.6103 ± 0.0091 PR** on n=1,677 (base 0.137); ONC212
   **0.7671 ± 0.0060 / 0.5803 ± 0.0075** on n=1,045 (base 0.246). Length-only baseline 0.775 / 0.680;
