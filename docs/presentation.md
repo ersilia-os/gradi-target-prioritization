@@ -57,6 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
+| `uniprot_annotation.py` | `uniprot_annotation.png` | E. coli is annotated and Kp is not — with human orthology as the control |
 | `studiedness_essentiality.py` | `studiedness_essentiality.png` | why a zero differs by organism, what the literature actually talks about, and why "unexplored" and "essential" are not independent |
 | `degradability_cv.py` | `degradability_cv.png` | does the model work? ROC and PR with the across-fold band, and where the scores land per proteome |
 | `enrichment.py` | `enrichment.png` | what kind of protein ClpP reaches: COG function and compartment/topology |
@@ -114,6 +115,14 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   for random draws of the same size — they genuinely cluster, measured before being drawn. They are
   COG J (translation) 90 of 250, and 78.8% cytoplasmic against a 60.5% proteome background, with
   outer membrane enriched (8.4% vs 4.1%) and extracellular absent entirely.
+- **UniProt annotation**: `proteomes_evidence` tiers 1/2/3 are **Kp 2,205 / 2,469 / 1,054** against
+  **Ec 0 / 648 / 3,755** — Ec is **85.3%** at the top tier where Kp is **18.4%**, and Kp has 2,205
+  proteins at tier 1 where Ec has none. Same fact in other columns: SwissProt-reviewed 0.1% vs
+  100%, gene symbol 63.4% vs 100%. **The control panel is what makes this a statement about
+  curation**: human orthologs are **951 (16.6%) Kp vs 838 (19.0%) Ec** at median identity **33.5%
+  vs 33.0%** — the same fraction of the same kind of protein, so the 4.6× annotation gap is about
+  work done, not about what is there to find. `is_reviewed` is the blunter number and the worse
+  column — degenerate per species, which is why `proteomes_evidence` replaced it.
 - **studiedness vs essentiality**: ρ(`studiedness_consensus`, `essentiality_consensus`) is
   **+0.332 Kp / +0.440 Ec** over all proteins, **+0.433 / +0.448** at `studiedness_evidence >= 2`,
   and **+0.639 / +0.456** at evidence 3 — it **strengthens** as the literature evidence improves,
