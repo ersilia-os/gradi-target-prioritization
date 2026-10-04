@@ -1346,6 +1346,21 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   axes it **survives stratification** (0.35–0.39), so stacking the two double-counts.
   **Degradability and localization are clean.**
 
+  **`studiedness/orthodb_transfer.py` is a REJECTED ALTERNATIVE, kept so the comparison is
+  reproducible.** It attacks the axis's hard ceiling — 1,961 Kp proteins (34%) and 1,276 Sa (44%)
+  have NO curated donor at 40% identity — via OrthoDB orthogroups, which 79% of them do have.
+  **The transferred count carries NO information**: held-out E. coli with the anchor's genus struck
+  out of the MEMBER pool, reached-only spearman **−0.1068** (narrow −0.0852, domain −0.0059), while
+  a bare reached-vs-not flag scores **0.5058** — so the apparent 0.4140 over all rows is presence/
+  absence, not literature. **Filling those cells would be worse than leaving them blank.** Reach
+  was capped anyway at 22.9% because **only 34% of SwissProt is in OrthoDB**.
+  **THE TRAP, worth remembering beyond this axis: the first control read 0.8351 and was
+  self-correlation** — the sequence control excludes Escherichia from the DONOR pool, but a group
+  contains the query's OWN entry, so **98.3% of "donors" were Escherichia**. A leak is invisible in
+  a correlation and was caught only by listing donor organisms; `validate()` now exits non-zero if
+  any same-genus donor survives. **Keep `scratch/orthodb_{gene2ac,og_members}.tsv`** — they cost
+  two streamed passes over ~9 GB and make a re-run seconds.
+
   **A finding for the collaboration: the consortium's own panel is NOT novel** — `src/interest.py`
   sits at the 80th percentile (median) on Kp. Details: `docs/studiedness.md`.
 

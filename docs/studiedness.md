@@ -289,6 +289,74 @@ Sa 53.1%, the difference being the proteins with no SwissProt donor at all.
    `Content-Length`; `pubtator.py` also exits if it streams fewer than 10M rows.
 
 
+## 3d. REJECTED — OrthoDB orthogroup transfer (built and measured 2026-10-04)
+
+**Do not rebuild this.** The script and its evidence tables are kept so the comparison is
+reproducible (`scripts/studiedness/orthodb_transfer.py`), as `lazy-qsar` is for degradability.
+
+### What it was for
+
+`transfer.py` needs a curated donor at ≥40% identity. For **1,961 of 5,728 Kp proteins (34%)** and
+**1,276 of 2,889 Sa (44%)** it finds nothing, so every literature column reads 0 and no choice of
+count or corpus moves them. §2 deferred OrthoDB as "the widest net … revisit if SwissProt coverage
+becomes the binding constraint". It became the binding constraint, so it was tested: **1,558 of the
+Kp donorless proteins (79%) do carry an OrthoDB orthogroup**, and a group can hold a well-studied
+member far below 40% identity.
+
+### The verdict: the transferred count carries NO information
+
+Held-out E. coli, all 4,403 proteins, *Escherichia* struck out of the member pool:
+
+| | n | spearman vs measured own papers |
+|---|---|---|
+| all rows, zeros included | 4,403 | 0.4140 |
+| **reached only — does the VALUE say anything?** | **2,652** | **−0.1068** |
+| narrow-level groups | 365 | −0.0852 |
+| domain-level groups | 2,287 | −0.0059 |
+| *reached-vs-not as a bare binary flag* | 4,403 | **0.5058** |
+
+**The 0.4140 is entirely presence/absence.** A yes/no flag scores *higher* (0.5058) than the counts
+do, and among reached proteins the correlation is slightly NEGATIVE at both levels. The route would
+fill 449 Kp cells with numbers that do not predict literature — **worse than leaving them empty**,
+because a blank says "unknown" while a 4 says "four papers".
+
+What *is* real is a conservation signal: reached proteins have median 11 own papers against 5 for
+unreached. That is the same confound `evidence/confounds.tsv` records for `geptop_ess`, not a
+literature measurement.
+
+### Two structural limits, both measured
+
+- **Only 195,423 of 575,748 SwissProt entries (34%) are in OrthoDB at all.** A donor must be in
+  both databases, so most groups have no literature-bearing member. Reach was **Kp 449/1,961
+  (22.9%)** and **Sa 272/1,276 (21.3%)**, not the 79% that merely have a group.
+- **The narrow group is often as dark as the query** — 457 of the 1,558 Kp narrow groups sit at
+  `570|Klebsiella`. The domain group (`2|Bacteria`) always has studied members but is a far weaker
+  orthology claim, and scored −0.0059.
+
+### THE TRAP: the first control read 0.8351 and was self-correlation
+
+**The sequence control removes *Escherichia* from the DONOR POOL; a first version of this one did
+not remove it from the MEMBER POOL.** An E. coli protein's orthogroup contains that protein's own
+SwissProt entry, so the group "donated" the answer to itself: **1,055 of 1,073 donors (98.3%) were
+Escherichia**. The leak was invisible in the correlation — 0.8351 looks like a spectacular result —
+and was caught only by listing the donor organisms. `best_by_og(drop_genus=…)` now applies the
+same exclusion to the member pool, and `validate()` exits non-zero if any same-genus donor
+survives.
+
+A second design error sat on top of it: restricting the validation to *donorless* E. coli proteins
+left **18** usable rows once the genus exclusion applied. The control now scores the whole
+proteome.
+
+### Cost, so nobody repeats it
+
+Two streamed passes over ~9 GB (`odb12v2_genes.tab.gz` 165,237,328 rows → 195,423 SwissProt-backed
+gene ids; `odb12v2_OG2genes.tab.gz` 788,338,745 rows → 97,359 og-member pairs). Both results are
+cached in `scratch/orthodb_gene2ac.tsv` and `scratch/orthodb_og_members.tsv` — **keep them**, a
+re-run is then seconds. The dumps are public and re-derivable and must never go to eosvc.
+
+**The Kp gap therefore stands as a stated limitation of the axis**: a third of the proteome has no
+literature estimate by any route tested.
+
 ## 4. Unknome: usable, with one trap that would have zeroed a whole proteome
 
 Unknome v3 (Rocha, Jayaram, Stevens et al., *PLoS Biol* 21(8):e3002222, 2023) scores each
