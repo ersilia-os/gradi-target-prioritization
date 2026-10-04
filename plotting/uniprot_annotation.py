@@ -131,31 +131,47 @@ def plot_annotation(ax, data: dict) -> None:
                  title="UniProt identity, by evidence tier")
 
 
-def plot_human_orthologs(ax, data: dict, ortho: dict) -> None:
-    """The fraction of each proteome with a human ortholog -- the control for the panel beside it.
+#: The comparability metrics, in reading order: how connected the protein is to other bacteria,
+#: then to human, then to itself. Each is (label, how to compute it from the two frames).
+CONSERVATION = [
+    ("In an orthogroup", lambda d, n: n["in_orthogroup"].astype(bool)),
+    ("Conserved in >=50% of the panel",
+     lambda d, n: pd.to_numeric(d["bacterial_panel_orthologs"], errors="coerce") >= 0.5),
+    ("Core: >=90% of the panel",
+     lambda d, n: pd.to_numeric(d["bacterial_panel_orthologs"], errors="coerce") >= 0.9),
+    ("Has a human ortholog", lambda d, n: d["has_human_ortholog"].astype(bool)),
+    ("Has a paralog", lambda d, n: pd.to_numeric(n["n_paralogs"], errors="coerce") > 0),
+]
 
-    A plain percentage, not a stacked bar, because there are only two states and the comparison is
-    between species rather than within one. The median identity of the calls is annotated because a
-    matched FRACTION at a mismatched identity would be a different story, and it is not one here."""
-    x = np.arange(len(SPECIES))
-    pct, counts = [], []
-    for sp in SPECIES:
-        h = ortho[sp]["has_human_ortholog"].astype(bool)
-        counts.append(int(h.sum()))
-        pct.append(h.mean() * 100)
 
-    ax.bar(x, pct, width=0.6, color=[PAL.SPECIES_COLOR[sp] for sp in SPECIES])
-    for xi, v, n in zip(x, pct, counts):
-        ax.text(xi, v + 1.2, f"{n:,}\n{v:.1f}%", ha="center", va="bottom", fontsize=SS * 0.85,
-                color=PAL.INK)
+def plot_conservation(ax, ortho: dict, dense: dict) -> dict:
+    """Five ways of asking "is this a normal bacterial proteome", for each species.
 
-    ax.set_xticks(x)
-    ax.set_xticklabels([LABELS[sp] for sp in SPECIES], fontsize=SS, style="italic")
-    ax.set_xlim(-0.6, len(SPECIES) - 0.4)
-    ax.set_ylim(0, max(pct) * 1.75)
+    The control for the panel beside it. If K. pneumoniae were simply a stranger organism its
+    biology should look different too; across all five measures it does not, while its annotation
+    differs 4.6-fold. Horizontal bars because the labels are sentences.
+
+    **`bacterial_panel_orthologs` IS A FRACTION, NOT A COUNT**, despite the name -- 0 to 1 over the
+    28 bacterial proteomes (26 tier-C comparators plus the three anchors, minus this protein's own
+    species). It counts SPECIES, never proteins, so a paralog pair cannot inflate it."""
+    y = np.arange(len(CONSERVATION))[::-1]
+    height = 0.36
+    vals: dict[str, list[float]] = {}
+    for i, sp in enumerate(SPECIES):
+        v = [100 * f(ortho[sp], dense[sp]).mean() for _label, f in CONSERVATION]
+        vals[sp] = v
+        ax.barh(y + (0.5 - i) * height, v, height=height, color=PAL.SPECIES_COLOR[sp],
+                label=LABELS[sp])
+        for yi, x in zip(y + (0.5 - i) * height, v):
+            ax.text(x + 1.4, yi, f"{x:.1f}", va="center", fontsize=SS * 0.78, color=PAL.INK)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels([label for label, _f in CONSERVATION], fontsize=SS * 0.82)
+    ax.set_xlim(0, 112)
     ax.set_box_aspect(1)
-    stylia.label(ax, xlabel="", ylabel="% with a human ortholog",
-                 title="The biology is the same")
+    ax.legend(fontsize=SS * 0.82, frameon=False, loc="lower right", handletextpad=0.5)
+    stylia.label(ax, xlabel="% of proteome", ylabel="", title="The biology is the same")
+    return vals
 
 
 def main() -> None:
@@ -171,9 +187,10 @@ def main() -> None:
 
     # Narrow: two square panels, not a slide's width. `set_box_aspect(1)` on each squares the axes
     # box directly rather than shrinking it inside its slot.
-    fig, axs = stylia.create_figure(1, 2, width=0.58, height=0.40)
+    dense = {sp: O.load_dense(sp) for sp in SPECIES}
+    fig, axs = stylia.create_figure(1, 2, width=0.72, height=0.40)
     plot_annotation(axs.next(), data)
-    plot_human_orthologs(axs.next(), data, ortho)
+    cons = plot_conservation(axs.next(), ortho, dense)
     out = OUT_DIR / "uniprot_annotation.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -197,17 +214,21 @@ def main() -> None:
     say("    `is_reviewed` is the blunter number (Ec 100% against Kp 7 of 5,728) and the worse")
     say("    column: degenerate per species, which is why proteomes_evidence replaced it.")
 
-    say("\n  HUMAN ORTHOLOGS  (the control: same biology, different curation)")
-    dense = {sp: O.load_dense(sp) for sp in SPECIES}
+    say("\n  CONSERVATION  (the control: same biology, different curation)")
+    say(f"    {'':<34} {'Kp':>8} {'Ec':>8}   diff")
+    for i, (label, _f) in enumerate(CONSERVATION):
+        k, e = cons["kpneumoniae"][i], cons["ecoli"][i]
+        say(f"    {label:<34} {k:>7.1f}% {e:>7.1f}%   {e - k:+5.1f} pp")
     for sp in SPECIES:
-        h = ortho[sp]["has_human_ortholog"].astype(bool)
+        bp = pd.to_numeric(ortho[sp]["bacterial_panel_orthologs"], errors="coerce")
         idp = pd.to_numeric(
             dense[sp].loc[dense[sp]["has_human_ortholog"].astype(bool), "best_identity_human"],
             errors="coerce")
-        say(f"    {LABELS[sp]:<16} {int(h.sum()):>5,} ({100 * h.mean():>5.1f}%)   "
-            f"median identity {idp.median():.1f}%")
-    say("    Nearly the same fraction at nearly the same identity -- so the annotation gap is")
-    say("    about how much work has been done, not about what is there to find.")
+        say(f"    {LABELS[sp]:<16} median panel fraction {bp.median():.3f}   "
+            f"median identity to the human ortholog {idp.median():.1f}%")
+    say("    Every measure within ~9 pp, against a 4.6x gap in annotation tier 3. The annotation")
+    say("    gap is about how much work has been done, not about what is there to find.")
+    say("    `bacterial_panel_orthologs` is a FRACTION over 28 bacterial proteomes, not a count.")
 
     say("\n  CAVEATS")
     say("    - This is CURATION, not biology. A tier 1 protein is not a worse protein; it is one")

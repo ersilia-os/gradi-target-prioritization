@@ -119,9 +119,11 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   **Ec 0 / 648 / 3,755** — Ec is **85.3%** at the top tier where Kp is **18.4%**, and Kp has 2,205
   proteins at tier 1 where Ec has none. Same fact in other columns: SwissProt-reviewed 0.1% vs
   100%, gene symbol 63.4% vs 100%. **The control panel is what makes this a statement about
-  curation**: human orthologs are **951 (16.6%) Kp vs 838 (19.0%) Ec** at median identity **33.5%
-  vs 33.0%** — the same fraction of the same kind of protein, so the 4.6× annotation gap is about
-  work done, not about what is there to find. `is_reviewed` is the blunter number and the worse
+  curation** — five comparability measures, Kp vs Ec: in an orthogroup **92.3 / 96.5**, conserved in
+  ≥50% of the 28-species panel **57.3 / 66.6**, core (≥90%) **8.6 / 10.6**, human ortholog
+  **16.6 / 19.0**, has a paralog **36.2 / 32.9**. Every one within ~9 pp, at median identity to the
+  human ortholog of 33.5% vs 33.0% — so the 4.6× annotation gap is about work done, not about what
+  is there to find. (`bacterial_panel_orthologs` is a **fraction** over 28 proteomes, not a count.) `is_reviewed` is the blunter number and the worse
   column — degenerate per species, which is why `proteomes_evidence` replaced it.
 - **studiedness vs essentiality**: ρ(`studiedness_consensus`, `essentiality_consensus`) is
   **+0.332 Kp / +0.440 Ec** over all proteins, **+0.433 / +0.448** at `studiedness_evidence >= 2`,
