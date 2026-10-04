@@ -176,7 +176,7 @@ def verify(species: str, mat: pd.DataFrame, src: pd.DataFrame, kind: str, vocab_
     say(f"      round-trip OK for all {len(mat):,} proteins")
 
 
-PACKED_COLUMNS = ["uniprot_ac", "cog_categories", "goslim_terms"]
+PACKED_COLUMNS = ["uniprot_ac", "cog_categories", "goslim_terms", "function_evidence"]
 
 
 def pack(matrix: pd.DataFrame, vocab_cols: list[str], sep: str) -> list[str]:
@@ -186,7 +186,66 @@ def pack(matrix: pd.DataFrame, vocab_cols: list[str], sep: str) -> list[str]:
     return [sep.join(cols[row]) for row in arr]
 
 
-def build_packed(species: str, mats: dict, vocabs: dict) -> pd.DataFrame:
+def function_evidence(srcs: dict) -> pd.Series:
+    """`function_evidence`, 1-3. The axis's half of the standard pair -- see `src/consensus.py`.
+
+        3  BOTH schemes annotate it, the GO is UniProt-CURATED (not eggNOG-transferred),
+           and the COG is INFORMATIVE (at least one letter outside R/S)
+        2  at least one scheme annotates it, but a quality test fails
+        1  neither scheme annotates it
+
+    **There is no `function_consensus`, deliberately.** "How much function does a protein have" is
+    not a quantity; the nearest candidate, annotation richness, measures how well STUDIED it is,
+    which is another axis's job. The convention is evidence always, consensus where the axis has a
+    magnitude.
+
+    **The obvious signal does not exist here.** GO evidence codes -- experimental `EXP`/`IDA`/`IMP`
+    against electronic `IEA` -- are what you would want, and this repo has none: `goslim_<sp>.tsv`
+    carries only `goslim_source`, `data/source/go/` holds the OBO files and `interpro2go` but no
+    GAF, and UniProt's `go_id` xref is a bare list. Getting them is a per-proteome GOA download,
+    not a reshape. Do not go looking.
+
+    **Level 3 means CORROBORATED, in step with `essentiality_evidence`**, where 3 also requires two
+    independent sources. The two schemes are independent: COGclassifier runs rpsblast against CDD
+    profiles, GO-slim comes from UniProt curation or eggNOG. emapper's own `COG_category` is NOT a
+    third opinion -- it agrees with NCBI's curated COG2024 only 63.3% against COGclassifier's 97.8%.
+
+    **Level 2 means "annotated, not corroborated" -- never "badly annotated".** A protein with
+    excellent curated GO but no COG hit caps at 2, and that is often the method's ceiling rather
+    than the protein being poorly known: NCBI's own curators reach only ~81.6% of E. coli with COG.
+
+    It also keeps the curated-vs-eggNOG distinction alive. That column (`goslim_evidence`) was
+    dropped from the shipped table for separating just 322 of 13,020 proteins; the information
+    survives inside this ladder without the column coming back.
+    """
+    # ALIGN ON THE KEY, never positionally. The two source tables are written by different
+    # scripts from different databases; they happen to share a row order today, and a day they do
+    # not is a day this function silently reads one protein's COG beside another's GO. That is the
+    # exact failure `src/matrices.py` exists to prevent, and it does not raise on its own.
+    cog = srcs["cog"].set_index("uniprot_ac")
+    go = srcs["goslim"].set_index("uniprot_ac").reindex(cog.index)
+    if go["goslim_source"].isna().all():
+        sys.exit("FATAL function_evidence: no goslim row matched a cog row -- the two source "
+                 "tables do not share a key space.")
+    letters = cog["cog_category_all"].fillna("").astype(str)
+    has_cog = letters.ne("")
+    # At least one letter outside R/S. Reuses src.function.POORLY_CHARACTERIZED rather than
+    # restating the pair. Verified identical to `F.informative()`, which tests the single CHOSEN
+    # letter: 4,170 / 3,435 / 1,898 either way, zero difference.
+    poor = set(F.POORLY_CHARACTERIZED)
+    informative = has_cog & letters.apply(lambda s: bool(set(s) - poor))
+
+    source = go["goslim_source"].fillna("").astype(str)
+    has_go, curated = source.isin(("curated", "eggnog")), source.eq("curated")
+
+    level = pd.Series(1, index=cog.index, dtype="int64")
+    level[(has_cog | has_go).to_numpy()] = 2
+    level[(has_cog & has_go & curated & informative).to_numpy()] = 3
+    # returned keyed, so the caller joins rather than trusting position
+    return level.astype("Int64")
+
+
+def build_packed(species: str, mats: dict, vocabs: dict, srcs: dict) -> pd.DataFrame:
     """The deliverable: one row per protein, one packed column per scheme.
 
     **Derived FROM the matrices, not from the source**, so `verify()`'s round-trip against the
@@ -211,6 +270,10 @@ def build_packed(species: str, mats: dict, vocabs: dict) -> pd.DataFrame:
         "cog_categories": pack(cog, vocabs["cog"], ";"),
         "goslim_terms": pack(goslim, vocabs["goslim"], ";"),
     })
+    out["function_evidence"] = out["uniprot_ac"].map(function_evidence(srcs)).astype("Int64")
+    if out["function_evidence"].isna().any():
+        sys.exit(f"FATAL {species}: {int(out['function_evidence'].isna().sum())} proteins got no "
+                 f"evidence level -- the packed table and the source tables disagree on keys.")
 
     # The reverse round-trip: re-expanding the packed columns must reproduce the matrices exactly.
     # A shape check passes on a wrong table; this does not.
@@ -256,12 +319,12 @@ def main() -> None:
         rule()
         say(f"{sp}")
         rule()
-        mats, vocabs = {}, {}
+        mats, vocabs, srcs = {}, {}, {}
         for kind, builder, vocab_cols in (("goslim", build_goslim, list(gvocab.go_id)),
                                           ("cog", build_cog, list(cvocab.letter))):
             mat, src = builder(sp, gvocab if kind == "goslim" else cvocab)
             verify(sp, mat, src, kind, vocab_cols)
-            mats[kind], vocabs[kind] = mat, vocab_cols
+            mats[kind], vocabs[kind], srcs[kind] = mat, vocab_cols, src
             # The matrices are EVIDENCE, not the deliverable (owner's call, 2026-10-03). They are
             # what carries the structural zeros -- a term a species cannot reach is a kept column
             # here and simply absent in the packed table, which cannot tell "impossible" from
@@ -284,7 +347,7 @@ def main() -> None:
                          "evidence": ";".join(f"{k}={v}" for k, v in
                                               mat.evidence.value_counts().items())})
 
-        packed = M.reindex(build_packed(sp, mats, vocabs), sp)
+        packed = M.reindex(build_packed(sp, mats, vocabs, srcs), sp)
         ppath = OUT_DIR / f"function_{sp}.tsv"
         packed.to_csv(ppath, sep="\t", index=False)
         n_cog = int((packed["cog_categories"] != "").sum())

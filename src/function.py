@@ -110,7 +110,37 @@ def load_goslim_terms() -> pd.DataFrame:
 def load(species: str) -> pd.DataFrame:
     """`function_<species>.tsv` — the axis deliverable. One row per protein, four columns:
 
-        uniprot_ac  cog_categories  goslim_terms
+        uniprot_ac  cog_categories  goslim_terms  function_evidence
+
+    **`function_evidence` is 1-3; there is deliberately NO `function_consensus`.** "How much
+    function does a protein have" is not a quantity — the nearest candidate, annotation richness,
+    measures how well STUDIED it is, which is another axis's job. The project convention is
+    evidence always, consensus where the axis has a magnitude.
+
+        3  BOTH schemes annotate it, the GO is UniProt-CURATED (not eggNOG-transferred),
+           and the COG is INFORMATIVE (at least one letter outside R/S)
+        2  at least one scheme annotates it, but a quality test fails
+        1  neither scheme annotates it
+
+    Kp 1,019 / 1,012 / 3,697 · Ec 328 / 776 / 3,299 · Sa 672 / 535 / 1,682.
+
+    **Level 3 means CORROBORATED**, in step with `essentiality_evidence`. The two schemes are
+    independent — COGclassifier runs rpsblast against CDD profiles, GO-slim comes from UniProt
+    curation or eggNOG. emapper's own `COG_category` is NOT a third opinion: it agrees with NCBI's
+    curated COG2024 only 63.3%, against COGclassifier's 97.8%.
+
+    **Level 2 means "annotated, not corroborated" — NEVER "badly annotated".** A protein with
+    excellent curated GO but no COG hit caps at 2, and that is usually the method's ceiling rather
+    than the protein being poorly known: NCBI's own curators reach ~81.6% of E. coli with COG.
+
+    **GO evidence codes would be the better signal and this repo has none** — `goslim_<species>.tsv`
+    carries only `goslim_source`, `data/source/go/` has the OBO files and `interpro2go` but no GAF,
+    and UniProt's `go_id` xref is a bare list. Obtaining them is a per-proteome GOA download.
+
+    **A high level is not a claim that the protein is well studied.** On E. coli 210 proteins named
+    "Uncharacterized" sit at level 3 (32.4% of them) — because UniProt names them unnamed while
+    still curating their class: "Uncharacterized MFS-type transporter" carries GO:0005215. On Kp
+    the same group is 3.3%. The column measures annotation support, not fame.
 
     Both term columns are `;`-joined lists in vocabulary order; **an empty string means the
     protein carries no term**, which is a complete row, not a missing one. Split with

@@ -193,6 +193,14 @@ COLUMNS: dict[str, dict[str, str]] = {
                           "classified (Kp 20.9%). No evidence column beside it, because "
                           "`cogclassifier` vs `none` was 1:1 with empty-or-not on all three "
                           "species -- measured, not assumed.",
+        "function_evidence": "1-3, and there is deliberately NO function_consensus -- 'how much "
+                             "function' is not a quantity. 3 = BOTH schemes annotate it, the GO is "
+                             "UniProt-CURATED and the COG is INFORMATIVE (a letter outside R/S) · "
+                             "2 = annotated but not corroborated, NEVER 'badly annotated' (a "
+                             "protein with curated GO and no COG hit caps here, and COG tops out "
+                             "near 81.6% by NCBI's own curators) · 1 = neither scheme annotates. "
+                             "NOT a fame measure: 210 E. coli proteins named 'Uncharacterized' sit "
+                             "at 3, because UniProt leaves them unnamed while curating their class.",
         "goslim_terms": "`;`-joined GO ids from the 97-term goslim_prokaryote vocabulary. "
                         "Multi-label by design, built from the *_all columns.",
     },

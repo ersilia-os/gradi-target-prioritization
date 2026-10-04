@@ -546,8 +546,8 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   `eggnog` tier derives from its `gos` column, so deleting it makes the stage non-regenerable. Needs
   `goatools`.
 
-- **`function/matrix.py`** → **`function_<species>.tsv`**, **3 columns**: `uniprot_ac` ·
-  `cog_categories` · `goslim_terms`, both term columns `;`-joined in vocabulary order (owner's call,
+- **`function/matrix.py`** → **`function_<species>.tsv`**, **4 columns**: `uniprot_ac` ·
+  `cog_categories` · `goslim_terms` · **`function_evidence`**, both term columns `;`-joined in vocabulary order (owner's call,
   2026-10-03 — it was two wide matrices). **Recomputes nothing** — it reshapes; seconds, no database.
 
   **The matrices still ship, in `evidence/`** (n × 99 and n × 28) **and are still audited**, because
@@ -556,6 +556,22 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   asserts **BOTH directions**: the matrices round-trip to the long-form source, AND the packed
   columns re-expand to the matrices exactly. Use `load_goslim_matrix()` / `load_cog_matrix()` for a
   feature matrix or to tell "impossible" from "unknown".
+
+  **`function_evidence` (1–3), and NO `function_consensus`** — the first axis where only half the
+  standard pair applies. *How much function does a protein have* is not a quantity; the nearest
+  candidate, annotation richness, is a STUDIEDNESS measure. **The convention is evidence always,
+  consensus where the axis has a magnitude.** **3** = both schemes annotate it, the GO is
+  UniProt-**curated** and the COG is **informative** (a letter outside `R`/`S`) · **2** = annotated
+  but not corroborated · **1** = neither scheme. Kp 1,019/1,012/3,697 · Ec 328/776/3,299 · Sa
+  672/535/1,682.
+
+  **Level 2 is NOT "badly annotated"** — a protein with excellent curated GO but no COG hit caps
+  there, and COG tops out near **81.6%** by NCBI's own curators, so a missing COG is usually the
+  method's ceiling. **It is not a fame measure either**: 210 E. coli proteins named
+  "Uncharacterized" sit at 3 (32.4% of that group, against Kp's 3.3%), because UniProt leaves them
+  unnamed while curating their class — "Uncharacterized MFS-type transporter" carries GO:0005215.
+  **GO EVIDENCE CODES WOULD BE BETTER AND THIS REPO HAS NONE**: no GAF anywhere, `go_id` is a bare
+  list — obtaining them is a per-proteome GOA download, not a reshape. Don't go looking.
 
   **An EMPTY list means NOT ANNOTATED**, never "ruled out" — 1,506 Kp proteins (26.3%) carry no GO
   term because nothing is known about them.

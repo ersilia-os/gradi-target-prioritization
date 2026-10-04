@@ -522,9 +522,44 @@ The script exits non-zero if a spot check fails or if E. coli category agreement
 matrices beside it**. It **recomputes nothing** — it reshapes `cog_<species>.tsv` and
 `goslim_<species>.tsv`, and runs in seconds.
 
-    function_<species>.tsv          uniprot_ac · cog_categories · goslim_terms
+    function_<species>.tsv          uniprot_ac · cog_categories · goslim_terms · function_evidence
     evidence/goslim_matrix_<sp>.tsv uniprot_ac + 97 GO-slim term columns + evidence   (n, 99)
     evidence/cog_matrix_<sp>.tsv    uniprot_ac + 26 COG letter columns   + evidence   (n, 28)
+
+### `function_evidence`, and why there is no `function_consensus`
+
+The axis's half of the standard pair (`src/consensus.py`). There is no consensus column because
+"how much function does a protein have" is not a quantity — the nearest candidate, annotation
+richness, measures how well *studied* it is. **Evidence always, consensus where the axis has a
+magnitude.**
+
+| level | rule | Kp | Ec | Sa |
+|---|---|---|---|---|
+| 3 | both schemes, GO **curated**, COG **informative** (a letter outside `R`/`S`) | 3,697 | 3,299 | 1,682 |
+| 2 | at least one scheme, but a quality test fails | 1,012 | 776 | 535 |
+| 1 | neither scheme annotates it | 1,019 | 328 | 672 |
+
+**Level 3 means corroborated**, matching `essentiality_evidence`. The two schemes are genuinely
+independent — COGclassifier runs rpsblast against CDD profiles; GO-slim comes from UniProt
+curation or eggNOG. emapper's own `COG_category` is *not* a third opinion: 63.3% agreement with
+NCBI's curated COG2024 against COGclassifier's 97.8%.
+
+**Level 2 is "annotated, not corroborated" — never "badly annotated".** A protein with excellent
+curated GO but no COG hit caps at 2, and COG coverage is bounded near 81.6% by NCBI's own curators
+on *E. coli*, so a missing COG is usually the method's ceiling.
+
+**It is not a fame measure.** 210 *E. coli* proteins named "Uncharacterized" sit at level 3 —
+32.4% of that group, against 3.3% on Kp — because UniProt leaves them unnamed while curating their
+class: "Uncharacterized MFS-type transporter YhhS" carries `GO:0005215`. The column measures
+annotation support, not how much anyone has written about the protein.
+
+**The signal we would rather have does not exist here.** GO evidence codes — experimental
+`EXP`/`IDA`/`IMP` against electronic `IEA` — are absent: `goslim_<species>.tsv` carries only
+`goslim_source`, `data/source/go/` holds the OBO files and `interpro2go` but no GAF, and UniProt's
+`go_id` xref is a bare list. Obtaining them means a per-proteome GOA download.
+
+The ladder also keeps the **curated-vs-eggNOG** distinction alive after `goslim_evidence` was
+dropped from the shipped table for separating only 322 of 13,020 proteins.
 
 ### Why both forms ship
 
