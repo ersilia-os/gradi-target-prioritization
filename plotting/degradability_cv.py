@@ -1,9 +1,8 @@
 """How well does the degradability model actually work? Cross-validated, on the measured labels.
 
-    degradability_cv.png   1  ROC, both activators
-                           2  precision-recall, both activators
-                           3  against the baseline that matters and the yardstick that is not 1.0
-                           4  the out-of-fold score distribution, split by the measured label
+    degradability_cv.png   1  ROC, both activators, with the spread across CV folds
+                           2  precision-recall, same
+                           3  where the scores land in each proteome -- and seen vs unseen
 
 **AUROC IS NEVER REPORTED ALONE HERE, and that is a project rule with a measurement behind it.**
 On the grid that chose this estimator, TabPFN's gain over the hand-set forest was ~4x larger on
@@ -17,14 +16,26 @@ different -- ADEP4 0.8761 against a 5-seed 0.8738, ONC212 0.7706 against 0.7671,
 A single-seed estimate carries about +/-0.004 of pure arbitrariness, which is larger than several
 effects this stage tested and rejected, so the seed-averaged value is the one that may be quoted.
 
-**The baseline is LENGTH, not 0.5.** Short proteins are degraded more, so a model that learned only
-size would already score 0.775 / 0.680. That is the number the model has to beat, and the ROC
-diagonal is not a meaningful reference for this problem.
+**THE BAND IS THE SPREAD ACROSS THE 5 CV FOLDS, not a confidence interval.** Each fold's held-out
+curve is interpolated onto a common grid and the shaded envelope is their min-to-max. It answers
+"how much does this curve move if you resample the data", which is the honest thing to show beside
+a single line. It is NOT a standard error and must not be read as one -- with 46 positives per fold
+(ADEP4) and ~51 (ONC212), a single fold's PR curve is genuinely noisy, and the band is wide at high
+recall for that reason alone.
 
-**`CROSS_ASSAY_AUROC` (0.877 / 0.815) is a YARDSTICK, NOT A CEILING.** It is how well one
-activator's measured labels predict the other's -- i.e. how reproducible the assay itself is. The
-model sits just under it here and exceeds it at three of five label cutoffs. Do not draw it as a
-maximum.
+**The baseline is LENGTH, not 0.5.** Short proteins are degraded more, so a model that learned only
+size would already score 0.775 / 0.680 -- carried in the ROC legend, because the diagonal is not a
+meaningful reference for this problem. `CROSS_ASSAY_AUROC` (0.877 / 0.815) is beside it.
+
+**The third panel is the deployment picture, not a validation.** S. aureus is the only organism with
+measurements, so it is split into the proteins the model was fitted on (`seen` -- scored
+out-of-fold) and the rest of its proteome (`unseen`). K. pneumoniae and E. coli are unseen in
+their entirety. **`seen` is a different set for each activator** -- 1,677 proteins for ADEP4 against
+1,045 for ONC212 -- because the two screens measured different numbers of proteins.
+
+**`CROSS_ASSAY_AUROC` is a YARDSTICK, NOT A CEILING.** It is how well one activator's measured
+labels predict the other's -- how reproducible the assay itself is. The model sits just under it
+here and exceeds it at three of five label cutoffs. Never draw it as a maximum.
 
 **Cluster-grouped CV**: folds hold out whole sequence clusters, so a protein cannot be scored by its
 own near-duplicate. Measured `leakage_gap` is +0.001 (ADEP4) and -0.005 (ONC212) -- unusually small,
@@ -93,122 +104,145 @@ def _curves(activator: str) -> tuple[pd.DataFrame, pd.Series]:
     return oof, cv
 
 
+GRID = np.linspace(0.0, 1.0, 201)
+
+
+def _fold_band(oof: pd.DataFrame, which: str) -> tuple[np.ndarray, np.ndarray]:
+    """Min-to-max envelope of the per-fold curves on a common grid.
+
+    Each CV fold is a held-out set, so its curve is a complete, independent estimate; interpolating
+    them onto one grid is the only way to stack them. A fold whose curve does not reach the end of
+    the grid is extended with its last value rather than dropped -- dropping would silently narrow
+    the band exactly where it should be widest."""
+    curves = []
+    for _, g in oof.groupby("fold"):
+        y, sc = g["hit"].to_numpy(), g[OOF_COLUMN].to_numpy()
+        if y.sum() == 0 or y.sum() == len(y):
+            continue
+        if which == "roc":
+            x, v, _ = roc_curve(y, sc)
+        else:
+            v, x, _ = precision_recall_curve(y, sc)
+            x, v = x[::-1], v[::-1]          # recall ascending
+        curves.append(np.interp(GRID, x, v, left=v[0], right=v[-1]))
+    a = np.vstack(curves)
+    return a.min(axis=0), a.max(axis=0)
+
+
 def plot_roc(ax, data: dict) -> None:
-    """ROC, with the LENGTH baseline marked rather than the diagonal.
+    """ROC, pooled line with the across-fold envelope behind it.
 
     Deliberately NOT `set_aspect("equal")`: a square ROC is conventional on its own, but in a
-    four-panel row it shrinks this axes box and leaves every title at a different height.
-
-    The diagonal is drawn because readers expect it, but it is the wrong reference: a model that
-    learned nothing but protein size already reaches 0.775 / 0.680 on these labels."""
+    multi-panel row it shrinks this axes box and leaves every title at a different height."""
     for act, (oof, cv) in data.items():
+        lo, hi = _fold_band(oof, "roc")
+        ax.fill_between(GRID, lo, hi, color=ACT_COLOR[act], alpha=0.18, linewidth=0, zorder=1)
         fpr, tpr, _ = roc_curve(oof["hit"], oof[OOF_COLUMN])
-        ax.plot(fpr, tpr, color=ACT_COLOR[act], lw=2.2,
+        ax.plot(fpr, tpr, color=ACT_COLOR[act], lw=2.2, zorder=3,
                 label=f"{ACT_LABEL[act]}   {cv.roc_auc_clustered:.3f} ± {cv.roc_auc_clustered_sd:.3f}")
-    ax.plot([0, 1], [0, 1], color=PAL.MUTED, lw=1.0, ls="--")
+    ax.plot([0, 1], [0, 1], color=PAL.MUTED, lw=1.0, ls="--", zorder=0)
+
+    # The references that lost their own panel. Grey proxy handles, so the legend carries the
+    # numbers the diagonal cannot.
+    extra = [
+        Line2D([], [], ls="", label=f"length only   "
+               f"{D.V1_LENGTH_ONLY_AUROC['adep4']:.3f} / {D.V1_LENGTH_ONLY_AUROC['onc212']:.3f}"),
+        Line2D([], [], ls="", label=f"cross-assay   "
+               f"{D.CROSS_ASSAY_AUROC['adep4']:.3f} / {D.CROSS_ASSAY_AUROC['onc212']:.3f}"),
+    ]
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.legend(fontsize=SS * 0.85, frameon=False, loc="lower right", handletextpad=0.5)
+    leg = ax.legend(handles=ax.get_legend_handles_labels()[0] + extra, fontsize=SS * 0.82,
+                    frameon=False, loc="lower right", handletextpad=0.5, labelspacing=0.35)
+    for t in leg.get_texts()[2:]:
+        t.set_color(PAL.MUTED)
     stylia.label(ax, xlabel="False positive rate", ylabel="True positive rate",
-                 title="ROC (5-seed mean ± SD)")
+                 title="ROC (band = 5 CV folds)")
 
 
 def plot_pr(ax, data: dict) -> None:
     """Precision-recall, with each activator's BASE RATE as its own floor.
 
-    The floors differ -- 0.137 for ADEP4, 0.246 for ONC212 -- so the two PR curves are NOT on a
-    common scale and the higher curve is not automatically the better model. That is exactly why
-    the base rate is drawn."""
+    The floors differ -- 0.137 for ADEP4, 0.246 for ONC212 -- so the two curves are NOT on a common
+    scale and the higher one is not automatically the better model. That is why the floor is drawn."""
     for act, (oof, cv) in data.items():
+        lo, hi = _fold_band(oof, "pr")
+        ax.fill_between(GRID, lo, hi, color=ACT_COLOR[act], alpha=0.18, linewidth=0, zorder=1)
         prec, rec, _ = precision_recall_curve(oof["hit"], oof[OOF_COLUMN])
-        ax.plot(rec, prec, color=ACT_COLOR[act], lw=2.2,
+        ax.plot(rec, prec, color=ACT_COLOR[act], lw=2.2, zorder=3,
                 label=f"{ACT_LABEL[act]}   {cv.pr_auc_clustered:.3f} ± {cv.pr_auc_clustered_sd:.3f}")
-        ax.axhline(cv.base_rate, color=ACT_COLOR[act], lw=1.0, ls=":")
+        ax.axhline(cv.base_rate, color=ACT_COLOR[act], lw=1.0, ls=":", zorder=0)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.legend(fontsize=SS * 0.85, frameon=False, loc="upper right", handletextpad=0.5)
+    ax.legend(fontsize=SS * 0.82, frameon=False, loc="upper right", handletextpad=0.5)
     stylia.label(ax, xlabel="Recall", ylabel="Precision",
                  title="Precision-recall (dotted = base rate)")
 
 
-def plot_benchmark(ax, data: dict) -> None:
-    """The model against the baseline it must beat and the yardstick it is measured against.
-
-    Three marks per activator: length-only (what size alone buys), the model (+/- SD over 5 seeds),
-    and the cross-assay AUROC -- how well one activator's labels predict the other's, i.e. the
-    assay's own reproducibility. The last is drawn hollow because it is a REFERENCE, not a ceiling:
-    the model exceeds it at three of five label cutoffs."""
-    acts = list(data)
-    y = np.arange(len(acts))[::-1]
-    for yi, act in zip(y, acts):
-        cv = data[act][1]
-        ax.plot([D.V1_LENGTH_ONLY_AUROC[act], cv.roc_auc_clustered], [yi, yi],
-                color="#CFCFCB", lw=1.6, zorder=1)
-        ax.scatter([D.V1_LENGTH_ONLY_AUROC[act]], [yi], s=60, color=PAL.MUTED,
-                   linewidths=0, zorder=3)
-        ax.errorbar([cv.roc_auc_clustered], [yi], xerr=[cv.roc_auc_clustered_sd], fmt="o",
-                    color=ACT_COLOR[act], markersize=9, capsize=3, lw=1.4, zorder=4,
-                    markeredgecolor="white", markeredgewidth=0.6)
-        ax.scatter([D.CROSS_ASSAY_AUROC[act]], [yi], s=70, facecolors="white",
-                   edgecolors=PAL.INK, linewidths=1.3, zorder=3)
-    ax.set_yticks(y)
-    ax.set_yticklabels([ACT_LABEL[a] for a in acts], fontsize=SS)
-    ax.set_ylim(-0.7, len(acts) - 0.3)
-    ax.set_xlim(0.6, 0.95)
-    ax.grid(axis="x", color="#EFEFEC", lw=0.8)
-    ax.set_axisbelow(True)
-    handles = [
-        Line2D([], [], marker="o", ls="", markersize=6, color=PAL.MUTED, label="length only"),
-        Line2D([], [], marker="o", ls="", markersize=7, color=PAL.INK, label="TabPFN (± SD)"),
-        Line2D([], [], marker="o", ls="", markersize=7, markerfacecolor="white",
-               markeredgecolor=PAL.INK, color="none", label="cross-assay yardstick"),
-    ]
-    ax.legend(handles=handles, fontsize=SS * 0.8, frameon=False, loc="lower right",
-              handletextpad=0.3, labelspacing=0.3)
-    stylia.label(ax, xlabel="AUROC", ylabel="", title="Beating size, not beating 0.5")
+#: The four groups of the deployment panel, as (tick label, species, seen-or-None).
+GROUPS = [
+    ("K. pneumoniae\nunseen", "kpneumoniae", None),
+    ("E. coli\nunseen", "ecoli", None),
+    ("S. aureus\nseen", "saureus", True),
+    ("S. aureus\nunseen", "saureus", False),
+]
 
 
-def plot_distribution(ax, data: dict) -> None:
-    """Out-of-fold score, split by the MEASURED label. This is what the two areas summarise.
+#: Centre-to-centre spacing of the four groups. Wider than 1.0 because each group is a SPLIT
+#: violin: at spacing 1.0 the right half of one group overlaps the left half of the next, which
+#: reads as a single malformed shape rather than as two activators.
+GROUP_STEP = 1.7
+VIOLIN_WIDTH = 1.35
 
-    Violins rather than histograms because the comparison is between four distributions on one
-    scale, and four overlaid histograms is unreadable. Filled = measured substrate, hollow = not,
-    the same convention the enrichment figure uses."""
-    pos = 0
-    ticks, tick_labels = [], []
-    for act, (oof, cv) in data.items():
-        for hit in (0, 1):
-            v = oof.loc[oof["hit"] == hit, OOF_COLUMN].dropna().to_numpy()
-            parts = ax.violinplot([v], positions=[pos], widths=0.75, showextrema=False)
-            for body in parts["bodies"]:
-                body.set_alpha(1.0)
-                if hit:
-                    body.set_facecolor(ACT_COLOR[act])
-                    body.set_edgecolor("white")
-                else:
-                    body.set_facecolor("white")
-                    body.set_edgecolor(ACT_COLOR[act])
-                body.set_linewidth(1.1)
-            ax.scatter([pos], [np.median(v)], s=14, color=PAL.INK, zorder=4)
-            ticks.append(pos)
-            tick_labels.append(f"{'substrate' if hit else 'not'}\nn={len(v):,}")
-            pos += 1
-        # the cut this axis actually uses, over that activator's pair only
-        ax.plot([pos - 2.45, pos - 0.55], [D.BASE_RATE_THRESHOLD[act]] * 2,
-                color=ACT_COLOR[act], lw=1.2, ls="--")
-        pos += 0.6
 
-    ax.set_xticks(ticks)
-    ax.set_xticklabels(tick_labels, fontsize=SS * 0.78)
+def _half_violin(ax, values: np.ndarray, pos: float, side: str, color, filled: bool) -> None:
+    """One side of a split violin.
+
+    matplotlib has no split violin, so the body is drawn whole and then its path is clipped to one
+    side of `pos`. Clipping the vertices rather than halving the kernel keeps both halves on the
+    same density estimate, which is the only way the two are comparable."""
+    parts = ax.violinplot([values], positions=[pos], widths=VIOLIN_WIDTH, showextrema=False)
+    for b in parts["bodies"]:
+        v = b.get_paths()[0].vertices
+        v[:, 0] = np.clip(v[:, 0], -np.inf, pos) if side == "left" else np.clip(v[:, 0], pos, np.inf)
+        b.set_alpha(1.0)
+        b.set_facecolor(color if filled else "white")
+        b.set_edgecolor(color)
+        b.set_linewidth(1.0)
+
+
+def plot_species(ax, species_scores: dict) -> None:
+    """Where the predicted scores actually land, per proteome, split by activator.
+
+    Left half ADEP4, right half ONC212. The S. aureus `seen` group is the labelled set scored
+    out-of-fold; everything else is a model prediction on an organism the model never saw. The two
+    `seen` sets are NOT the same proteins -- 1,677 for ADEP4, 1,045 for ONC212 -- because the two
+    screens measured different numbers of proteins."""
+    for i, (label, _sp, _seen) in enumerate(GROUPS):
+        x = i * GROUP_STEP
+        for act, side in (("adep4", "left"), ("onc212", "right")):
+            v = species_scores[(label, act)]
+            _half_violin(ax, v, x, side, ACT_COLOR[act], filled=(side == "left"))
+        for act, dx in (("adep4", -0.22), ("onc212", 0.22)):
+            ax.scatter([x + dx], [np.median(species_scores[(label, act)])], s=12,
+                       color=PAL.INK, zorder=5)
+
+    for act, ls in (("adep4", "--"), ("onc212", ":")):
+        ax.axhline(D.BASE_RATE_THRESHOLD[act], color=ACT_COLOR[act], lw=1.1, ls=ls, zorder=0)
+
+    ax.set_xticks([i * GROUP_STEP for i in range(len(GROUPS))])
+    ax.set_xticklabels([g[0] for g in GROUPS], fontsize=SS * 0.8)
+    ax.set_xlim(-VIOLIN_WIDTH / 2 - 0.2, (len(GROUPS) - 1) * GROUP_STEP + VIOLIN_WIDTH / 2 + 0.2)
     ax.set_ylim(0, 1)
-    # Activator names go BELOW the tick labels, in axes-fraction y, which is the one place they
-    # cannot collide with either the violins or the title.
-    trans = matplotlib.transforms.blended_transform_factory(ax.transData, ax.transAxes)
-    for act, xc in zip(data, (0.5, 3.1)):
-        ax.text(xc, -0.115, ACT_LABEL[act], ha="center", va="top", fontsize=SS,
-                color=ACT_COLOR[act], transform=trans)
-    stylia.label(ax, xlabel="", ylabel="Out-of-fold probability",
-                 title="Dashed = the cut this axis uses")
+    handles = [
+        Line2D([], [], marker="s", ls="", markersize=7, color=ACT_COLOR["adep4"], label="ADEP4"),
+        Line2D([], [], marker="s", ls="", markersize=7, markerfacecolor="white",
+               markeredgecolor=ACT_COLOR["onc212"], color="none", label="ONC212"),
+    ]
+    ax.legend(handles=handles, fontsize=SS * 0.82, frameon=False, loc="upper right",
+              handletextpad=0.4, labelspacing=0.3)
+    stylia.label(ax, xlabel="", ylabel="Predicted probability",
+                 title="Where the scores land (lines = the cuts)")
 
 
 def main() -> None:
@@ -221,11 +255,25 @@ def main() -> None:
     say("\n  degradability cross-validation -- S. aureus measured labels")
     data = {act: _curves(act) for act in D.ACTIVATORS}
 
-    fig, axs = stylia.create_figure(1, 4, width_ratios=[1, 1, 1.05, 1.25], width=1.0, height=0.42)
+    # The deployment panel reads the DELIVERABLE, not the OOF table: `<act>_prob` is already the
+    # out-of-fold value wherever a protein was measured, so the two are on one scale by design.
+    species_scores: dict[tuple[str, str], np.ndarray] = {}
+    counts: dict[tuple[str, str], int] = {}
+    for label, sp, seen in GROUPS:
+        df = D.load(sp)
+        for act in D.ACTIVATORS:
+            sub = df
+            if seen is not None:
+                has = df["uniprot_ac"].map(D.measured(act)).notna()
+                sub = df[has] if seen else df[~has]
+            v = pd.to_numeric(sub[f"{act}_prob"], errors="coerce").dropna().to_numpy()
+            species_scores[(label, act)] = v
+            counts[(label, act)] = len(v)
+
+    fig, axs = stylia.create_figure(1, 3, width_ratios=[1, 1, 1.35], width=1.0, height=0.40)
     plot_roc(axs.next(), data)
     plot_pr(axs.next(), data)
-    plot_benchmark(axs.next(), data)
-    plot_distribution(axs.next(), data)
+    plot_species(axs.next(), species_scores)
     out = OUT_DIR / "degradability_cv.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -239,32 +287,45 @@ def main() -> None:
             f" {cv.pr_auc_clustered:>9.4f} ± {cv.pr_auc_clustered_sd:<5.4f}"
             f" {D.V1_LENGTH_ONLY_AUROC[act]:>8.3f} {D.CROSS_ASSAY_AUROC[act]:>10.3f}")
 
+    say("\n  PER-FOLD SPREAD (the shaded band; min-to-max over 5 folds, NOT a standard error)")
+    from sklearn.metrics import average_precision_score, roc_auc_score
+
+    for act, (oof, cv) in data.items():
+        per = [(roc_auc_score(g["hit"], g[OOF_COLUMN]), average_precision_score(g["hit"], g[OOF_COLUMN]))
+               for _, g in oof.groupby("fold") if 0 < g["hit"].sum() < len(g)]
+        r = [x[0] for x in per]
+        a = [x[1] for x in per]
+        say(f"    {ACT_LABEL[act]:<10} AUROC {min(r):.3f}-{max(r):.3f}   "
+            f"PR {min(a):.3f}-{max(a):.3f}   over {len(per)} folds")
+
     say("\n  THE CURVE IS NOT THE NUMBER")
     for act, (oof, cv) in data.items():
-        from sklearn.metrics import average_precision_score, roc_auc_score
-
-        say(f"    {ACT_LABEL[act]:<10} curve drawn: AUROC {roc_auc_score(oof['hit'], oof[OOF_COLUMN]):.4f}"
+        say(f"    {ACT_LABEL[act]:<10} pooled curve: AUROC {roc_auc_score(oof['hit'], oof[OOF_COLUMN]):.4f}"
             f"  AP {average_precision_score(oof['hit'], oof[OOF_COLUMN]):.4f}"
             f"   vs 5-seed {cv.roc_auc_clustered:.4f} / {cv.pr_auc_clustered:.4f}")
     say("    One out-of-fold realisation against the seed-averaged value. Both inside one SD.")
     say("    Quote the 5-seed number; a single seed carries ±0.004 of arbitrariness.")
 
-    say("\n  LEAKAGE CHECK (clustered minus plain AUROC)")
-    for act, (oof, cv) in data.items():
-        say(f"    {ACT_LABEL[act]:<10} clustered {cv.roc_auc_clustered:.4f}   "
-            f"plain {cv.roc_auc_plain:.4f}   gap {cv.leakage_gap:+.4f}")
-    say("    Unusually small: this label set has little near-duplicate structure. It does NOT")
-    say("    mean grouping is unnecessary -- it means grouping cost nothing here.")
+    say("\n  WHERE THE SCORES LAND   (median, and % above that activator's cut)")
+    for label, _sp, _seen in GROUPS:
+        cells = []
+        for act in D.ACTIVATORS:
+            v = species_scores[(label, act)]
+            above = (v >= D.BASE_RATE_THRESHOLD[act]).mean() * 100
+            cells.append(f"{ACT_LABEL[act]} n={counts[(label, act)]:>5,} med {np.median(v):.3f} "
+                         f"{above:>5.1f}%")
+        say(f"    {label.replace(chr(10), ' '):<24} {'   '.join(cells)}")
 
     say("\n  CAVEATS")
+    say("    - The band is the MIN-TO-MAX across 5 CV folds, not a confidence interval. With ~46")
+    say("      positives per fold it is wide at high recall for sample-size reasons alone.")
     say("    - PR-AUC is reported beside AUROC, never AUROC alone: the estimator's gain was ~4x")
     say("      larger on PR-AUC, and AUROC alone called 4 of 6 arms 'no difference'.")
     say("    - The base rates differ (0.137 vs 0.246), so the two PR curves are NOT on a common")
     say("      scale. A higher PR curve is not automatically a better model.")
-    say("    - The cross-assay AUROC is a yardstick, NOT a ceiling: the model exceeds it at")
-    say("      three of five label cutoffs.")
-    say("    - These are S. aureus measurements. Nothing here validates the Kp or Ec columns,")
-    say("      which are extrapolations priced by nn_similarity in degradability.png.")
+    say("    - `seen` is a DIFFERENT protein set per activator (1,677 vs 1,045).")
+    say("    - Only the S. aureus `seen` group is validated. Kp, Ec and the Sa `unseen` group are")
+    say("      extrapolations; nothing in panels 1-2 licenses them.")
 
 
 if __name__ == "__main__":
