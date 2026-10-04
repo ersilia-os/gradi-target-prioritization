@@ -170,7 +170,7 @@ def plot_conservation(ax, ortho: dict, dense: dict) -> dict:
     ax.set_xlim(0, 112)
     ax.set_box_aspect(1)
     ax.legend(fontsize=SS * 0.82, frameon=False, loc="lower right", handletextpad=0.5)
-    stylia.label(ax, xlabel="% of proteome", ylabel="", title="The biology is the same")
+    stylia.label(ax, xlabel="% of proteome", ylabel="", title="Orthology analysis")
     return vals
 
 
