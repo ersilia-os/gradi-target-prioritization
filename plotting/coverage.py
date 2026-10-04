@@ -1,7 +1,7 @@
 """What each axis can actually say about K. pneumoniae -- and where a zero means "we do not know".
 
-    axis_coverage.png   A  per axis: informative / structurally-zero / unknown, as % of proteome
-                        B  the ambiguity that matters most -- studiedness's five evidence tiers
+    axis_coverage.png   -  per axis: informative / structurally-zero / unknown, as % of proteome
+                        -  the ambiguity that matters most -- studiedness's five evidence tiers
 
 The honesty slide, and the one most likely to earn the room's trust. Every axis in this project
 ships ONE COMPLETE ROW PER PROTEIN, so no axis has missing rows -- but a 0 is not the same claim in
@@ -10,7 +10,7 @@ strongest novelty claim the axis makes) or `below_floor` (an in-scope hit under 
 the deliverable cannot tell them apart. In pockets an NA means "could not look", never "looked and
 found nothing" -- so never `fillna(0)` there.
 
-Panel A therefore splits each bar three ways rather than drawing a single coverage number, because
+The coverage bars therefore split three ways rather than drawing a single coverage number, because
 a single number would be the exact overstatement this slide exists to prevent.
 
 Everything is read from the stages' own tables through `src/` loaders; nothing is recomputed.
@@ -60,16 +60,17 @@ from src import studiedness as ST  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 
 # The five studiedness tiers, ordered strongest-evidence first. Two of them score 0 meaning
-# different things, which is the whole point of panel B.
+# different things, which is the whole point of the tier breakdown.
 TIER_ORDER = ["swissprot_direct", "swissprot_close", "swissprot_homolog", "below_floor", "no_hit"]
 TIER_COLOR = PAL.TIER_COLOR
 
@@ -128,7 +129,7 @@ def axis_coverage(sp: str) -> pd.DataFrame:
     return df
 
 
-def plot_coverage(ax, cov: pd.DataFrame, abc: str) -> None:
+def plot_coverage(ax, cov: pd.DataFrame) -> None:
     """Stacked bars, informative vs unknown. Stacked rather than a single coverage number because a
     single number is exactly the overstatement this panel exists to prevent."""
     y = np.arange(len(cov))[::-1]
@@ -144,10 +145,10 @@ def plot_coverage(ax, cov: pd.DataFrame, abc: str) -> None:
     ax.set_yticklabels(cov["axis"], fontsize=SS)
     ax.set_xlim(0, 112)
     ax.legend(fontsize=SS, frameon=False, loc="lower left", bbox_to_anchor=(0, -0.22), ncol=2)
-    stylia.label(ax, xlabel="% of proteome", ylabel="", title="What each axis can say", abc=abc)
+    stylia.label(ax, xlabel="% of proteome", ylabel="", title="What each axis can say")
 
 
-def plot_tiers(ax, tr: pd.DataFrame, abc: str) -> None:
+def plot_tiers(ax, tr: pd.DataFrame) -> None:
     """Studiedness's five tiers. The last two both read 0 in the shipped table, and only one of
     them is a novelty claim -- this is the axis where the ambiguity costs the most."""
     counts = tr["evidence"].value_counts()
@@ -162,7 +163,7 @@ def plot_tiers(ax, tr: pd.DataFrame, abc: str) -> None:
     ax.set_yticklabels(order, fontsize=SS)
     ax.set_xlim(0, max(vals) * 1.2)
     stylia.label(ax, xlabel="Proteins", ylabel="",
-                 title="Studiedness: both red tiers read 0", abc=abc)
+                 title="Studiedness: both red tiers read 0")
 
 
 def main() -> None:
@@ -179,8 +180,8 @@ def main() -> None:
     tr = ST.load_transfer(sp)
 
     fig, axs = stylia.create_figure(1, 2, width_ratios=[3, 2], width=1.0, height=0.40)
-    plot_coverage(axs.next(), cov, abc="A")
-    plot_tiers(axs.next(), tr, abc="B")
+    plot_coverage(axs.next(), cov)
+    plot_tiers(axs.next(), tr)
     out = OUT_DIR / "axis_coverage.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -192,7 +193,7 @@ def main() -> None:
         say(f"    {'':<20} {r['note']}")
     say("\n  CAVEAT")
     say("    Every axis ships one complete row per protein -- no axis has MISSING rows. What")
-    say("    differs is what a 0 claims. Panel A is about meaning, not about completeness.")
+    say("    differs is what a 0 claims. The bars are about meaning, not about completeness.")
 
 
 if __name__ == "__main__":

@@ -309,7 +309,8 @@ scripts/
 
 plotting/         TOP-LEVEL, cross-axis, presentation-only. parents[1], NOT parents[2].
                   filters.py = the shortlist predicates, defined once
-                  palette.py = stylia's npg palette, NOT its ersilia one -> output/plots/presentation/
+                  palette.py = npg palette + article style, no ersilia branding
+                                                            -> output/plots/presentation/
 
 src/              flat. one module per task + matrices.py, tabpfn.py, interest.py, proteomelm.py
 docs/             one .md per task, named for the task (docs/function.md, not docs/02_function.md)
@@ -1509,13 +1510,25 @@ against 59**. The membrane rule costs almost nothing because the degradability m
 learned the mechanism, which is why `not_membrane` is a statement about mechanism and not a filter
 that earns its keep numerically.
 
-**COLOURS COME FROM STYLIA'S `npg` PALETTE, NOT STYLIA'S `ersilia` PALETTE.** Standing instruction
-from the project owner, 2026-10-04. `set_style` and the palette are **two different knobs** and only
-the second is constrained: `stylia.set_style("ersilia")` still sets typography, grid and spines, but
-`stylia.NamedColors()` — which returns the ersilia plum/orange/mint set — **must not be used**.
-Colours come from `stylia.CategoricalPalette("npg")` via **`plotting/palette.py`**, under SEMANTIC
-names (`PRIMARY`/`SECONDARY`/`TERTIARY`/`ACCENT`/`MUTED`/`INK`/`BACKDROP`), because `NPG[5]` at a
-call site says nothing about intent and changes meaning silently if the palette is reordered.
+**`plotting/` USES NONE OF STYLIA'S ERSILIA BRANDING — npg PALETTE, `article` STYLE, BLACK LABELS.**
+Standing instruction from the project owner, 2026-10-04, given in two parts.
+
+**The palette**: colours come from `stylia.CategoricalPalette("npg")` via **`plotting/palette.py`**,
+never from `stylia.NamedColors()` (the ersilia plum/orange/mint set). Roles are SEMANTIC —
+`PRIMARY`/`SECONDARY`/`TERTIARY`/`ACCENT`/`MUTED`/`INK`/`BACKDROP`/`SEQUENTIAL` — because `NPG[5]`
+at a call site says nothing about intent and changes meaning silently if the palette is reordered.
+`SEQUENTIAL` exists so heatmaps are npg too: `BuPu`/`viridis` are not, and a deck that is npg
+everywhere except its heatmaps is the drift this module prevents.
+
+**The style**: **`stylia.set_style("article")`, NOT `("ersilia")`** — the ersilia style paints every
+text element AND every spine plum (`#50285A`), and the owner asked for black labels. `set_format`
+and `set_style` are different knobs from the palette; only `article` gives black. `PAL.INK` is
+likewise plain black, for in-plot annotations.
+
+**NO `abc=` PANEL LETTERS.** `stylia.label()` takes an `abc` argument that stamps A/B/C on each
+panel; `plotting/` does not use it (owner's call). Figures are referred to by what the panel shows,
+never by a letter — a letter in a docstring goes stale the moment a panel is reordered. Note the
+per-axis figures under `scripts/plots/` DO still use `abc=`; this rule is `plotting/` only.
 
 **`plotting/palette.py` is the SECOND shared module, and centralising it is a deliberate departure
 from `scripts/plots/`**, where style constants are copy-pasted by design. The reason the exception

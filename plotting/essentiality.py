@@ -1,8 +1,8 @@
 """Three independent predictors of essentiality, side by side, and deliberately NO verdict.
 
-    essentiality.png   A  the three predictors' distributions on K. pneumoniae
-                       B  how much they agree -- pairwise Spearman
-                       C  how little their shortlists overlap -- shared members of each top 500
+    essentiality.png   -  the three predictors' distributions on K. pneumoniae
+                       -  how much they agree -- pairwise Spearman
+                       -  how little their shortlists overlap -- shared members of each top 500
 
 **The missing verdict column is a design decision, not an omission.** It was removed because it
 MIXED UNITS -- a measured 1.0 pinned against a predicted 1.0, so every measured essential outranked
@@ -15,8 +15,8 @@ measured Kp screens against Geptop's validated 0.59-0.81, and `geptop_ess` leave
 proteome tied at exactly 0 -- two-thirds of the anchor unranked, on an axis consumed by ranking.
 Do NOT re-derive this from an E. coli comparison: `geptop_ess` is 53.2% self-derived there.
 
-Panel C is the panel that justifies keeping all three: they are genuinely different opinions, not a
-consensus. Contrast degradability's two activator columns at rho 0.89.
+The shortlist-overlap panel is what justifies keeping all three: they are genuinely different
+opinions, not a consensus. Contrast degradability's two activator columns at rho 0.89.
 
 Everything is read from the stages' own tables through `src/` loaders; nothing is recomputed.
 
@@ -59,10 +59,11 @@ from src import essentiality as E  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
@@ -72,7 +73,7 @@ PRED_SHORT = {"screens_ess_mean": "screens", "proteomelm_ess": "ProteomeLM", "ge
 PRED_COLOR = {"screens_ess_mean": PAL.PRIMARY, "proteomelm_ess": PAL.TERTIARY, "geptop_ess": PAL.SECONDARY}
 
 
-def plot_distributions(ax, ess: pd.DataFrame, abc: str) -> None:
+def plot_distributions(ax, ess: pd.DataFrame) -> None:
     """Three distributions. Geptop's spike at 0 is the point: 66.3% of Kp ties there, which is why
     it is not the column this deck ranks on."""
     for col in PREDICTORS:
@@ -82,10 +83,10 @@ def plot_distributions(ax, ess: pd.DataFrame, abc: str) -> None:
     ax.set_yscale("log")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
     stylia.label(ax, xlabel="Predicted essentiality", ylabel="Proteins (log)",
-                 title="Three predictors, three shapes", abc=abc)
+                 title="Three predictors, three shapes")
 
 
-def plot_agreement(ax, ess: pd.DataFrame, abc: str) -> None:
+def plot_agreement(ax, ess: pd.DataFrame) -> None:
     """Pairwise Spearman. Rank correlation, not Pearson, because the axis is consumed by ranking."""
     pairs = list(itertools.combinations(PREDICTORS, 2))
     vals = [ess[a].corr(ess[b], method="spearman") for a, b in pairs]
@@ -96,10 +97,10 @@ def plot_agreement(ax, ess: pd.DataFrame, abc: str) -> None:
     ax.set_yticks(y)
     ax.set_yticklabels([f"{PRED_SHORT[a]} / {PRED_SHORT[b]}" for a, b in pairs], fontsize=SS)
     ax.set_xlim(0, 1)
-    stylia.label(ax, xlabel="Spearman rho", ylabel="", title="They do not agree", abc=abc)
+    stylia.label(ax, xlabel="Spearman rho", ylabel="", title="They do not agree")
 
 
-def plot_overlap(ax, ess: pd.DataFrame, top: int, abc: str) -> None:
+def plot_overlap(ax, ess: pd.DataFrame, top: int) -> None:
     """Shared members of each pair's top-N. The operational question: would swapping the column
     change the shortlist? It would."""
     pairs = list(itertools.combinations(PREDICTORS, 2))
@@ -113,7 +114,7 @@ def plot_overlap(ax, ess: pd.DataFrame, top: int, abc: str) -> None:
     ax.set_yticklabels([f"{PRED_SHORT[a]} / {PRED_SHORT[b]}" for a, b in pairs], fontsize=SS)
     ax.set_xlim(0, top * 1.15)
     stylia.label(ax, xlabel=f"shared members of each top {top}", ylabel="",
-                 title="Different shortlists", abc=abc)
+                 title="Different shortlists")
 
 
 def main() -> None:
@@ -132,9 +133,9 @@ def main() -> None:
         ess[c] = pd.to_numeric(ess[c], errors="coerce")
 
     fig, axs = stylia.create_figure(1, 3, width=1.0, height=0.38)
-    plot_distributions(axs.next(), ess, abc="A")
-    plot_agreement(axs.next(), ess, abc="B")
-    plot_overlap(axs.next(), ess, args.top, abc="C")
+    plot_distributions(axs.next(), ess)
+    plot_agreement(axs.next(), ess)
+    plot_overlap(axs.next(), ess, args.top)
     out = OUT_DIR / "essentiality.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")

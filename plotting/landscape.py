@@ -1,8 +1,8 @@
 """The K. pneumoniae proteome as one picture: 5,728 proteins, embedded and annotated.
 
-    landscape.png   A  the t-SNE of the proteome, coloured by predicted localization
-                    B  the same map, coloured by COG functional group
-                    C  how much of the proteome each COG group accounts for
+    landscape.png   -  the t-SNE of the proteome, coloured by predicted localization
+                    -  the same map, coloured by COG functional group
+                    -  how much of the proteome each COG group accounts for
 
 The opening slide. It argues one thing: the unit of analysis is a COMPLETE reference proteome, not
 a gene list -- every protein has a vector, and the axes that follow are columns on these same rows.
@@ -53,7 +53,7 @@ OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 # `plotting/palette.py`, which is stylia's **npg** palette and not stylia's ersilia palette
 # (owner's instruction). Do not reintroduce `stylia.NamedColors()` here.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
@@ -76,7 +76,7 @@ def _scatter(ax, xy, colors, s=1.6):
     ax.set_yticks([])
 
 
-def plot_localization(ax, df, abc: str) -> None:
+def plot_localization(ax, df) -> None:
     """The map by compartment. Colours are pinned in `src/localization.py` so figures cannot drift."""
     colors = [LOC.LOC_CLASS_COLOR.get(v, "#DDDDDD") for v in df["localization"]]
     _scatter(ax, df[["tsne_x", "tsne_y"]].to_numpy(), colors)
@@ -90,10 +90,10 @@ def plot_localization(ax, df, abc: str) -> None:
     ]
     ax.legend(handles=handles, fontsize=SS * 0.85, frameon=False, loc="upper left",
               handletextpad=0.2, labelspacing=0.25)
-    stylia.label(ax, xlabel="", ylabel="", title="Where the protein goes", abc=abc)
+    stylia.label(ax, xlabel="", ylabel="", title="Where the protein goes")
 
 
-def plot_cog(ax, df, abc: str) -> None:
+def plot_cog(ax, df) -> None:
     """The same map by COG group. Deliberately the SAME coordinates -- the point is that function
     and compartment partition the one embedding differently."""
     colors = [COG_GROUP_COLOR[g] for g in df["cog_group_short"]]
@@ -105,10 +105,10 @@ def plot_cog(ax, df, abc: str) -> None:
     ]
     ax.legend(handles=handles, fontsize=SS * 0.85, frameon=False, loc="upper left",
               handletextpad=0.2, labelspacing=0.25)
-    stylia.label(ax, xlabel="", ylabel="", title="What the protein does", abc=abc)
+    stylia.label(ax, xlabel="", ylabel="", title="What the protein does")
 
 
-def plot_cog_bars(ax, df, abc: str) -> None:
+def plot_cog_bars(ax, df) -> None:
     """How much of the proteome each group accounts for, so the map's colours have a scale."""
     counts = df["cog_group_short"].value_counts()
     order = [k for k in COG_GROUP_COLOR if k in counts.index]
@@ -120,7 +120,7 @@ def plot_cog_bars(ax, df, abc: str) -> None:
     ax.set_yticks(y)
     ax.set_yticklabels(order, fontsize=SS)
     ax.set_xlim(0, max(vals) * 1.22)
-    stylia.label(ax, xlabel="% of proteome", ylabel="", title="How much is understood", abc=abc)
+    stylia.label(ax, xlabel="% of proteome", ylabel="", title="How much is understood")
 
 
 def main() -> None:
@@ -143,9 +143,9 @@ def main() -> None:
     say(f"  {len(df):,} proteins with coordinates, localization and COG")
 
     fig, axs = stylia.create_figure(1, 3, width_ratios=[3, 3, 2.2], width=1.0, height=0.38)
-    plot_localization(axs.next(), df, abc="A")
-    plot_cog(axs.next(), df, abc="B")
-    plot_cog_bars(axs.next(), df, abc="C")
+    plot_localization(axs.next(), df)
+    plot_cog(axs.next(), df)
+    plot_cog_bars(axs.next(), df)
     out = OUT_DIR / "landscape.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")

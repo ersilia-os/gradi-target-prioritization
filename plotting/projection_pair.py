@@ -1,16 +1,17 @@
 """One map, two readings: where every K. pneumoniae protein sits, and where the essential ones are.
 
-    projection_pair.png   A  the t-SNE of the proteome, coloured by predicted localization
-                          B  the same map, with the top 250 most essential proteins picked out
+    projection_pair.png   -  the t-SNE of the proteome, coloured by predicted localization
+                          -  the same map, with the top 250 most essential proteins picked out
 
-**The two panels share one set of coordinates on purpose.** Nothing is re-projected between them,
+**Both maps share one set of coordinates on purpose.** Nothing is re-projected between them,
 so every point is in the identical position in both -- which is what lets the eye carry compartment
-structure from A into B. Re-running the projection per panel would silently break that.
+structure from the first map into the second. Re-running the projection per map would
+silently break that.
 
 **The essential set really does concentrate, and it was measured before it was drawn**: the top 250
 have a mean pairwise distance of 24.4 on this map against 50.9 for random draws of the same size --
 less than half. They are COG J (translation, 90 of 250) and cytoplasmic (197 of 250, 79%, against a
-60% proteome background). So panel B is showing a real cluster, not a highlight that would look
+60% proteome background). So the highlight is a real cluster, not one that would look
 equally convincing applied to any subset.
 
 **Essentiality is `screens_ess_mean`** -- the column this deck ranks on, because on Kp the
@@ -68,18 +69,19 @@ from src import projections as PROJ  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 # PALETTE: npg, NOT the ersilia NamedColors palette (owner's instruction). `set_style` controls
 # typography and grid; the COLOURS come from CategoricalPalette("npg") -- ggsci's Nature palette,
 # 10 colours. This is the same palette the localization vocabulary is already pinned to in
-# `src/localization.py` (#E64B35, #00A087, #3C5488 are npg), so panel A and panel B agree by
+# `src/localization.py` (#E64B35, #00A087, #3C5488 are npg), so the two maps agree by
 # construction rather than by coincidence.
 NPG = stylia.CategoricalPalette("npg").colors
-ACCENT = NPG[8]   # magenta -- deliberately NOT a colour panel A uses for a compartment
+ACCENT = NPG[8]   # magenta -- deliberately NOT a colour the compartment map uses
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 
@@ -98,7 +100,7 @@ LOC_PRETTY = {
     "extracellular": "extracellular",
 }
 
-# The quiet background for panel B -- a neutral, not a data colour, so it is not drawn from the
+# The quiet background for the essentials map -- a neutral, not a data colour, so not drawn from
 # categorical palette. Light enough that 250 highlighted points carry the panel, dark enough that
 # the proteome's shape stays legible underneath them.
 BACKGROUND = "#E4E4E0"
@@ -117,7 +119,7 @@ def _bare(ax, xy: np.ndarray) -> None:
     ax.set_aspect("equal", adjustable="box")
 
 
-def plot_localization(ax, df: pd.DataFrame, abc: str) -> None:
+def plot_localization(ax, df: pd.DataFrame) -> None:
     """The proteome by compartment. Drawn largest class first so the small, interesting classes
     (periplasm, outer membrane) end up on top rather than buried under the cytoplasm."""
     xy = df[["tsne_x", "tsne_y"]].to_numpy()
@@ -137,10 +139,10 @@ def plot_localization(ax, df: pd.DataFrame, abc: str) -> None:
     ax.legend(handles=handles, fontsize=SS * 0.9, frameon=False, loc="upper left",
               handletextpad=0.3, labelspacing=0.35, borderpad=0.1)
     _bare(ax, xy)
-    stylia.label(ax, xlabel="", ylabel="", title="Where every protein goes", abc=abc)
+    stylia.label(ax, xlabel="", ylabel="", title="Where every protein goes")
 
 
-def plot_essential(ax, df: pd.DataFrame, top: int, abc: str) -> None:
+def plot_essential(ax, df: pd.DataFrame, top: int) -> None:
     """The same coordinates, with the most essential proteins picked out.
 
     The highlighted points get a thin white edge so that a dense cluster still reads as individual
@@ -163,7 +165,7 @@ def plot_essential(ax, df: pd.DataFrame, top: int, abc: str) -> None:
     ax.legend(handles=handles, fontsize=SS * 0.9, frameon=False, loc="upper left",
               handletextpad=0.3, labelspacing=0.35, borderpad=0.1)
     _bare(ax, xy)
-    stylia.label(ax, xlabel="", ylabel="", title="Where the essential ones are", abc=abc)
+    stylia.label(ax, xlabel="", ylabel="", title="Where the essential ones are")
 
 
 def main() -> None:
@@ -187,8 +189,8 @@ def main() -> None:
     say(f"  {len(df):,} proteins with coordinates, localization and essentiality")
 
     fig, axs = stylia.create_figure(1, 2, width=1.0, height=0.46)
-    plot_localization(axs.next(), df, abc="A")
-    plot_essential(axs.next(), df, args.top, abc="B")
+    plot_localization(axs.next(), df)
+    plot_essential(axs.next(), df, args.top)
     out = OUT_DIR / "projection_pair.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")

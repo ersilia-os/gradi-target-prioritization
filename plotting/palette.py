@@ -42,8 +42,11 @@ QUATERNARY = NPG[2]   # amber       -- a fourth, rarely needed
 ACCENT = NPG[8]       # magenta     -- a highlight ON TOP of a muted field, never a series colour
 MUTED = NPG[9]        # grey        -- "everything else", denominators, backgrounds-with-data
 
-#: Text, axis rules and reference lines. Not from the palette: it must stay legible in print.
-INK = (0.17254901960784313, 0.24313725490196078, 0.3137254901960784)
+#: Text, axis rules and reference lines. BLACK, on the owner's instruction (2026-10-04) -- the
+#: ersilia style paints every text element plum (#50285A), which is why these scripts call
+#: `stylia.set_style("article")` rather than `("ersilia")`. Not from the categorical palette: a
+#: label is not a series, and it must stay legible in print.
+INK = "black"
 
 #: A near-white field for points that are present but not the subject. NOT a data colour, which is
 #: why it is not drawn from the categorical palette.

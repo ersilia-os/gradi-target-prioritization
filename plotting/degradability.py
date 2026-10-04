@@ -1,11 +1,12 @@
 """Is this protein a substrate of activated, partnerless ClpP? The axis the whole project turns on.
 
-    degradability.png   A  the Kp probability distribution, with the cut that actually applies
-                        B  measured hit rate by compartment -- why "cytoplasmic only" is wrong
-                        C  how far the S. aureus -> K. pneumoniae extrapolation is being pushed
+    degradability.png   -  the Kp probability distribution, with the cut that actually applies
+                        -  measured hit rate by compartment -- why "cytoplasmic only" is wrong
+                        -  how far the S. aureus -> K. pneumoniae extrapolation is being pushed
 
-**Panel B is the mechanistic finding worth the slide.** On the measured S. aureus labels the hit
-rate is cytoplasm 0.180/0.275, membrane 0.031/0.105 and EXTRACELLULAR 0.049/0.346. Membrane
+**The compartment panel is the mechanistic finding worth the slide.** On the measured
+S. aureus labels the hit rate is cytoplasm 0.180/0.275, membrane 0.031/0.105 and
+EXTRACELLULAR 0.049/0.346. Membrane
 proteins are protected -- inserted co-translationally, never a soluble cytoplasmic chain. Secreted
 proteins are not: they transit the cytoplasm unfolded and ARE reachable. So the right filter is
 "not membrane", not "cytoplasm only", and the obvious filter would discard the compartment with the
@@ -59,17 +60,18 @@ from src import localization as LOC  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 ACT_COLOR = {"adep4": PAL.PRIMARY, "onc212": PAL.SECONDARY}
 
 
-def plot_distribution(ax, deg: pd.DataFrame, abc: str) -> None:
+def plot_distribution(ax, deg: pd.DataFrame) -> None:
     """Both activators on Kp, with 0.5 drawn so the room can see why it is the wrong cut."""
     for act in D.ACTIVATORS:
         v = pd.to_numeric(deg[f"{act}_prob"], errors="coerce").dropna()
@@ -80,10 +82,10 @@ def plot_distribution(ax, deg: pd.DataFrame, abc: str) -> None:
     ax.text(0.5, ax.get_ylim()[1] * 0.55, " 0.5 (wrong)", fontsize=SS, color=PAL.INK)
     ax.legend(fontsize=SS, frameon=False, loc="upper right", bbox_to_anchor=(1.0, 0.98))
     stylia.label(ax, xlabel="Predicted probability", ylabel="Proteins",
-                 title="Dashed = the cut that applies", abc=abc)
+                 title="Dashed = the cut that applies")
 
 
-def plot_hit_rate(ax, abc: str) -> None:
+def plot_hit_rate(ax) -> None:
     """Measured hit rate by compartment, from the S. aureus labels -- the only measurements here.
 
     Counts are printed on the bars because two of these compartments are small, and a rate without
@@ -111,10 +113,10 @@ def plot_hit_rate(ax, abc: str) -> None:
     ax.set_xticklabels([LOC.LOC_CLASS_ABBREV[c] for c in order], fontsize=SS)
     ax.legend(fontsize=SS, frameon=False, loc="upper left")
     stylia.label(ax, xlabel="Compartment (measured, S. aureus)", ylabel="Hit rate",
-                 title="Secreted proteins ARE reachable", abc=abc)
+                 title="Secreted proteins ARE reachable")
 
 
-def plot_extrapolation(ax, species: list[str], abc: str) -> None:
+def plot_extrapolation(ax, species: list[str]) -> None:
     """How similar each proteome is to the nearest labelled S. aureus protein.
 
     This is the price of the extrapolation, and it is the panel to read before quoting any Kp
@@ -125,7 +127,7 @@ def plot_extrapolation(ax, species: list[str], abc: str) -> None:
                 label=f"{LABELS[sp]}  median {v.median():.3f}")
     ax.legend(fontsize=SS, frameon=False, loc="upper left")
     stylia.label(ax, xlabel="Cosine to nearest labelled S. aureus protein", ylabel="Proteins",
-                 title="What the model is extrapolating across", abc=abc)
+                 title="What the model is extrapolating across")
 
 
 def main() -> None:
@@ -141,9 +143,9 @@ def main() -> None:
     deg = D.load(sp)
 
     fig, axs = stylia.create_figure(1, 3, width=1.0, height=0.38)
-    plot_distribution(axs.next(), deg, abc="A")
-    plot_hit_rate(axs.next(), abc="B")
-    plot_extrapolation(axs.next(), ["kpneumoniae", "ecoli", "saureus"], abc="C")
+    plot_distribution(axs.next(), deg)
+    plot_hit_rate(axs.next())
+    plot_extrapolation(axs.next(), ["kpneumoniae", "ecoli", "saureus"])
     out = OUT_DIR / "degradability.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")

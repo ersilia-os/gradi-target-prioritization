@@ -1,8 +1,8 @@
 """Would a degrader hit the patient too? Human orthology as the selectivity filter.
 
-    selectivity.png   A  how much of each proteome has a human ortholog, by method
-                      B  the identity distribution of the human calls
-                      C  what widening the comparator panel did -- in BOTH directions
+    selectivity.png   -  how much of each proteome has a human ortholog, by method
+                      -  the identity distribution of the human calls
+                      -  what widening the comparator panel did -- in BOTH directions
 
 **Two methods are kept and never merged, and this figure is the argument for that.** Kp `clpP` is a
 documented ortholog of human CLPP at 56.3% identity; after the panel expansion OrthoFinder calls it
@@ -60,17 +60,18 @@ from src import orthology as O  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 SPECIES = ["kpneumoniae", "ecoli", "saureus"]
 
 
-def plot_counts(ax, dense: dict, abc: str) -> None:
+def plot_counts(ax, dense: dict) -> None:
     """Per species: OrthoFinder alone, RBH alone, and the union that the deliverable ships."""
     x = np.arange(len(SPECIES))
     width = 0.26
@@ -93,10 +94,10 @@ def plot_counts(ax, dense: dict, abc: str) -> None:
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
     stylia.label(ax, xlabel="", ylabel="% with a human ortholog",
-                 title="Neither method alone", abc=abc)
+                 title="Neither method alone")
 
 
-def plot_identity(ax, dense: dict, abc: str) -> None:
+def plot_identity(ax, dense: dict) -> None:
     """Identity of the human calls. The 40-50% band is where the two methods disagree and where
     ortholog-vs-paralog is genuinely ambiguous -- so identity ships as a column, never a filter."""
     for sp, color in zip(SPECIES, [PAL.PRIMARY, PAL.SECONDARY, PAL.TERTIARY]):
@@ -111,10 +112,10 @@ def plot_identity(ax, dense: dict, abc: str) -> None:
     ax.text(45, ax.get_ylim()[1] * 0.93, "ambiguous", fontsize=SS, color=PAL.INK, ha="center")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
     stylia.label(ax, xlabel="% identity to the human ortholog", ylabel="Proteins",
-                 title="Identity is a column, not a filter", abc=abc)
+                 title="Identity is a column, not a filter")
 
 
-def plot_selectivity_gain(ax, dense: dict, abc: str) -> None:
+def plot_selectivity_gain(ax, dense: dict) -> None:
     """What the filter buys: the proteome before and after removing human-orthologous proteins."""
     x = np.arange(len(SPECIES))
     width = 0.38
@@ -128,7 +129,7 @@ def plot_selectivity_gain(ax, dense: dict, abc: str) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
-    stylia.label(ax, xlabel="", ylabel="Proteins", title="What the filter keeps", abc=abc)
+    stylia.label(ax, xlabel="", ylabel="Proteins", title="What the filter keeps")
 
 
 def main() -> None:
@@ -142,9 +143,9 @@ def main() -> None:
     dense = {sp: O.load_dense(sp) for sp in SPECIES}
 
     fig, axs = stylia.create_figure(1, 3, width=1.0, height=0.38)
-    plot_counts(axs.next(), dense, abc="A")
-    plot_identity(axs.next(), dense, abc="B")
-    plot_selectivity_gain(axs.next(), dense, abc="C")
+    plot_counts(axs.next(), dense)
+    plot_identity(axs.next(), dense)
+    plot_selectivity_gain(axs.next(), dense)
     out = OUT_DIR / "selectivity.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")

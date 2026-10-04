@@ -35,11 +35,11 @@ a single comparison with a written rationale and its own count.
 | essential | `screens_ess_mean >= 0.299` (proteome-wide 90th pct) | 235 |
 | degradable | `adep4_prob >= 0.328` (`BASE_RATE_THRESHOLD`) | **59** |
 
-**Leave-one-out is the panel that matters**, because the filters are conjunctive and the funnel
+**Leave-one-out is what matters**, because the filters are conjunctive and the funnel
 overstates the early ones: without `not_membrane` 63 · without `selective` 104 · without `essential`
 792 · without `degradable` 235. So **essentiality does the work, and `not_membrane` costs almost
 nothing (59 → 63)** — the degradability model has already learned the membrane mechanism, which is
-independent confirmation of panel B of `degradability.png`.
+independent confirmation of the compartment panel of `degradability.png`.
 
 Survivors are led by `hns`, `infA`, `greA`, `nusG`, `nusA`, `xseB`, `minE`; 49 of 59 carry a gene
 symbol, median 12 papers, **0 with a potent ligand**.
@@ -60,14 +60,22 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `projection_pair.py` | `projection_pair.png` | one map read twice: compartment, then the top 250 essential |
 | `shortlist.py` | `shortlist.png`, `shortlist_kpneumoniae.tsv` | five rules, 59 proteins, and what each rule cost |
 
-## Palette: stylia's `npg`, not stylia's `ersilia`
+## Look: npg palette, `article` style, black labels, no panel letters
 
-Owner's instruction, 2026-10-04. `set_style` and the palette are two different knobs and only the
-second is constrained: `stylia.set_style("ersilia")` still sets typography, grid and spines, but
-`stylia.NamedColors()` (the plum/orange/mint set) is not used. Colours come from
-`stylia.CategoricalPalette("npg")` through **`plotting/palette.py`**, under semantic names —
-`PRIMARY` · `SECONDARY` · `TERTIARY` · `ACCENT` · `MUTED` · `INK` · `BACKDROP` — because `NPG[5]` at
-a call site says nothing about intent.
+Owner's instruction, 2026-10-04, in two parts. The deck uses stylia but none of stylia's ersilia
+branding.
+
+**Palette** — `stylia.CategoricalPalette("npg")` through **`plotting/palette.py`**, never
+`stylia.NamedColors()` (plum/orange/mint). Semantic names: `PRIMARY` · `SECONDARY` · `TERTIARY` ·
+`ACCENT` · `MUTED` · `INK` · `BACKDROP` · `SEQUENTIAL`, because `NPG[5]` at a call site says nothing
+about intent. `SEQUENTIAL` keeps heatmaps npg too — `BuPu` and `viridis` are not.
+
+**Style** — `stylia.set_style("article")`, not `("ersilia")`. The ersilia style paints every text
+element and spine plum (`#50285A`); article gives black. `PAL.INK` is plain black for in-plot text.
+
+**No `abc=` panel letters.** `stylia.label()` can stamp A/B/C on panels; this deck does not. Panels
+are referred to by what they show — a letter goes stale the moment a panel is reordered. The
+per-axis figures under `scripts/plots/` still use `abc=`; this is a `plotting/` rule only.
 
 `plotting/palette.py` is the second shared module, beside `filters.py`, and centralising it is a
 deliberate departure from `scripts/plots/`'s copy-paste convention: a palette stops being

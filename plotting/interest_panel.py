@@ -1,8 +1,8 @@
 """The consortium's own 43 proteins of interest, scored on every axis this project built.
 
-    interest_panel.png   A  which of the 43 panel symbols are findable in K. pneumoniae
-                         B  where the panel sits, as a percentile of the Kp proteome, per axis
-                         C  the panel's degradability against the proteome's
+    interest_panel.png   -  which of the 43 panel symbols are findable in K. pneumoniae
+                         -  where the panel sits, as a percentile of the Kp proteome, per axis
+                         -  the panel's degradability against the proteome's
 
 **This is the slide for this audience, and it is not flattering.** The panel is excellent biology
 and the wrong chemistry for a degrader: essential (far right tail), already well studied (NOT
@@ -13,9 +13,9 @@ ClpP reaches them only through a pre-export window, if at all.
 **`src/interest.py` is an EXPANSION OF PROSE, flagged as a draft.** There is no machine-readable
 consortium list in this repository; the targets are stated in prose in two legacy documents, and
 the kick-off's "targets in the periplasm" conflicts with the v5 proposal's cytosolic GyrA/GyrB --
-never settled. Panel A exists so the naming gap is visible rather than silent: matching is by gene
-symbol and Kp `gene_name` covers only 63.4% of the proteome, so a missing symbol is usually a
-NAMING gap, not a biological absence.
+never settled. The coverage panel exists so the naming gap is visible rather than silent:
+matching is by gene symbol and Kp `gene_name` covers only 63.4% of the proteome, so a missing
+symbol is usually a NAMING gap, not a biological absence.
 
 Everything is read from the stages' own tables through `src/` loaders; nothing is recomputed.
 
@@ -58,10 +58,11 @@ from src import interest as I  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
@@ -77,7 +78,7 @@ AXES = [
 ]
 
 
-def plot_found(ax, cov: pd.DataFrame, abc: str) -> None:
+def plot_found(ax, cov: pd.DataFrame) -> None:
     """Found vs missing per family. Missing is a naming gap far more often than an absence."""
     y = np.arange(len(cov))[::-1]
     ax.barh(y, cov["n_found"], color=PAL.PRIMARY, height=0.6, label="found by symbol")
@@ -89,10 +90,10 @@ def plot_found(ax, cov: pd.DataFrame, abc: str) -> None:
     ax.set_yticklabels(cov["family"], fontsize=SS * 0.95)
     ax.set_xlim(0, cov["n_panel"].max() * 1.25)
     ax.legend(fontsize=SS, frameon=False, loc="lower right")
-    stylia.label(ax, xlabel="Panel members", ylabel="", title="Is the panel findable?", abc=abc)
+    stylia.label(ax, xlabel="Panel members", ylabel="", title="Is the panel findable?")
 
 
-def plot_percentiles(ax, panel: pd.DataFrame, full: pd.DataFrame, abc: str) -> None:
+def plot_percentiles(ax, panel: pd.DataFrame, full: pd.DataFrame) -> None:
     """Where the panel sits on each axis, as a percentile of the proteome. The median is the dot;
     the bar is the interquartile range, so a wide family is visibly wide."""
     rows = []
@@ -115,10 +116,10 @@ def plot_percentiles(ax, panel: pd.DataFrame, full: pd.DataFrame, abc: str) -> N
     ax.set_yticklabels([r[0] for r in rows], fontsize=SS)
     ax.set_xlim(0, 100)
     stylia.label(ax, xlabel="Percentile within proteome", ylabel="",
-                 title="Right biology, wrong chemistry", abc=abc)
+                 title="Right biology, wrong chemistry")
 
 
-def plot_degradability(ax, panel: pd.DataFrame, full: pd.DataFrame, abc: str) -> None:
+def plot_degradability(ax, panel: pd.DataFrame, full: pd.DataFrame) -> None:
     """The panel's ADEP4 distribution against the proteome's, as survival curves.
 
     Survival rather than a histogram because the question is "how far up the ranking does this set
@@ -136,7 +137,7 @@ def plot_degradability(ax, panel: pd.DataFrame, full: pd.DataFrame, abc: str) ->
     ax.text(D.BASE_RATE_THRESHOLD["adep4"], 86, " base-rate cut", fontsize=SS, color=PAL.SECONDARY)
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
     stylia.label(ax, xlabel="ADEP4 probability", ylabel="% of set at or above",
-                 title="The panel is depleted, not enriched", abc=abc)
+                 title="The panel is depleted, not enriched")
 
 
 def main() -> None:
@@ -157,9 +158,9 @@ def main() -> None:
         f"{len(panel):,} proteome rows carry one")
 
     fig, axs = stylia.create_figure(1, 3, width_ratios=[2.6, 2.6, 2.8], width=1.0, height=0.40)
-    plot_found(axs.next(), cov, abc="A")
-    plot_percentiles(axs.next(), panel, full, abc="B")
-    plot_degradability(axs.next(), panel, full, abc="C")
+    plot_found(axs.next(), cov)
+    plot_percentiles(axs.next(), panel, full)
+    plot_degradability(axs.next(), panel, full)
     out = OUT_DIR / "interest_panel.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")

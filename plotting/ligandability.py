@@ -1,8 +1,8 @@
 """Has anyone ever made a molecule against this protein -- and did it work? Two questions, not one.
 
-    ligandability.png   A  effort against potency: the quadrant that separates the two questions
-                        B  how little of the proteome has any potent ligand at all
-                        C  where the evidence comes from -- this protein, or a bacterial homolog
+    ligandability.png   -  effort against potency: the quadrant that separates the two questions
+                        -  how little of the proteome has any potent ligand at all
+                        -  where the evidence comes from -- this protein, or a bacterial homolog
 
 **A single ligand count conflates two different states, and the distinction is the whole axis.**
 `n_ligands_*` is POTENT (pChEMBL >= 6); `n_assayed_*` is "has anyone looked". A 0 against 158
@@ -63,17 +63,18 @@ from src import ligandability as LG  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
 SPECIES = ["kpneumoniae", "ecoli", "saureus"]
 
 
-def plot_quadrant(ax, lg: pd.DataFrame, abc: str) -> None:
+def plot_quadrant(ax, lg: pd.DataFrame) -> None:
     """Effort (x) against potency (y), both log1p. The bottom-right corner is the one the project
     built this axis to make visible: screened hard, nothing potent."""
     x = np.log1p(pd.to_numeric(lg["n_assayed_bacterial"], errors="coerce").fillna(0))
@@ -92,10 +93,10 @@ def plot_quadrant(ax, lg: pd.DataFrame, abc: str) -> None:
     ax.set_yticks(np.log1p(ticks))
     ax.set_yticklabels([str(t) for t in ticks], fontsize=SS)
     stylia.label(ax, xlabel="Compounds assayed (bacterial)", ylabel="Potent compounds",
-                 title="A 0 is not always a 0", abc=abc)
+                 title="A 0 is not always a 0")
 
 
-def plot_fraction(ax, data: dict, abc: str) -> None:
+def plot_fraction(ax, data: dict) -> None:
     """How little of each proteome carries any potent ligand. ~2%, and that is the real number."""
     x = np.arange(len(SPECIES))
     vals, ns = [], []
@@ -110,10 +111,10 @@ def plot_fraction(ax, data: dict, abc: str) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.set_ylim(0, max(vals) * 1.35)
-    stylia.label(ax, xlabel="", ylabel="% of proteome", title="Chemical precedent is rare", abc=abc)
+    stylia.label(ax, xlabel="", ylabel="% of proteome", title="Chemical precedent is rare")
 
 
-def plot_scope(ax, data: dict, abc: str) -> None:
+def plot_scope(ax, data: dict) -> None:
     """Own vs bacterial-homolog vs human. Human is a LIABILITY column and is never summed into the
     bacterial count -- clpP carries 106 human compounds against 61 bacterial."""
     x = np.arange(len(SPECIES))
@@ -131,7 +132,7 @@ def plot_scope(ax, data: dict, abc: str) -> None:
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
     stylia.label(ax, xlabel="", ylabel="Proteins with a potent compound",
-                 title="Homology transfer is the whole game", abc=abc)
+                 title="Homology transfer is the whole game")
 
 
 def main() -> None:
@@ -146,9 +147,9 @@ def main() -> None:
     data = {sp: LG.load(sp) for sp in SPECIES}
 
     fig, axs = stylia.create_figure(1, 3, width=1.0, height=0.38)
-    plot_quadrant(axs.next(), data[args.species], abc="A")
-    plot_fraction(axs.next(), data, abc="B")
-    plot_scope(axs.next(), data, abc="C")
+    plot_quadrant(axs.next(), data[args.species])
+    plot_fraction(axs.next(), data)
+    plot_scope(axs.next(), data)
     out = OUT_DIR / "ligandability.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")

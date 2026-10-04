@@ -1,12 +1,13 @@
 """Could a small molecule bind this fold? Structure for nearly everything, measurement for very few.
 
-    pockets.png   A  structural coverage: AlphaFold models vs experimental PDB structures
-                  B  measured vs modelled ligands -- two different kinds of evidence
-                  C  the honest control: pocket scores against protein LENGTH
+    pockets.png   -  structural coverage: AlphaFold models vs experimental PDB structures
+                  -  measured vs modelled ligands -- two different kinds of evidence
+                  -  the honest control: pocket scores against protein LENGTH
 
-**Panel C is the caveat that has to be on the slide.** Length alone predicts a measured ligand at
-AUROC 0.65-0.67 -- big proteins are crystallised more and have more surface. Within length deciles,
-against `n_ligands_pdb > 0`, P2Rank scores 0.494 on K. pneumoniae (0.561 Ec, 0.619 Sa) and fpocket
+**The length control is the caveat that has to be on the slide.** Length alone predicts a
+measured ligand at AUROC 0.65-0.67 -- big proteins are crystallised more and have more surface.
+Within length deciles, against `n_ligands_pdb > 0`, P2Rank scores 0.494 on K. pneumoniae
+(0.561 Ec, 0.619 Sa) and fpocket
 0.435. So **on the anchor the pocket scores add nothing over protein size**, and they are a soft
 prior at best. Always quote the length-controlled number, never the raw AUROC.
 
@@ -63,10 +64,11 @@ from src import proteomes as P  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
@@ -85,7 +87,7 @@ def _auroc(score: np.ndarray, label: np.ndarray) -> float:
     return float((r[y.astype(bool)].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
 
 
-def plot_coverage(ax, data: dict, abc: str) -> None:
+def plot_coverage(ax, data: dict) -> None:
     """Modelled vs experimentally determined. The gap is the point: structure is nearly universal,
     experimental structure is not."""
     x = np.arange(len(SPECIES))
@@ -104,11 +106,10 @@ def plot_coverage(ax, data: dict, abc: str) -> None:
     ax.set_xticklabels([LABELS[s] for s in SPECIES], fontsize=SS, style="italic")
     ax.set_ylim(0, 112)
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
-    stylia.label(ax, xlabel="", ylabel="% of proteome", title="Structure is not the bottleneck",
-                 abc=abc)
+    stylia.label(ax, xlabel="", ylabel="% of proteome", title="Structure is not the bottleneck")
 
 
-def plot_ligands(ax, data: dict, abc: str) -> None:
+def plot_ligands(ax, data: dict) -> None:
     """Measured co-crystal ligands vs AlphaFill transplants. Side by side and NEVER summed."""
     x = np.arange(len(SPECIES))
     width = 0.38
@@ -126,10 +127,10 @@ def plot_ligands(ax, data: dict, abc: str) -> None:
     ax.set_ylim(0, max(af) * 1.28)
     ax.legend(fontsize=SS, frameon=False, loc="upper center", ncol=2)
     stylia.label(ax, xlabel="", ylabel="Proteins with a drug-like ligand",
-                 title="Never sum these two", abc=abc)
+                 title="Never sum these two")
 
 
-def plot_length_control(ax, data: dict, lengths: dict, abc: str) -> None:
+def plot_length_control(ax, data: dict, lengths: dict) -> None:
     """Raw AUROC against length-controlled AUROC, for both pocket scores.
 
     The honest comparison. Raw says the scores work; within length deciles they do not, on the
@@ -158,7 +159,7 @@ def plot_length_control(ax, data: dict, lengths: dict, abc: str) -> None:
     ax.set_ylim(0, 1)
     ax.legend(fontsize=SS, frameon=False, loc="upper right")
     stylia.label(ax, xlabel="", ylabel="AUROC vs a measured ligand",
-                 title="Control for length before believing this", abc=abc)
+                 title="Control for length before believing this")
     return rows
 
 
@@ -178,9 +179,9 @@ def main() -> None:
         lengths[sp] = pr[["uniprot_ac", "length"]]
 
     fig, axs = stylia.create_figure(1, 3, width_ratios=[2.4, 2.4, 3.2], width=1.0, height=0.38)
-    plot_coverage(axs.next(), data, abc="A")
-    plot_ligands(axs.next(), data, abc="B")
-    rows = plot_length_control(axs.next(), data, lengths, abc="C")
+    plot_coverage(axs.next(), data)
+    plot_ligands(axs.next(), data)
+    rows = plot_length_control(axs.next(), data, lengths)
     out = OUT_DIR / "pockets.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")

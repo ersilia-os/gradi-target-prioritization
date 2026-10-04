@@ -1,15 +1,15 @@
 """The shortlist: five stated rules applied in order, and the K. pneumoniae proteins that survive.
 
-    shortlist.png                 A  the funnel -- each rule, what it removed, what remains
-                                  B  what each rule COSTS (the cascade with that one rule dropped)
-                                  C  the survivors, by axis, ordered by ADEP4 probability
+    shortlist.png                 -  the funnel -- each rule, what it removed, what remains
+                                  -  what each rule COSTS (the cascade with that one rule dropped)
+                                  -  the survivors, by axis, ordered by ADEP4 probability
     shortlist_<species>.tsv       the survivors as a table -- the artifact the consortium receives
 
 **This figure does not rank by a score, and that is the point.** Three axes in this project each
 REMOVED a composite (see `plotting/filters.py` for the measurements). The cascade is a conjunction
-of single stated comparisons instead: disagree with any rule and panel B shows what it cost.
+of single stated comparisons instead: disagree with any rule and the cost panel shows what it cost.
 
-Panel C orders by `adep4_prob` purely so the rows have an order. That is NOT a priority ranking --
+The survivor table orders by `adep4_prob` purely so the rows have an order. That is NOT a ranking --
 the four axes are different units and the project ships no defensible weighting across them.
 
 Everything is read from the stages' own tables through `src/` loaders; nothing is recomputed.
@@ -58,7 +58,7 @@ OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 # `plotting/palette.py`, which is stylia's **npg** palette and not stylia's ersilia palette
 # (owner's instruction). Do not reintroduce `stylia.NamedColors()` here.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
@@ -71,7 +71,7 @@ STEP_LABEL = {
     "degradable": "ADEP4 above base rate",
 }
 
-# The axes shown in panel C, as (column, display name, higher-is-better).
+# The axes shown in the survivor heatmap, as (column, display name, higher-is-better).
 HEATMAP_COLUMNS = [
     ("adep4_prob", "degradability", True),
     ("screens_ess_mean", "essentiality", True),
@@ -80,7 +80,7 @@ HEATMAP_COLUMNS = [
 ]
 
 
-def plot_funnel(ax, steps: list[F.Step], n_start: int, abc: str) -> None:
+def plot_funnel(ax, steps: list[F.Step], n_start: int) -> None:
     """The cascade as stepped bars. Horizontal because the rules are text and text reads across."""
     names = ["proteome"] + [STEP_LABEL[s.name] for s in steps]
     counts = [n_start] + [s.n_after for s in steps]
@@ -94,10 +94,10 @@ def plot_funnel(ax, steps: list[F.Step], n_start: int, abc: str) -> None:
     ax.set_yticks(y)
     ax.set_yticklabels(names, fontsize=SS)
     ax.set_xlim(0, n_start * 1.16)
-    stylia.label(ax, xlabel="Proteins remaining", ylabel="", title="Four rules, in order", abc=abc)
+    stylia.label(ax, xlabel="Proteins remaining", ylabel="", title="Four rules, in order")
 
 
-def plot_cost(ax, loo: dict[str, int], n_final: int, abc: str) -> None:
+def plot_cost(ax, loo: dict[str, int], n_final: int) -> None:
     """What each rule costs: survivors with that ONE rule dropped, against the full cascade.
 
     A funnel alone overstates the early rules -- they are conjunctive, so the final count does not
@@ -118,10 +118,10 @@ def plot_cost(ax, loo: dict[str, int], n_final: int, abc: str) -> None:
     ax.set_yticks(y)
     ax.set_yticklabels(names, fontsize=SS)
     ax.set_xlim(0, max(vals) * 1.18)
-    stylia.label(ax, xlabel="Survivors without this rule", ylabel="", title="What each rule costs", abc=abc)
+    stylia.label(ax, xlabel="Survivors without this rule", ylabel="", title="What each rule costs")
 
 
-def plot_survivors(ax, surv: pd.DataFrame, full: pd.DataFrame, top: int, abc: str) -> None:
+def plot_survivors(ax, surv: pd.DataFrame, full: pd.DataFrame, top: int) -> None:
     """The survivors as within-proteome percentiles, one column per axis.
 
     Percentile against the WHOLE proteome, not against the survivors -- the question a reader has
@@ -148,13 +148,13 @@ def plot_survivors(ax, surv: pd.DataFrame, full: pd.DataFrame, top: int, abc: st
     cb = ax.figure.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
     cb.set_label("Percentile within proteome", fontsize=SS)
     cb.ax.tick_params(labelsize=SS)
-    stylia.label(ax, xlabel="", ylabel="", title=f"Top {len(show)} survivors", abc=abc)
+    stylia.label(ax, xlabel="", ylabel="", title=f"Top {len(show)} survivors")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--species", default="kpneumoniae", choices=sorted(LABELS))
-    ap.add_argument("--top", type=int, default=30, help="rows in the panel C heatmap")
+    ap.add_argument("--top", type=int, default=30, help="rows in the survivor heatmap")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()
     say = (lambda m: None) if args.quiet else (lambda m: print(m, flush=True))
@@ -179,9 +179,9 @@ def main() -> None:
         say(f"    without {k:<14} {v:>6,}   (all five: {len(surv):,})")
 
     fig, axs = stylia.create_figure(1, 3, width_ratios=[3, 3, 2.6], width=1.0, height=0.40)
-    plot_funnel(axs.next(), steps, len(df), abc="A")
-    plot_cost(axs.next(), loo, len(surv), abc="B")
-    plot_survivors(axs.next(), surv, df, args.top, abc="C")
+    plot_funnel(axs.next(), steps, len(df))
+    plot_cost(axs.next(), loo, len(surv))
+    plot_survivors(axs.next(), surv, df, args.top)
     out = OUT_DIR / "shortlist.png"
     stylia.save_figure(str(out))
     say(f"\n  -> {out.relative_to(REPO_ROOT)}")
@@ -205,7 +205,7 @@ def main() -> None:
     say(f"    with a potent ligand    {(surv['n_ligands_bacterial'] > 0).sum():>6,}")
     say("\n  CAVEATS")
     say("    - Kp degradability rows are ranking hypotheses extrapolated from S. aureus labels,")
-    say("      never measurements. Panel C is ordered, not ranked: no weighting across axes exists.")
+    say("      never measurements. The survivors are ordered, not ranked -- no weighting exists.")
     say("    - 'novelty' is low paper count, which is confounded with essentiality (rho 0.38-0.50).")
 
 

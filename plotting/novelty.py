@@ -1,14 +1,14 @@
 """Unexplored AND essential: the quadrant the collaboration is actually looking for.
 
-    novelty_vs_essentiality.png   A  every Kp protein: literature against essentiality
-                                  B  the confound, priced -- essentiality by studiedness tier
+    novelty_vs_essentiality.png   -  every Kp protein: literature against essentiality
+                                  -  the confound, priced -- essentiality by studiedness tier
 
 **The confound is real and it is printed, not hidden.** Essentiality and studiedness correlate:
 `geptop_ess` runs rho 0.38-0.50 against the literature counts, and alone among the axes it SURVIVES
 stratification (0.35-0.39). People have studied essential genes more. So the top-left quadrant is
-partly an artifact of that correlation, and panel B shows how much by splitting essentiality across
-the five studiedness evidence tiers: if the quadrant were pure artifact, the tiers would separate
-completely.
+partly an artifact of that correlation, and the tier panel shows how much, by splitting essentiality
+across the five studiedness evidence tiers: if the quadrant were pure artifact, the tiers
+would separate completely.
 
 **A 0 on the x-axis is ambiguous in the shipped table** -- it is `no_hit` (nothing among 575,748
 curated entries resembles this protein, the strongest novelty claim this project makes) or
@@ -60,10 +60,11 @@ from src import studiedness as ST  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "output" / "plots" / "presentation"
 
-# Format: slide | Style: ersilia. The STYLE sets typography and grid; the COLOURS come from
-# `plotting/palette.py` -- stylia's npg palette, not stylia's ersilia palette.
+# Format: slide | Style: article. "article" not "ersilia" because the ersilia style paints
+# every text element and spine plum (#50285A); article gives black. The COLOURS come from
+# `plotting/palette.py` -- stylia's npg palette.
 stylia.set_format("slide")
-stylia.set_style("ersilia")
+stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
 LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli", "saureus": "S. aureus"}
@@ -73,7 +74,7 @@ TIER_COLOR = PAL.TIER_COLOR
 PAPERS = "n_papers_uniprot_prokaryotic"
 
 
-def plot_scatter(ax, df, surv, panel, cut, abc: str) -> None:
+def plot_scatter(ax, df, surv, panel, cut) -> None:
     """The map. x is log1p papers because the distribution spans four orders of magnitude and a
     linear axis would put 95% of the proteome in one pixel column."""
     x = np.log1p(pd.to_numeric(df[PAPERS], errors="coerce").fillna(0))
@@ -95,10 +96,10 @@ def plot_scatter(ax, df, surv, panel, cut, abc: str) -> None:
     ax.set_xticklabels([str(t) for t in ticks], fontsize=SS)
     ax.legend(fontsize=SS, frameon=False, loc="lower right")
     stylia.label(ax, xlabel="Curated papers (prokaryotic donor)", ylabel="Essentiality (screens)",
-                 title="Where the opportunity is", abc=abc)
+                 title="Where the opportunity is")
 
 
-def plot_confound(ax, df, abc: str) -> None:
+def plot_confound(ax, df) -> None:
     """Essentiality by studiedness tier. If novelty were pure artifact these would separate
     cleanly; they overlap heavily, which is why the quadrant survives as a lead."""
     present = [t for t in TIER_ORDER if (df["evidence"] == t).sum() >= 30]
@@ -115,7 +116,7 @@ def plot_confound(ax, df, abc: str) -> None:
     ax.set_xticklabels([f"{t}\nn={(df['evidence'] == t).sum():,}" for t in present],
                        fontsize=SS * 0.8, rotation=25, ha="right")
     stylia.label(ax, xlabel="", ylabel="Essentiality (screens)",
-                 title="The confound, priced", abc=abc)
+                 title="The confound, priced")
 
 
 def main() -> None:
@@ -137,8 +138,8 @@ def main() -> None:
     cut = float(df["screens_ess_mean"].quantile(F.ESSENTIAL_PERCENTILE / 100.0))
 
     fig, axs = stylia.create_figure(1, 2, width_ratios=[3, 2], width=1.0, height=0.40)
-    plot_scatter(axs.next(), df, surv, panel, cut, abc="A")
-    plot_confound(axs.next(), df, abc="B")
+    plot_scatter(axs.next(), df, surv, panel, cut)
+    plot_confound(axs.next(), df)
     out = OUT_DIR / "novelty_vs_essentiality.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -156,7 +157,7 @@ def main() -> None:
     say("    circular quadrant, but stacking novelty and essentiality still double-counts.")
     say("\n  CAVEAT")
     say("    A 0 on the x-axis is `no_hit` (real novelty) OR `below_floor` (unknown). The shipped")
-    say("    table cannot tell them apart; panel B joins load_transfer() back to do so.")
+    say("    table cannot tell them apart; the tier panel joins load_transfer() back to do so.")
 
 
 if __name__ == "__main__":
