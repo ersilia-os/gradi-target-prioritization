@@ -223,7 +223,7 @@ def _read(path: Path) -> pd.DataFrame:
         if col.startswith(("is_", "same_", "in_", "has_", "searched")):
             df[col] = df[col].map(lambda v: _BOOL.get(v, bool(v)))
         elif (col in ("rank", "orthogroup_size", "orthodb_n_levels", "orthodb_n_candidate_ogs",
-                      "level", "bacterial_panel_size")
+                      "level", "bacterial_panel_size", "orthology_evidence")
               or col.startswith("n_")):
             # `n_` prefix, not a hand-kept list. The list was the bug: `n_bacterial_orthologs` was
             # added to the writer and came back as TEXT, so `<= panel_size` raised TypeError --
@@ -252,7 +252,10 @@ def _read(path: Path) -> pd.DataFrame:
 # `bacterial_panel_orthologs` shipped as TEXT: it matched none of `_read()`'s prefixes, so
 # `.mean()` concatenated 5,728 strings and every sort was lexical.
 DELIVERABLE_DTYPES = {"uniprot_ac": "object", "has_human_ortholog": "bool",
-                      "bacterial_panel_orthologs": "float64"}
+                      "bacterial_panel_orthologs": "float64",
+                      # Matches NONE of `_read()`'s prefixes either -- it is registered in the
+                      # Int64 branch by name, for the same reason the two columns above are.
+                      "orthology_evidence": "Int64"}
 
 
 def load_orthologs() -> pd.DataFrame:
@@ -324,6 +327,79 @@ def load_dense(species: str) -> pd.DataFrame:
 
 
 BACTERIA = ("kpneumoniae", "ecoli", "saureus")
+
+
+# The verdicts that count as "OrthoDB placed this protein in a group". `no_group` is the third.
+ORTHODB_PLACED = ("assigned_by_sequence", "assigned_by_uniprot")
+
+
+def orthology_evidence(species: str) -> pd.Series:
+    """`orthology_evidence`, the 1-3 ladder, as a nullable integer indexed like `load_dense()`.
+
+        3  placed, AND both OrthoFinder and RBH independently found a bacterial ortholog,
+           AND the two methods do not conflict on the human call
+        2  placed by at least one grouping, but not corroborated
+        1  placed by NEITHER grouping -- nothing could be looked up, so BOTH deliverable
+           columns are "could not look" rather than "looked and found nothing"
+
+    Counts: Kp 291 / 2,639 / 2,798 · Ec 110 / 1,537 / 2,756 · Sa 216 / 1,875 / 798.
+
+    **"Placed" means an OrthoFinder orthogroup OR an OrthoDB group.** OrthoDB is external and
+    panel-independent, which is exactly what OrthoFinder's *de novo* grouping is not -- an
+    orthogroup moves when the query panel changes, and a grouping that does not must come from
+    somewhere else.
+
+    **LEVEL 3 REQUIRES A POSITIVE FINDING, NOT ONLY A RELIABLE MEASUREMENT** (project owner,
+    2026-10-04), and the cost is concentrated in one species: ***S. aureus* reaches 3 for only
+    798 proteins (27.6%) because it is the lone Gram-positive among the anchors** -- both its
+    comparators are Gram-negative. That is the same structural effect that makes its
+    `bacterial_panel_orthologs` median 0.179 against K. pneumoniae's 0.536. So a low level on Sa
+    is partly its biology and not only our uncertainty, which is the one way to misread this
+    column.
+
+    **RBH corroboration reaches only the other two ANCHORS, not the 28-species panel** -- the
+    pairwise DIAMOND searches ran on anchors alone. The test is therefore NARROWER than
+    `bacterial_panel_orthologs`, the column it grades.
+
+    **The human-conflict term is what earns its keep.** `has_human_ortholog` is the UNION of the
+    two methods, and of K. pneumoniae's 951 human calls only 501 are found by both -- 270 by
+    OrthoFinder alone, 180 by RBH alone. Kp `clpP` -> human CLPP at 56.3% identity is the case to
+    remember: after the panel expansion OrthoFinder no longer calls it and only RBH does, so the
+    union is all that keeps a real selectivity liability visible. A protein whose two methods
+    disagree about a human ortholog has not been corroborated.
+
+    **ORTHODB CANNOT BE A THIRD OPINION ON HUMAN ORTHOLOGY -- verified, not assumed.** Bacterial
+    groups are `<n>at2` and human `<n>at2759`, the two id sets share ZERO members, and OrthoDB has
+    no root level spanning domains, so a bacterial protein is never searched against eukaryotic
+    groups. The axis has exactly two opinions on the human call. `best_identity_human` is not a
+    third either: RBH is derived from the same DIAMOND search.
+
+    **NOTHING IN THIS AXIS IS AN EXPERIMENT**, so level 3 is not experimental corroboration and
+    level 1 means "could not look", not "not yet measured" -- the pattern `function_evidence`
+    already set. `src/consensus.py` holds the generic ladder.
+    """
+    _check(species)
+    if species == "human":
+        raise ValueError("orthology_evidence is bacterial: the panel and the deliverable are too")
+    dense = load_dense(species)
+    odb = load_orthodb(species).set_index("uniprot_ac")["orthodb_verdict"]
+    num = lambda c: pd.to_numeric(dense[c], errors="coerce").fillna(0)
+    others = [s for s in BACTERIA if s != species]
+
+    placed = (dense["in_orthogroup"].astype(bool)
+              | dense["uniprot_ac"].map(odb).fillna("").isin(ORTHODB_PLACED))
+    # `in_orthogroup` is IMPLIED by of_bacterial and uniquely blocks 0 proteins at level 3 on all
+    # three species; it is load-bearing only in `placed` above. The discrimination here comes from
+    # the RBH term and the human-conflict term.
+    corroborated = (
+        (sum(num(f"n_orthologs_of_{s}") for s in others) > 0)
+        & (sum(num(f"n_orthologs_rbh_{s}") for s in others) > 0)
+        & ((num("n_orthologs_of_human") > 0) == (num("n_orthologs_rbh_human") > 0)))
+
+    level = pd.Series(2, index=dense.index, dtype="Int64")
+    level[~placed] = 1
+    level[placed & corroborated] = 3
+    return level
 
 
 def load_all(species: tuple[str, ...] = BACTERIA) -> pd.DataFrame:

@@ -727,13 +727,43 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   **Load through `src/degradability.py`**; the name collides with the frozen
   `legacy/src/degradability.py`, which v2 never imports. Details: `docs/degradability.md`.
 
-- **`orthology/orthofinder.py`** → **`orthology_<species>.tsv`**, **3 columns**: `uniprot_ac` ·
-  `has_human_ortholog` · `bacterial_panel_orthologs` (owner's call, 2026-10-03 — it was the 29-column
-  dense table). Also **`orthologs.tsv`** (sparse; `is_ortholog_orthofinder` and `is_rbh` **side by
+- **`orthology/orthofinder.py`** → **`orthology_<species>.tsv`**, **4 columns**: `uniprot_ac` ·
+  `has_human_ortholog` · `bacterial_panel_orthologs` · **`orthology_evidence`** (owner's call,
+  2026-10-03 — it was the 29-column dense table). Also **`orthologs.tsv`** (sparse; `is_ortholog_orthofinder` and `is_rbh` **side by
   side, never merged**), **`neighbors.tsv`** (sparse, top-5 nearest neighbours per target species
   with identity and both coverages; self-hits dropped, so the within-species block is a protein's
   nearest *paralogs*) and **`evidence/orthology_<species>.tsv`**, the DENSE table, via
   `load_dense()`.
+
+  **`orthology_evidence` (1–3), and NO `orthology_consensus`** (2026-10-04). **The missing
+  consensus is not just "no magnitude"**: the two columns point in OPPOSITE prioritization
+  directions — you want **no** human ortholog and **broad** bacterial conservation — so a mean is a
+  weighting, not a summary, and this file forbids one outright. **3** = placed in a grouping AND
+  both OrthoFinder and RBH found a bacterial ortholog AND the two do not conflict on the human
+  call · **2** = placed but not corroborated · **1** = in NEITHER an OrthoFinder orthogroup nor an
+  OrthoDB group, so both columns beside it are *could not look*. Kp **291/2,639/2,798** · Ec
+  **110/1,537/2,756** · Sa **216/1,875/798**.
+
+  **IT REQUIRES A POSITIVE FINDING, NOT ONLY A RELIABLE MEASUREMENT** (owner's call), so ***S.
+  aureus* reaches 3 for only 27.6%** — the lone Gram-positive among the anchors, the same effect
+  behind its 0.179 median. **A low level on Sa is partly its biology, not only our uncertainty.**
+  **Nothing in this axis is an experiment**: a 3 is not experimental corroboration and a 1 means
+  *could not look*, the pattern `function_evidence` set.
+
+  **Measured, not assumed**: `in_orthogroup` **uniquely blocks 0 proteins at level 3** (implied by
+  the OrthoFinder term; load-bearing only for level 1) and `in_orthodb` blocks 10/3/0 — the
+  discrimination is the **RBH** term (301/189/218) and the **human conflict** (312/301/126). **RBH
+  reaches only the other two ANCHORS, not the 28-species panel**, so the test is narrower than the
+  column it grades. Of Kp's 951 human calls only **501 are found by both methods**; Ec **`tufA`**
+  is the case to remember — conserved in all 28 and still capped at 2, because OrthoFinder calls a
+  human ortholog and RBH does not (EF-Tu vs mitochondrial TUFM). **OrthoDB CANNOT be a third
+  opinion on the human call and this was VERIFIED**: `<n>at2` and `<n>at2759` share **zero** ids.
+  Conditions per protein in `evidence/evidence_audit.tsv`.
+
+  **`orthology_evidence` matches NONE of `_read()`'s prefixes**, so it is registered in the Int64
+  branch and in `DELIVERABLE_DTYPES` by name — the third column to hit that trap after
+  `n_bacterial_orthologs` and `bacterial_panel_orthologs`, and the one check that catches it is
+  that `.mean()` returns a float rather than a concatenated string.
 
   **`bacterial_panel_orthologs` IS A FRACTION (0–1), NOT A COUNT** — the name reads like a count,
   so check the scale. **It is OVER 28, NOT 26** — the 26 tier-C comparator proteomes plus the

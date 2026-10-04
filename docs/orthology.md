@@ -15,7 +15,7 @@ orthologs**, and **how similar are they**. All four proteomes in one run — 33,
 
 **5,064 orthogroups**, ~410 of them spanning all four species. 10 min end to end.
 
-## The deliverable is three columns
+## The deliverable is four columns
 
 `orthology_<species>.tsv`, the three bacteria only, on the project owner's instruction
 (2026-10-03):
@@ -24,6 +24,7 @@ orthologs**, and **how similar are they**. All four proteomes in one run — 33,
 |---|---|
 | `has_human_ortholog` | the selectivity liability |
 | `bacterial_panel_orthologs` | **a fraction, 0–1, not a count** — the share of the bacterial panel sharing this protein's orthogroup |
+| `orthology_evidence` | 1–3, how well corroborated the two columns beside it are |
 
 **The denominator is 28, not 26.** The 26 tier-C comparator proteomes plus the three bacterial
 anchors, minus this protein's own species. It counts **species**, never proteins, so a paralog pair
@@ -41,6 +42,74 @@ Gram-negative — biology, not a defect.
 
 **A 0 is MEASURED.** OrthoFinder runs *de novo* on our own FASTAs and the stage exits unless every
 protein is accounted for, so "no bacterial ortholog" is a finding, not a lookup miss.
+
+### `orthology_evidence`, and why there is no `orthology_consensus`
+
+Added **2026-10-04**, the axis's share of the project-wide pair in `src/consensus.py`.
+
+**There is no consensus column, and "no magnitude" is only half the reason.** The two columns point
+in *opposite* prioritization directions — you want **no** human ortholog and **broad** bacterial
+conservation — so a mean of them is not a summary, it is a weighting, and CLAUDE.md forbids one
+outright (*"NO COMPOSITE SCORE, EVER"*; three axes have already removed one). `has_human_ortholog`
+is a boolean besides. The convention set by function and proteomes holds: **evidence always,
+consensus where the axis has a single magnitude.**
+
+```
+3  placed, AND both OrthoFinder and RBH independently found a bacterial ortholog,
+   AND the two methods do not conflict on the human call
+2  placed by at least one grouping, but not corroborated
+1  placed by NEITHER grouping -- nothing could be looked up, so both columns beside it
+   are "could not look", not "looked and found nothing"
+```
+
+| | L1 | L2 | L3 |
+|---|---|---|---|
+| Kp | 291 | 2,639 | 2,798 |
+| Ec | 110 | 1,537 | 2,756 |
+| Sa | 216 | 1,875 | **798** |
+
+"Placed" means an OrthoFinder orthogroup **or** an OrthoDB group (`orthodb_verdict` of
+`assigned_by_sequence`/`assigned_by_uniprot`). OrthoDB is external and panel-independent, which is
+exactly what OrthoFinder's *de novo* grouping is not.
+
+**LEVEL 3 REQUIRES A POSITIVE FINDING, NOT ONLY A RELIABLE MEASUREMENT** (project owner,
+2026-10-04), chosen over a reliability-only ladder with the cost in view: ***S. aureus* reaches 3
+for only 798 proteins (27.6%)** because it is the lone Gram-positive among the anchors and both its
+comparators are Gram-negative — the same structural effect behind its 0.179 median above. **So a
+low level on Sa is partly its biology, not only our uncertainty.** That is the one way to misread
+this column.
+
+**Two things measured rather than assumed.** `in_orthogroup` **uniquely blocks 0 proteins at level
+3 on all three species** — it is implied by the OrthoFinder bacterial term, and is load-bearing
+only for level 1. `in_orthodb` is nearly redundant too (uniquely blocking 10 Kp / 3 Ec / 0 Sa). The
+discrimination comes from the **RBH** term (uniquely blocking 301 / 189 / 218) and the **human
+conflict** term (312 / 301 / 126); the two groupings' real job is separating level 1. And **RBH
+corroboration reaches only the other two anchors, not the 28-species panel** — the pairwise DIAMOND
+searches ran on anchors alone — so the test is *narrower* than the column it grades.
+
+**The human-conflict term is what earns its keep.** `has_human_ortholog` is the union of the two
+methods, and of Kp's 951 human calls only **501 are found by both** — 270 by OrthoFinder alone, 180
+by RBH alone. The worked example is E. coli **`tufA`**: conserved in all 28 panel species
+(`bacterial_panel_orthologs` 1.0) and still capped at **2**, because OrthoFinder calls a human
+ortholog and RBH does not — EF-Tu against mitochondrial TUFM, exactly the 40–50% band where
+ortholog-vs-paralog is genuinely ambiguous. It is demoted not for being poorly characterised but
+because the *decision-critical* claim is contested, which is the behaviour wanted.
+
+**OrthoDB CANNOT be a third opinion on the human call — verified, not assumed.** Bacterial groups
+are `<n>at2` and human `<n>at2759`; the two id sets share **zero** members, and OrthoDB has no root
+level spanning domains, so a bacterial protein is never searched against eukaryotic groups. The
+axis has exactly **two** opinions on human orthology. `best_identity_human` is not a third either:
+RBH is derived from the same DIAMOND search.
+
+**Nothing in this axis is an experiment**, so a 3 is not experimental corroboration and a 1 means
+"could not look" rather than "not yet measured" — the pattern `function_evidence` set.
+
+Every condition is kept per protein in **`evidence/evidence_audit.tsv`**, because the ladder
+collapses five booleans into one integer and a bare 2 never says which half failed.
+
+**Polarity control**: median `bacterial_panel_orthologs` rises with the level — Kp 0.00 / 0.32 /
+0.64, Ec 0.00 / 0.36 / 0.64, Sa 0.00 / 0.11 / 0.86 — and **level 1's median is exactly 0.00**,
+which is what makes "could not look" legible.
 
 **Human has no deliverable** — the panel columns are bacterial — and `load()` refuses it by name
 rather than returning something misleading. Use `load_dense("human")`.

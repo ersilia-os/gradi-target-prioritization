@@ -172,6 +172,14 @@ COLUMNS: dict[str, dict[str, str]] = {
                                     "species. Counted over SPECIES, never proteins, so a paralog "
                                     "pair does not inflate it. A 0 is MEASURED: OrthoFinder runs "
                                     "de novo on our own FASTAs, so it is a finding, not a miss.",
+        "orthology_evidence": "1-3. 3 = placed in a grouping AND both OrthoFinder and RBH found a "
+                              "bacterial ortholog AND the two do not conflict on the human call; "
+                              "2 = placed but not corroborated; 1 = in NEITHER an OrthoFinder "
+                              "orthogroup nor an OrthoDB group, so both columns beside it are "
+                              "'could not look'. IT REQUIRES A POSITIVE FINDING, so S. aureus "
+                              "reaches 3 for only 27.6% -- the lone Gram-positive among the "
+                              "anchors, which is its biology, not our uncertainty. Nothing here "
+                              "is an experiment: a 3 is not experimental corroboration.",
     },
     "ligands": AC | {
         "n_ligands_own": "POTENT (pChEMBL >= 6) distinct molecules on THIS protein, species-level.",

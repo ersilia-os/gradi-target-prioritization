@@ -50,6 +50,11 @@ activator a protein was simply never tested against is missing data, not dissent
 assumes the generic rule will over-read that column's 3. Any future deviation gets the same
 treatment -- named here and in the axis's own docstring, never in only one.
 
+**AN AXIS WITH NO EXPERIMENT AT ALL still uses the ladder.** `function` and `orthology` are
+computational throughout, so there a 3 is method corroboration, never experimental corroboration,
+and a 1 means "could not look" rather than "not yet measured". Say which an axis means in its own
+docstring; the words here assume an axis that can have an experiment, and most cannot.
+
 **Level 0 does not exist.** Every protein in every axis has a prediction, so "no evidence
 whatever" is unreachable and a 0 would mean the source count is broken.
 

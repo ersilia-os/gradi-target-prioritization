@@ -685,6 +685,29 @@ def build_dense(og: pd.DataFrame, ortho: pd.DataFrame, nb: pd.DataFrame,
     return out
 
 
+def _evidence_audit(sp: str, dense: pd.DataFrame, level: pd.Series) -> pd.DataFrame:
+    """Every condition behind `orthology_evidence`, per protein.
+
+    The ladder collapses five booleans into one integer, and the two that actually discriminate
+    are the RBH term and the human conflict -- so without this table a level 2 says only "not
+    corroborated" and never which half failed. `in_orthogroup` uniquely blocks 0 proteins at
+    level 3 on all three species; it is load-bearing only for level 1.
+    """
+    odb = O.load_orthodb(sp).set_index("uniprot_ac")["orthodb_verdict"]
+    num = lambda c: pd.to_numeric(dense[c], errors="coerce").fillna(0)
+    others = [s for s in O.BACTERIA if s != sp]
+    of_h, rbh_h = num("n_orthologs_of_human") > 0, num("n_orthologs_rbh_human") > 0
+    return pd.DataFrame({
+        "species": sp, "uniprot_ac": dense["uniprot_ac"],
+        "in_orthogroup": dense["in_orthogroup"].astype(bool),
+        "in_orthodb": dense["uniprot_ac"].map(odb).fillna("").isin(O.ORTHODB_PLACED),
+        "of_bacterial": sum(num(f"n_orthologs_of_{s}") for s in others) > 0,
+        "rbh_bacterial": sum(num(f"n_orthologs_rbh_{s}") for s in others) > 0,
+        "of_human": of_h, "rbh_human": rbh_h, "human_conflict": of_h != rbh_h,
+        "orthology_evidence": level.to_numpy(),
+    })
+
+
 def write_outputs(nb: pd.DataFrame, ortho: pd.DataFrame, dense: dict,
                   og: pd.DataFrame, species: tuple[str, ...]) -> None:
     nb = nb[list(O.NEIGHBOR_COLUMNS)].sort_values(
@@ -694,6 +717,7 @@ def write_outputs(nb: pd.DataFrame, ortho: pd.DataFrame, dense: dict,
     nb["bitscore_norm"] = nb.bitscore_norm.round(4)
     nb.to_csv(OUT_DIR / "neighbors.tsv", sep="\t", index=False)
     ortho.to_csv(OUT_DIR / "orthologs.tsv", sep="\t", index=False)
+    evidence_rows = []
     for sp, df in dense.items():
         for col in df.columns:
             if col.startswith("best_identity_"):
@@ -710,10 +734,35 @@ def write_outputs(nb: pd.DataFrame, ortho: pd.DataFrame, dense: dict,
             # the panel ever changes.
             slim["bacterial_panel_orthologs"] = (
                 df["n_bacterial_orthologs"] / df["bacterial_panel_size"]).round(4)
+            # The standard evidence column. Computed through `src/orthology.py` -- which re-reads
+            # the dense table just written -- so the file and the loader cannot drift apart.
+            # It needs OrthoDB as the second, panel-independent grouping: run orthology/orthodb.py
+            # first. Absent, this raises rather than quietly shipping a one-grouping ladder under
+            # the same column name.
+            try:
+                slim["orthology_evidence"] = O.orthology_evidence(sp).to_numpy()
+            except FileNotFoundError as exc:
+                raise SystemExit(
+                    f"{sp}: orthology_evidence needs orthodb_{sp}.tsv -- run "
+                    f"scripts/orthology/orthodb.py first ({exc})") from exc
             slim.to_csv(OUT_DIR / f"orthology_{sp}.tsv", sep="\t", index=False)
+            evidence_rows.append(_evidence_audit(sp, df, slim["orthology_evidence"]))
+            lv = slim["orthology_evidence"].value_counts()
+            say(f"  {sp:<14} evidence "
+                + " ".join(f"L{k}={int(lv.get(k, 0)):,}" for k in (1, 2, 3)))
         else:
             say(f"  WARN {sp}: no n_bacterial_orthologs -- run with --panel full; "
                 f"deliverable not written")
+
+    if evidence_rows:
+        aud = pd.concat(evidence_rows, ignore_index=True)
+        aud.to_csv(EVIDENCE_DIR / "evidence_audit.tsv", sep="\t", index=False)
+        say(f"  wrote evidence/evidence_audit.tsv  ({len(aud):,} rows)")
+        for sp, g in aud.groupby("species", sort=False):
+            say(f"  {sp:<14} human call: BOTH {int((g.of_human & g.rbh_human).sum()):>4}   "
+                f"OF-only {int((g.of_human & ~g.rbh_human).sum()):>4}   "
+                f"RBH-only {int((~g.of_human & g.rbh_human).sum()):>4}   "
+                f"-> {int(g.human_conflict.sum()):>4} conflicts, capped at level 2")
 
     comp = (og[og.orthogroup != ""].groupby(["orthogroup", "species"]).size()
               .unstack(fill_value=0).reset_index())
