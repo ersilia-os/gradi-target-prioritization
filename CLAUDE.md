@@ -375,9 +375,9 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
 
 - **`proteomes/download.py`** → `data/processed/proteomes/proteome_<species>.tsv`, four tables,
   **5 columns**, keyed on `uniprot_ac`: `gene_name` · `protein_name` · `sequence` ·
-  **`proteome_evidence`** (owner's call, 2026-10-03 — it was 9).
+  **`proteomes_evidence`** (owner's call, 2026-10-03 — it was 9).
 
-  **`proteome_evidence` (1–3) REPLACED `is_reviewed`** (2026-10-04), which was nearly degenerate
+  **`proteomes_evidence` (1–3) REPLACED `is_reviewed`** (2026-10-04), which was nearly degenerate
   per species: Ec and human are **100% reviewed**, Kp is **7 of 5,728**, so on three of four
   proteomes the boolean separated nothing. **3** = the entry carries its OWN identity
   (SwissProt-reviewed, **or** a gene symbol on the anchor entry itself) AND a specific protein name

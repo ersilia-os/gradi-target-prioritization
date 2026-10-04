@@ -23,12 +23,12 @@ ORDER** every other matrix in the project follows.
 
 | column | |
 |---|---|
-| `proteome_evidence` | **1–3**, the identity ladder — see below |
+| `proteomes_evidence` | **1–3**, the identity ladder — see below |
 | `gene_name` | the symbol — **not a join key**, 63.4% on Kp and 44.6% on Sa |
 | `protein_name` | UniProt's recommended or submitted name |
 | `sequence` | **the real join key to every external database** |
 
-### `proteome_evidence` replaced `is_reviewed`
+### `proteomes_evidence` replaced `is_reviewed`
 
 Changed 2026-10-04. The boolean was nearly degenerate *per species* — E. coli and human are 100%
 SwissProt, K. pneumoniae is 7 of 5,728 — so on three of four proteomes it separated nothing.

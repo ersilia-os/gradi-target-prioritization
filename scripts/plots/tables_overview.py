@@ -83,7 +83,7 @@ AC = {"uniprot_ac": "UniProt accession. The canonical key in every table, and th
 
 COLUMNS: dict[str, dict[str, str]] = {
     "proteome": AC | {
-        "proteome_evidence": "1-3, replacing is_reviewed, which was degenerate per species (Ec "
+        "proteomes_evidence": "1-3, replacing is_reviewed, which was degenerate per species (Ec "
                              "and human 100% reviewed, Kp 7 of 5,728). 3 = the entry carries its "
                              "OWN identity (SwissProt-reviewed, or a gene symbol on the anchor "
                              "entry) AND a specific protein name · 2 = one of those · 1 = neither. "

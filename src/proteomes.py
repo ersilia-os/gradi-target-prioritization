@@ -25,7 +25,7 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus", "human")
 
 
 DELIVERABLE_COLUMNS = ["uniprot_ac", "gene_name", "protein_name", "sequence",
-                       "proteome_evidence"]
+                       "proteomes_evidence"]
 
 # A protein name that declares unknown function. `DUF` is literally "Domain of Unknown Function",
 # so `DUF1176 domain-containing protein` belongs here -- while `Lipoprotein`, `Oxidoreductase` and
@@ -34,7 +34,7 @@ GENERIC_NAME = re.compile(r"uncharacteri[sz]ed|hypothetical|unknown function|\bD
 
 
 def identity_evidence(full: pd.DataFrame) -> pd.Series:
-    """`proteome_evidence`, 1-3, from the 9-column table. The axis's half of the standard pair.
+    """`proteomes_evidence`, 1-3, from the 9-column table. The axis's half of the standard pair.
 
         3  the entry carries its OWN identity -- SwissProt-reviewed, or a gene symbol on the
            anchor entry itself -- AND a specific protein name
@@ -81,9 +81,9 @@ def load(species: str) -> pd.DataFrame:
     """`proteome_<species>.tsv` — 5 columns, keyed on `uniprot_ac`. **This file defines THE ROW
     ORDER** every other matrix in the project follows.
 
-        uniprot_ac  gene_name  protein_name  sequence  proteome_evidence
+        uniprot_ac  gene_name  protein_name  sequence  proteomes_evidence
 
-    **`proteome_evidence` (1-3) replaced `is_reviewed` on 2026-10-04** — see `identity_evidence()`
+    **`proteomes_evidence` (1-3) replaced `is_reviewed` on 2026-10-04** — see `identity_evidence()`
     above for the ladder and why. The boolean was nearly degenerate per species (Ec and human 100%
     reviewed, Kp 7 of 5,728); it survives byte-identically in `evidence/proteome_full_<species>.tsv`
     via `load_full()`. There is no `proteome_consensus`: identity is not a magnitude.
@@ -120,8 +120,8 @@ def _read_identity(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
     if "is_reviewed" in df.columns:
         df["is_reviewed"] = df["is_reviewed"].map({"True": True, "False": False}).astype(bool)
-    if "proteome_evidence" in df.columns:
-        df["proteome_evidence"] = pd.to_numeric(df["proteome_evidence"],
+    if "proteomes_evidence" in df.columns:
+        df["proteomes_evidence"] = pd.to_numeric(df["proteomes_evidence"],
                                                 errors="coerce").astype("Int64")
     return df
 
