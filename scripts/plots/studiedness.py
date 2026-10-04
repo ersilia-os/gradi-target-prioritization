@@ -2,7 +2,7 @@
 
     python scripts/plots/studiedness.py
 
-    output/plots/studiedness/studiedness.png     the distributions and the own-vs-family gap
+    output/plots/studiedness/studiedness.png     the distributions and the own-vs-homolog gap
     output/plots/studiedness/control.png         the E. coli held-out control + donor organisms
     output/plots/studiedness/interest_panel.png  where the consortium's own targets sit
 
@@ -41,7 +41,11 @@ TIERS = ("swissprot_direct", "swissprot_close", "swissprot_homolog", "below_floo
 
 
 def fig_distributions(species: list[str]) -> Path:
-    """Own vs family per species, the gap between them, and the evidence tiers."""
+    """Own vs best-studied homolog per species, the gap, and the evidence tiers.
+
+    **"family" is deliberately absent from every label** (2026-10-03): the transferred column
+    reads ONE donor, not an aggregate over a family, and the column names say so.
+    """
     stylia.set_format("slide")
     fig, axs = stylia.create_figure(1, 3, width=1.0, height=0.55)
 
@@ -64,7 +68,7 @@ def fig_distributions(species: list[str]) -> Path:
     ax.legend(fontsize=SS, frameon=False)
     stylia.label(ax, xlabel="papers on the best-studied homolog (N)",
                  ylabel="% of proteome with at least N",
-                 title="What is known about the family")
+                 title="What is known about the best-studied homolog")
 
     # +1 so the many zero-paper accessions stay visible on a log axis.
     ax = axs[1]
@@ -80,8 +84,8 @@ def fig_distributions(species: list[str]) -> Path:
     for h in leg.legend_handles:
         h.set_alpha(1.0)
     stylia.label(ax, xlabel="papers on this accession (+1)",
-                 ylabel="papers on the family (+1)",
-                 title="Dark accession, known family")
+                 ylabel="papers on the best-studied homolog (+1)",
+                 title="This protein vs its best-studied homolog")
 
     ax = axs[2]
     tiers = list(TIERS)
@@ -90,7 +94,9 @@ def fig_distributions(species: list[str]) -> Path:
     for tier in tiers:
         vals = []
         for sp in species:
-            d = S.load(sp)
+            # `evidence` left the deliverable on 2026-10-03; the tiers live in the transfer
+            # table now. Same fix as src.studiedness.novelty().
+            d = S.load_transfer(sp)
             vals.append(100 * float((d["evidence"] == tier).mean()))
         ax.bar(xs, vals, bottom=bottoms, color=TIER_COLOUR[tier], label=tier, width=0.6)
         bottoms = [b + v for b, v in zip(bottoms, vals)]
@@ -177,7 +183,7 @@ def fig_interest(species: list[str]) -> Path:
                        s=20, color=NPG[3], zorder=5,
                        label=f"panel ({len(panel)}), median {np.median(pct):.0f}th pct")
         ax.legend(fontsize=SS, frameon=False, loc="upper left")
-        stylia.label(ax, xlabel="papers on the family (N)",
+        stylia.label(ax, xlabel="papers on the best-studied homolog (N)",
                      ylabel="% with at least N" if i == 0 else "", title=LABELS[sp])
 
     path = OUT_DIR / "interest_panel.png"
