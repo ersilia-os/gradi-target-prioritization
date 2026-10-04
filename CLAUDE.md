@@ -1576,6 +1576,19 @@ claim, not a preference.
 **Capitalise axis labels** (`"Proteins remaining"`, not `"proteins remaining"`) — a standing
 convention, and one these figures got wrong on the first pass.
 
+**`load_enrichment()` IS THE ONLY WAY TO READ THE FISHER TABLE, AND IT CARRIES A SIGN-FLIP TRAP.**
+`output/results/degradability/enrichment_fisher.tsv` has 62 rows whose raw odds ratio is exactly 0,
+so it must be plotted as `log2_or_adj` (Haldane +0.5). But on a group of ONE that correction
+outvotes the data and **flips the sign**: COG `Z` (cytoskeleton, 1 member, 0 hits, raw OR 0) reads
+**+1.58, i.e. ENRICHED**. Measured: **no row with `group_n >= 5` flips**, which is what
+`src.degradability.MIN_ENRICHMENT_GROUP = 5` encodes. Pass it whenever plotting `log2_or_adj`.
+
+**And the two LARGEST enrichments are the WEAKEST evidence**, which is the same lesson as COG `B`
+and worth stating as a number: on Kp, median length is **88 aa for `unclassified` and 97 aa for COG
+`B` against 297 aa for a classified protein**, while `spearman(length, adep4_prob) = -0.677`. Within
+length deciles `unclassified`'s top-decile rate ratio falls **3.85 -> 2.64** — a real residual, but a
+third of that bar is protein size wearing a category's name (measured 2026-10-04).
+
 **Four stylia traps, every one silent, all four hit while building this axis:**
 
 1. **`create_figure(width=, height=)` takes FRACTIONS OF THE FORMAT SIZE, not inches.** `width=13`

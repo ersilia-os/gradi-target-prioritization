@@ -75,6 +75,7 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus")
 # space, Jacques writes "NA" as a *string*) and it passed an internal-consistency audit -- recomputing
 # Conlon's `Average` from its raw intensities agreed to max |delta| = 0.0010.
 LABEL_TABLE = REPO_ROOT / "output" / "results" / "other" / "activator_features.csv"
+ENRICHMENT_TABLE = REPO_ROOT / "output" / "results" / "degradability" / "enrichment_fisher.tsv"
 LABEL_FASTA = (REPO_ROOT / "data" / "processed" / "legacy" / "v1" / "other_degradability"
                / "activator" / "saureus_activator_proteins.faa")
 LABEL_CLUSTERS = LABEL_FASTA.parent / "saureus_clusters.tsv"
@@ -520,3 +521,49 @@ def with_measured(df: pd.DataFrame) -> pd.DataFrame:
     for activator in ACTIVATORS:
         out[f"{activator}_hit"] = out["uniprot_ac"].map(measured(activator))
     return out
+
+
+#: Below this group size the Haldane +0.5 continuity correction in `log2_or_adj` DOMINATES the
+#: data and can flip the sign: COG `Z` (cytoskeleton) has 1 member and 0 hits -- a raw odds ratio
+#: of 0 -- yet `log2_or_adj` reads **+1.58**, i.e. it renders as ENRICHED. Measured: no row with
+#: `group_n >= 5` flips that way, so 5 is where the correction stops outvoting the counts.
+MIN_ENRICHMENT_GROUP = 5
+
+
+def load_enrichment(
+    kind: str | None = None,
+    species: str | None = None,
+    activator: str | None = None,
+    min_group: int = 0,
+) -> pd.DataFrame:
+    """Fisher enrichment of the TOP-DECILE predictions, from `enrichment.py`.
+
+    One row per (species, activator, kind, key). `kind` is `cog` (26 COG2024 categories plus
+    `unclassified`), `loc` (the DeepLocPro classes plus four TMbed topology features) or `panel`
+    (the consortium's own families, from `src/interest.py`).
+
+    **`hits` are the top 10% of EACH proteome, not a fixed count** -- the proteomes differ 2x in
+    size, so an absolute N would make the odds ratios incomparable across species. `top_n` records
+    the actual cut.
+
+    **Read `group_n` beside every odds ratio.** The largest OR in the table is COG `B`
+    (chromatin structure) at 27x under ADEP4 and 64x under ONC212 -- on **8 members**. Quote the
+    count, not the ratio.
+
+    **Plot `log2_or_adj`, not `odds_ratio`**: 62 rows have a raw OR of exactly 0, which has no
+    logarithm. But pass `min_group=MIN_ENRICHMENT_GROUP` when doing so -- see that constant for the
+    sign flip the correction causes on single-member groups.
+
+    These are enrichments of PREDICTIONS. For Kp and Ec they inherit the whole Sa -> Gram-negative
+    extrapolation and are hypotheses, not measurements.
+    """
+    df = pd.read_csv(ENRICHMENT_TABLE, sep="\t")
+    if kind is not None:
+        df = df[df["kind"] == kind]
+    if species is not None:
+        df = df[df["species"] == species]
+    if activator is not None:
+        df = df[df["activator"] == activator]
+    if min_group:
+        df = df[df["group_n"] >= min_group]
+    return df.reset_index(drop=True)

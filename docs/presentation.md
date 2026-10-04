@@ -57,6 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
+| `enrichment.py` | `enrichment.png` | what kind of protein ClpP reaches: COG function and compartment/topology |
 | `projection_pair.py` | `projection_pair.png` | one map read twice: compartment, then the top 250 essential |
 | `shortlist.py` | `shortlist.png`, `shortlist_kpneumoniae.tsv` | five rules, 59 proteins, and what each rule cost |
 
@@ -111,6 +112,12 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   for random draws of the same size — they genuinely cluster, measured before being drawn. They are
   COG J (translation) 90 of 250, and 78.8% cytoplasmic against a 60.5% proteome background, with
   outer membrane enriched (8.4% vs 4.1%) and extracellular absent entirely.
+- **enrichment**: hits are the top decile (Kp 573 of 5,728). Compartment is the clean story —
+  `wholly cytoplasmic` is the strongest enrichment in the table, every membrane/export feature is
+  depleted (TM helix, signal peptide, beta-barrel, inner membrane, periplasm), and **`extracellular`
+  is ENRICHED** (Kp +1.9 log2 under ONC212, OR 3.80). Function: COG `M` cell wall/envelope is the
+  strongest depletion (−6.2), `G`, `N`, `E`, `C`, `I` all strongly depleted; `J` translation
+  enriched. Two rows need a health warning — see below.
 - **pockets**: PDB 569 / 1,893 / 595; own drug-like ligands 88 / 308 / 90; AlphaFill 1,533 / 1,196 /
   704. Length-controlled AUROC P2Rank Kp **0.496** (raw 0.615), fpocket Kp **0.434** (raw 0.511).
 
@@ -127,7 +134,16 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
    number.
 6. **The ligands axis does not say "has an antibiotic"** — `pchembl_value` excludes MIC, which is
    why the ribosome looks empty there while leading the degradability ranking.
-7. **`src/interest.py` is an expansion of prose, flagged as a draft**, matched by gene symbol
+7. **The two largest enrichment bars are the weakest evidence in that figure.** COG `B` has 8
+   members, and both `B` (median 97 aa) and `unclassified` (88 aa) are short-protein categories
+   against a classified median of 297 aa, while `spearman(length, adep4_prob) = -0.677`. Within
+   length deciles `unclassified` falls from a 3.85x to a 2.64x rate ratio — a real residual, but a
+   third of the bar is protein size. Measured 2026-10-04.
+8. **Categories under 5 members are dropped from `enrichment.png`, as a correctness fix.** The
+   Haldane +0.5 correction in `log2_or_adj` outvotes the data on a group of one: COG `Z`
+   (cytoskeleton, 1 member, 0 hits, raw OR 0) comes out at **+1.58, reading as ENRICHED**. No row
+   with >= 5 members flips. `src.degradability.MIN_ENRICHMENT_GROUP` carries the threshold.
+9. **`src/interest.py` is an expansion of prose, flagged as a draft**, matched by gene symbol
    against a proteome whose `gene_name` is 63.4% covered.
 
 ## Traps found while building this
