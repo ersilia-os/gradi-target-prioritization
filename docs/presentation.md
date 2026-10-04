@@ -57,6 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
+| `consensus_evidence.py` | `consensus_evidence.png` | what `<axis>_consensus` and `<axis>_evidence` are, worked on essentiality |
 | `uniprot_annotation.py` | `uniprot_annotation.png` | E. coli is annotated and Kp is not — with human orthology as the control |
 | `studiedness_essentiality.py` | `studiedness_essentiality.png` | why a zero differs by organism, what the literature actually talks about, and why "unexplored" and "essential" are not independent |
 | `degradability_cv.py` | `degradability_cv.png` | does the model work? ROC and PR with the across-fold band, and where the scores land per proteome |
@@ -115,6 +116,17 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   for random draws of the same size — they genuinely cluster, measured before being drawn. They are
   COG J (translation) 90 of 250, and 78.8% cytoplasmic against a 60.5% proteome background, with
   outer membrane enriched (8.4% vs 4.1%) and extracellular absent entirely.
+- **consensus + evidence**: the convention explained on the one axis that has several predictors
+  *and* several experiments. (1) The consensus is a **blend, not a copy** — on Kp the three
+  predictors agree with each other at ρ 0.32–0.44 but each sits at **0.69 / 0.78 / 0.73** against
+  the consensus. (2) **Same ladder, opposite provenance** — tiers are Kp **1,003/752/3,973** and Ec
+  **110/929/3,364**, but Kp's 4,725 covered proteins are **100% proxy** (DEG has no Klebsiella; the
+  calls come from ≥95% counterparts in ATCC 43816 / ECL8 / RH201207, and **not one tier-3 protein is
+  measured on HS11286**) where Ec's are **0% proxy** — two DEG datasets on the anchor strain plus
+  the OGEE label. (3) **The two columns are near-orthogonal and mildly anti-correlated**,
+  ρ **−0.216 Kp / −0.349 Ec**: tier 3 is 65% below consensus 0.5 because concordance is tested with
+  equality, so corroborated NON-essentials land there, while tier 2 holds the most high scorers
+  (18.0% above 0.9). Concordance uses a **base-rate cut, never 0.5** (0.824 Kp / 0.738 Ec).
 - **UniProt annotation**: `proteomes_evidence` tiers 1/2/3 are **Kp 2,205 / 2,469 / 1,054** against
   **Ec 0 / 648 / 3,755** — Ec is **85.3%** at the top tier where Kp is **18.4%**, and Kp has 2,205
   proteins at tier 1 where Ec has none. Same fact in other columns: SwissProt-reviewed 0.1% vs
