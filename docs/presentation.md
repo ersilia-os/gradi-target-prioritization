@@ -57,6 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
+| `screen_agreement.py` | `screen_agreement.png` | three E. coli essentiality screens: the raw readout and how far they agree |
 | `consensus_evidence.py` | `consensus_evidence.png` | what `<axis>_consensus` and `<axis>_evidence` are, worked on essentiality |
 | `uniprot_annotation.py` | `uniprot_annotation.png` | E. coli is annotated and Kp is not — with human orthology as the control |
 | `studiedness_essentiality.py` | `studiedness_essentiality.png` | why a zero differs by organism, what the literature actually talks about, and why "unexplored" and "essential" are not independent |
@@ -116,6 +117,16 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   for random draws of the same size — they genuinely cluster, measured before being drawn. They are
   COG J (translation) 90 of 250, and 78.8% cytoplasmic against a 60.5% proteome background, with
   outer membrane enriched (8.4% vs 4.1%) and extracellular absent entirely.
+- **screen agreement (E. coli)**: Keio (arrayed knockout, 286 essential), Goodall (TraDIS, 354) and
+  Choe (Tn-seq, 440). **Of the 495 proteins any screen calls essential among the 3,963 all three
+  measured, only 214 (43%) are unanimous**; 194 rest on one screen. Pairwise Jaccard
+  **0.727 / 0.443 / 0.507**, kappa **0.828 / 0.580 / 0.640** — raw agreement is 0.93–0.98 and must
+  NOT be quoted, since essentials are <11% so agreeing on negatives is free. **The disagreement is
+  structured**: Goodall's continuous `insertion_index` reads 0.0028 (both call essential), 0.0083
+  (Goodall only), 0.0503 (Keio only, n=9), 0.1275 (neither) — a disputed protein is still nearly
+  insertion-free, so Keio most likely missed the 90 rather than Goodall over-calling. **E. coli and
+  not Kp by necessity**: the three Kp screens key onto RefSeq / EMBL / locus-tag spaces and 0 of
+  ~5,000 join to the anchor.
 - **consensus + evidence**: the convention explained on the one axis that has several predictors
   *and* several experiments. (1) The consensus is a **blend, not a copy** — on Kp the three
   predictors agree with each other at ρ 0.32–0.44 but each sits at **0.69 / 0.78 / 0.73** against
