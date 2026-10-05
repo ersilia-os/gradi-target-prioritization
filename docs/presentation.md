@@ -126,8 +126,7 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   essential in ≥1** — **159 in all twelve, 65 in eleven, 89 in exactly one**. A solid core block
   over a sparse species-specific tail, which is why screens are never merged. (3) **ProteomeLM-Ess ranked**, top
   twelve named: `leuS` 0.9997, `metG`, `aspS`, `rpoB`, `murG`, `lpxL`*, `argS`, `rpoC`, `valS`,
-  `lptG`*, `rpoD`, `gyrB`* — tRNA synthetases, RNA polymerase, peptidoglycan and gyrase, with
-  **three consortium panel targets (`lpxL`, `lptG`, `gyrB`) in the top twelve**. Median 0.1001; 204
+  `lptG`*, `rpoD`, `gyrB`* — tRNA synthetases, RNA polymerase, peptidoglycan and gyrase, and **three consortium panel targets (`lpxL`, `lptG`, `gyrB`) in the top twelve** — reported in the run log, not highlighted on the panel. Median 0.1001; 204
   of 5,728 above 0.9. Geptop is not drawn but is measured: ρ **+0.439** against ProteomeLM-Ess,
   **+0.663 where Geptop > 0**, with **66.3% ties at exactly 0** holding the first number down. **Panels 1–2 read legacy v1 tables** (`output/results/`,
   2026-07) — the only route to two continuous screens on one key and to the 12-genome matrix; panel

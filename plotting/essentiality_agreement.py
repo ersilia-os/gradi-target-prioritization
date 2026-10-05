@@ -25,9 +25,9 @@ screens into a single label.
 **Panel 3 -- what the language model actually ranks first.** Every K. pneumoniae protein ordered by
 `proteomelm_ess`, with the top of the list named. The head is exactly what a reader should want it
 to be: aminoacyl-tRNA synthetases (`leuS` 0.9997, `metG`, `aspS`, `argS`, `valS`, `glyS`), RNA
-polymerase (`rpoB`, `rpoC`, `rpoD`), peptidoglycan (`murG`) and gyrase (`gyrB`). **Three of the top
-twelve are consortium panel targets** -- `lpxL`, `lptG` and `gyrB` -- and they are marked, because
-that is the one thing this panel says that a list of ribosomal genes would not.
+polymerase (`rpoB`, `rpoC`, `rpoD`), peptidoglycan (`murG`) and gyrase (`gyrB`). **Three of the top twelve are consortium
+panel targets** -- `lpxL`, `lptG` and `gyrB` -- which the run log flags; the panel itself draws
+everything in one colour (owner's call) because the head needs no visual singling out.
 
 **The score means something different in each species** and Kp is the hardest case:
 `proteomelm_ess` on K. pneumoniae is `unseen_species` -- no *Klebsiella* is in the authors' 89
@@ -189,9 +189,10 @@ def plot_proteomelm_rank(ax, species: str, n_label: int) -> dict:
     marker -- the top dozen differ by thousandths (0.9997 down to 0.9946) and sit on top of one
     another, so anchored text smears into an unreadable block.
 
-    Consortium panel members in the head are marked, via `src.interest.annotate()`. Matching is by
-    gene symbol and Kp `gene_name` covers 63.4% of the proteome, so this flags what it can find and
-    is not a claim that nothing else in the head is of interest."""
+    All one colour (owner's call): the head is a housekeeping list and nothing in it needs singling
+    out visually. Consortium membership is still computed and reported in the run log, where three
+    of the top twelve turn out to be panel targets -- a fact worth keeping even when it is not
+    drawn."""
     from src import interest as I
     from src import proteomes as P
 
@@ -205,22 +206,17 @@ def plot_proteomelm_rank(ax, species: str, n_label: int) -> dict:
     ax.fill_between(d["rank"], 0, d["p"], color=PAL.PRIMARY, alpha=0.18, linewidth=0, zorder=1)
 
     top = d.head(n_label)
-    panel = top["is_interest"].to_numpy(bool)
-    ax.scatter(top.loc[~panel, "rank"], top.loc[~panel, "p"], s=20, color=PAL.PRIMARY,
-               zorder=4, linewidths=0.5, edgecolors="white")
-    ax.scatter(top.loc[panel, "rank"], top.loc[panel, "p"], s=34, color=PAL.ACCENT,
-               zorder=5, linewidths=0.6, edgecolors="white")
+    ax.scatter(top["rank"], top["p"], s=22, color=PAL.PRIMARY, zorder=4,
+               linewidths=0.5, edgecolors="white")
 
     y_top, y_bot = float(top["p"].iloc[0]), float(top["p"].iloc[-1]) - 0.30
     ladder = np.linspace(y_top, y_bot, len(top))
     for (_, r), y_lab in zip(top.iterrows(), ladder):
         name = r["gene_name"] if isinstance(r["gene_name"], str) and r["gene_name"] else r["uniprot_ac"]
-        hit = bool(r["is_interest"])
         ax.annotate(
-            f"{name}{' *' if hit else ''}  {r['p']:.4f}",
+            f"{name}  {r['p']:.4f}",
             xy=(r["rank"], r["p"]), xytext=(len(d) ** 0.40, y_lab), textcoords="data",
-            ha="left", va="center", fontsize=SS * 0.70,
-            color=PAL.ACCENT if hit else PAL.INK,
+            ha="left", va="center", fontsize=SS * 0.70, color=PAL.INK,
             arrowprops={"arrowstyle": "-", "lw": 0.6, "color": PAL.MUTED,
                         "shrinkA": 0, "shrinkB": 2},
         )
@@ -228,8 +224,6 @@ def plot_proteomelm_rank(ax, species: str, n_label: int) -> dict:
     ax.set_xscale("log")
     ax.set_xlim(1, len(d) * 1.05)
     ax.set_ylim(0, 1.04)
-    ax.text(0.97, 0.06, "* consortium panel target", transform=ax.transAxes, ha="right",
-            fontsize=SS * 0.72, color=PAL.ACCENT)
     stylia.label(ax, xlabel=f"Rank within {LABELS[species]} (log)",
                  ylabel="ProteomeLM-Ess p(essential)",
                  title="What the language model ranks first")
