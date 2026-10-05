@@ -57,7 +57,7 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `selectivity.py` | `selectivity.png` | neither orthology method alone; the union is conservative |
 | `ligandability.py` | `ligandability.png` | effort vs potency — a 0 is not always a 0 |
 | `pockets.py` | `pockets.png` | structure is not the bottleneck; pocket scores add nothing over length on the anchor |
-| `essentiality_agreement.py` | `essentiality_agreement.png` | agreement at three levels: two screens, across 12 genomes, two predictors |
+| `essentiality_agreement.py` | `essentiality_agreement.png` | two screens correlating, the 12-genome essentialome, and ProteomeLM-Ess ranked |
 | `consensus_evidence.py` | `consensus_evidence.png` | what `<axis>_consensus` and `<axis>_evidence` are, worked on essentiality |
 | `uniprot_annotation.py` | `uniprot_annotation.png` | E. coli is annotated and Kp is not — with human orthology as the control |
 | `studiedness_essentiality.py` | `studiedness_essentiality.png` | why a zero differs by organism, what the literature actually talks about, and why "unexplored" and "essential" are not independent |
@@ -124,10 +124,12 @@ Each reproduces a number `CLAUDE.md` already records, which is how the scripts w
   the essential tail anchors the Pearson. **Never quote the Pearson alone.** (2) **Cross-species
   essentialome**: of 3,170 Kp proteins with a call across 12 Enterobacteriaceae genomes, **447 are
   essential in ≥1** — **159 in all twelve, 65 in eleven, 89 in exactly one**. A solid core block
-  over a sparse species-specific tail, which is why screens are never merged. (3) **Two independent
-  predictors**: Geptop (orthology) vs ProteomeLM-Ess (language model), no shared inputs —
-  ρ **+0.439** overall, **+0.663 where Geptop > 0**; Geptop is **66.3% ties at exactly 0**, which is
-  what holds the first number down. **Panels 1–2 read legacy v1 tables** (`output/results/`,
+  over a sparse species-specific tail, which is why screens are never merged. (3) **ProteomeLM-Ess ranked**, top
+  twelve named: `leuS` 0.9997, `metG`, `aspS`, `rpoB`, `murG`, `lpxL`*, `argS`, `rpoC`, `valS`,
+  `lptG`*, `rpoD`, `gyrB`* — tRNA synthetases, RNA polymerase, peptidoglycan and gyrase, with
+  **three consortium panel targets (`lpxL`, `lptG`, `gyrB`) in the top twelve**. Median 0.1001; 204
+  of 5,728 above 0.9. Geptop is not drawn but is measured: ρ **+0.439** against ProteomeLM-Ess,
+  **+0.663 where Geptop > 0**, with **66.3% ties at exactly 0** holding the first number down. **Panels 1–2 read legacy v1 tables** (`output/results/`,
   2026-07) — the only route to two continuous screens on one key and to the 12-genome matrix; panel
   3 is v2.
 - **consensus + evidence**: the convention explained on the one axis that has several predictors

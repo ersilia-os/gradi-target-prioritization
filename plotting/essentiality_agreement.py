@@ -2,7 +2,7 @@
 
     essentiality_agreement.png   1  two measured CRISPRi screens against each other
                                  2  the cross-species essentialome, 447 proteins x 12 genomes
-                                 3  the two independent predictors against each other
+                                 3  ProteomeLM-Ess ranked, with the top genes named
 
 **Panel 1 -- do two experimental screens agree?** Rousset 2018 and Wang 2018 CRISPRi, both
 genome-wide, both continuous, both E. coli, coloured by Keio's independent arrayed-knockout call.
@@ -22,13 +22,22 @@ core block and a sparse species-specific tail, which is the shape that makes "es
 organism-specific word rather than a universal one -- and the reason this project never merges
 screens into a single label.
 
-**Panel 3 -- do the two independent predictors agree?** `geptop_ess` (orthology to a curated
-reference set of essential genes) against `proteomelm_ess` (a protein language model head). They
-share no inputs, no training data and no method.
+**Panel 3 -- what the language model actually ranks first.** Every K. pneumoniae protein ordered by
+`proteomelm_ess`, with the top of the list named. The head is exactly what a reader should want it
+to be: aminoacyl-tRNA synthetases (`leuS` 0.9997, `metG`, `aspS`, `argS`, `valS`, `glyS`), RNA
+polymerase (`rpoB`, `rpoC`, `rpoD`), peptidoglycan (`murG`) and gyrase (`gyrB`). **Three of the top
+twelve are consortium panel targets** -- `lpxL`, `lptG` and `gyrB` -- and they are marked, because
+that is the one thing this panel says that a list of ribosomal genes would not.
 
-**`geptop_ess` IS 66.3% TIES AT EXACTLY 0 on Kp**, which is the dense wall at x=0 and is what holds
-its Spearman down. A 0 there means `orthologs_none_essential` -- a confident NON-essential call,
-58.5% of the proteome -- or `no_orthologs`, 7.8%; the two are separable only in `geptop_<sp>.tsv`.
+**The score means something different in each species** and Kp is the hardest case:
+`proteomelm_ess` on K. pneumoniae is `unseen_species` -- no *Klebsiella* is in the authors' 89
+genomes. It is comparable WITHIN a species and never across one.
+
+**`geptop_ess` is not drawn here but is still measured** -- the two predictors share no inputs, no
+training data and no method, and they agree at rho +0.439 over the whole proteome and +0.663 where
+Geptop is above zero. Geptop is 66.3% ties at exactly 0 on Kp, which is what holds the first number
+down; a 0 there is `orthologs_none_essential` (a confident NON-essential call, 58.5%) or
+`no_orthologs` (7.8%), separable only in `geptop_<sp>.tsv`. Both numbers are in the run log.
 
 **PROVENANCE: PANELS 1 AND 2 READ LEGACY v1 TABLES, deliberately and exceptionally.**
 `output/results/ecoli/ec_ess_experimental.csv` and
@@ -89,6 +98,7 @@ stylia.set_format("slide")
 stylia.set_style("article")
 
 SS = stylia.SLIDE_FONTSIZE_SMALL
+LABELS = {"kpneumoniae": "K. pneumoniae", "ecoli": "E. coli"}
 
 #: Shortened genome labels for the matrix columns, in the compendium's own order.
 GENOME_SHORT = {
@@ -167,37 +177,71 @@ def plot_cross_species(ax) -> dict:
             "one": int(counts.get(1, 0)), "dist": counts.sort_index().to_dict()}
 
 
-def plot_predictors(ax, species: str) -> dict:
-    """The two independent predictors against each other.
+#: How many of the top-ranked proteins to name on panel 3.
+N_LABEL = 12
 
-    They share no inputs, no training data and no method, which is why their agreement is worth a
-    panel at all. Geptop's tie block at exactly 0 is the wall at x=0, annotated rather than hidden:
-    it is two thirds of the anchor proteome and it is what holds the first rho down."""
-    d = E.load(species)
-    x = pd.to_numeric(d["geptop_ess"], errors="coerce")
-    y = pd.to_numeric(d["proteomelm_ess"], errors="coerce")
-    ax.scatter(x, y, s=3.0, color=PAL.PRIMARY, alpha=0.30, linewidths=0, rasterized=True)
 
-    rho = x.corr(y, method="spearman")
-    ties = (x == 0).mean() * 100
-    nz = x > 0
-    rho_nz = x[nz].corr(y[nz], method="spearman")
-    ax.text(0.03, 0.97, f"ρ {rho:+.2f}  all\nρ {rho_nz:+.2f}  Geptop > 0",
-            transform=ax.transAxes, fontsize=SS * 0.82, color=PAL.INK, va="top")
-    ax.text(0.03, 0.82, f"{ties:.1f}% of Geptop is exactly 0", transform=ax.transAxes,
-            fontsize=SS * 0.74, color=PAL.INK, va="top",
-            bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.5, "alpha": 0.85})
-    ax.set_xlim(-0.03, 1.03)
-    ax.set_ylim(0, 1)
-    stylia.label(ax, xlabel="Geptop (orthology)", ylabel="ProteomeLM-Ess (language model)",
-                 title="Two predictors, no shared inputs")
-    return {"rho": rho, "rho_nonzero": rho_nz, "ties": ties, "n_nonzero": int(nz.sum())}
+def plot_proteomelm_rank(ax, species: str, n_label: int) -> dict:
+    """Every protein ranked by `proteomelm_ess`, with the head of the list named.
+
+    Log x because the proteins worth naming are the first 0.2% of the rank order; on a linear axis
+    the head is one pixel column. Labels are a leader-line ladder rather than text pinned to each
+    marker -- the top dozen differ by thousandths (0.9997 down to 0.9946) and sit on top of one
+    another, so anchored text smears into an unreadable block.
+
+    Consortium panel members in the head are marked, via `src.interest.annotate()`. Matching is by
+    gene symbol and Kp `gene_name` covers 63.4% of the proteome, so this flags what it can find and
+    is not a claim that nothing else in the head is of interest."""
+    from src import interest as I
+    from src import proteomes as P
+
+    d = E.load(species).merge(P.load(species)[["uniprot_ac", "gene_name"]], on="uniprot_ac")
+    d = I.annotate(d)
+    d["p"] = pd.to_numeric(d["proteomelm_ess"], errors="coerce")
+    d = d.dropna(subset=["p"]).sort_values("p", ascending=False).reset_index(drop=True)
+    d["rank"] = np.arange(1, len(d) + 1)
+
+    ax.plot(d["rank"], d["p"], color=PAL.PRIMARY, lw=2.0, zorder=2)
+    ax.fill_between(d["rank"], 0, d["p"], color=PAL.PRIMARY, alpha=0.18, linewidth=0, zorder=1)
+
+    top = d.head(n_label)
+    panel = top["is_interest"].to_numpy(bool)
+    ax.scatter(top.loc[~panel, "rank"], top.loc[~panel, "p"], s=20, color=PAL.PRIMARY,
+               zorder=4, linewidths=0.5, edgecolors="white")
+    ax.scatter(top.loc[panel, "rank"], top.loc[panel, "p"], s=34, color=PAL.ACCENT,
+               zorder=5, linewidths=0.6, edgecolors="white")
+
+    y_top, y_bot = float(top["p"].iloc[0]), float(top["p"].iloc[-1]) - 0.30
+    ladder = np.linspace(y_top, y_bot, len(top))
+    for (_, r), y_lab in zip(top.iterrows(), ladder):
+        name = r["gene_name"] if isinstance(r["gene_name"], str) and r["gene_name"] else r["uniprot_ac"]
+        hit = bool(r["is_interest"])
+        ax.annotate(
+            f"{name}{' *' if hit else ''}  {r['p']:.4f}",
+            xy=(r["rank"], r["p"]), xytext=(len(d) ** 0.40, y_lab), textcoords="data",
+            ha="left", va="center", fontsize=SS * 0.70,
+            color=PAL.ACCENT if hit else PAL.INK,
+            arrowprops={"arrowstyle": "-", "lw": 0.6, "color": PAL.MUTED,
+                        "shrinkA": 0, "shrinkB": 2},
+        )
+
+    ax.set_xscale("log")
+    ax.set_xlim(1, len(d) * 1.05)
+    ax.set_ylim(0, 1.04)
+    ax.text(0.97, 0.06, "* consortium panel target", transform=ax.transAxes, ha="right",
+            fontsize=SS * 0.72, color=PAL.ACCENT)
+    stylia.label(ax, xlabel=f"Rank within {LABELS[species]} (log)",
+                 ylabel="ProteomeLM-Ess p(essential)",
+                 title="What the language model ranks first")
+    return {"n": len(d), "top": top[["gene_name", "uniprot_ac", "p", "is_interest"]],
+            "above_0_9": int((d["p"] > 0.9).sum()), "median": float(d["p"].median())}
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--species", default="kpneumoniae", choices=["kpneumoniae", "ecoli"],
                     help="species for the predictor panel (the other two are fixed by their data)")
+    ap.add_argument("--label", type=int, default=N_LABEL, help="how many top proteins to name")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()
     say = (lambda m: None) if args.quiet else (lambda m: print(m, flush=True))
@@ -207,7 +251,7 @@ def main() -> None:
     fig, axs = stylia.create_figure(1, 3, width_ratios=[1.15, 1.0, 1.1], width=1.0, height=0.42)
     cr = plot_screens(axs.next())
     cs = plot_cross_species(axs.next())
-    pr = plot_predictors(axs.next(), args.species)
+    pr = plot_proteomelm_rank(axs.next(), args.species, args.label)
     out = OUT_DIR / "essentiality_agreement.png"
     stylia.save_figure(str(out))
     say(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -227,10 +271,22 @@ def main() -> None:
     say("    A solid core block and a sparse species-specific tail: 'essential' is an")
     say("    organism-specific word, which is why this project never merges screens.")
 
-    say(f"\n  TWO PREDICTORS  ({args.species})")
-    say(f"    Geptop ~ ProteomeLM-Ess   rho {pr['rho']:+.3f} over everything")
-    say(f"    {'':<26} rho {pr['rho_nonzero']:+.3f} where Geptop > 0 (n={pr['n_nonzero']:,})")
-    say(f"    Geptop is {pr['ties']:.1f}% ties at exactly 0, which is what holds the first rho down.")
+    say(f"\n  PROTEOMELM-ESS, TOP {args.label}  ({args.species})")
+    for i, (_, r) in enumerate(pr["top"].iterrows(), 1):
+        name = r["gene_name"] if isinstance(r["gene_name"], str) and r["gene_name"] else r["uniprot_ac"]
+        say(f"    {i:>3}. {name:<10} {r['p']:.4f}"
+            + ("   <- consortium panel target" if r["is_interest"] else ""))
+    say(f"    median {pr['median']:.4f}   above 0.9: {pr['above_0_9']:,} of {pr['n']:,}")
+
+    say(f"\n  THE OTHER PREDICTOR, measured but not drawn  ({args.species})")
+    d = E.load(args.species)
+    gx = pd.to_numeric(d["geptop_ess"], errors="coerce")
+    gy = pd.to_numeric(d["proteomelm_ess"], errors="coerce")
+    nz = gx > 0
+    say(f"    Geptop ~ ProteomeLM-Ess   rho {gx.corr(gy, method='spearman'):+.3f} over everything")
+    say(f"    {'':<26} rho {gx[nz].corr(gy[nz], method='spearman'):+.3f} where Geptop > 0 "
+        f"(n={int(nz.sum()):,})")
+    say(f"    Geptop is {100 * (gx == 0).mean():.1f}% ties at exactly 0 -- what holds the first down.")
 
     say("\n  CAVEATS")
     say("    - Panels 1 and 2 read LEGACY v1 tables (output/results/, 2026-07). They are the only")
@@ -238,6 +294,10 @@ def main() -> None:
     say("      is v2 throughout. Neither legacy table is on HISTORY.md's do-not-trust list.")
     say("    - A `geptop_ess` of 0 is `orthologs_none_essential` (a confident NON-essential call,")
     say("      58.5% of Kp) or `no_orthologs` (7.8%); only geptop_<sp>.tsv separates them.")
+    say("    - proteomelm_ess on Kp is `unseen_species` -- no Klebsiella is in the authors' 89")
+    say("      genomes. Comparable WITHIN a species, never across one.")
+    say("    - Panel-target matching is by gene symbol and Kp gene_name is 63.4%, so the marks")
+    say("      show what can be found, not that nothing else in the head is of interest.")
     say("    - The cross-species matrix is binary per genome and covers the 3,170 Kp proteins")
     say("      with a compendium call, not the whole proteome.")
 
