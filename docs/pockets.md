@@ -67,6 +67,12 @@ denominator**, exactly what `n_assayed` is to `n_ligands` in the ligands axis; i
 would add a fame component `studiedness/confounds.py` warns against double-counting. Same rule as
 degradability excluding `nn_similarity` and ligands excluding `n_assayed_*`.
 
+**The deck draws this.** `plotting/druggability_consensus.py` →
+`output/plots/presentation/druggability_consensus.png`, panel 3, recomputes ρ(consensus, length)
+and the within-decile AUROC from the deliverables rather than quoting this table, and
+`plotting/cavities.py` renders the top-ranked pockets with their lengths in the titles so the
+confound is visible in the structures too.
+
 **Never score this column against `n_ligands_pdb`** — that column is one of its inputs, so the 0.958
 AUROC such a check returns is circular. The honest external comparison is the length row.
 

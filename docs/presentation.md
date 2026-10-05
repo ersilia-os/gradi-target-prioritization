@@ -44,7 +44,7 @@ independent confirmation of the compartment panel of `degradability.png`.
 Survivors are led by `hns`, `infA`, `greA`, `nusG`, `nusA`, `xseB`, `minE`; 49 of 59 carry a gene
 symbol, median 12 papers, **0 with a potent ligand**.
 
-## The ten figures
+## The figures
 
 | script | output | the claim |
 |---|---|---|
@@ -64,6 +64,8 @@ symbol, median 12 papers, **0 with a potent ligand**.
 | `degradability_cv.py` | `degradability_cv.png` | does the model work? ROC and PR with the across-fold band, and where the scores land per proteome |
 | `enrichment.py` | `enrichment.png` | what kind of protein ClpP reaches: COG function and compartment/topology |
 | `projection_pair.py` | `projection_pair.png` | one map read twice: compartment, then the top 250 essential |
+| `druggability_consensus.py` | `druggability_consensus.png` | several views per axis become one column — and the pocket one is largely protein length |
+| `cavities.py` | `cavities.png` | what a top-ranked pocket actually looks like, on three proteins |
 | `shortlist.py` | `shortlist.png`, `shortlist_kpneumoniae.tsv` | five rules, 59 proteins, and what each rule cost |
 
 ## Look: npg palette, `article` style, black labels, no panel letters
@@ -98,6 +100,13 @@ localization axis's own plots cannot drift apart.
 
 Each reproduces a number `CLAUDE.md` already records, which is how the scripts were validated.
 
+- **druggability_consensus**: ligand inputs agree with each other at ρ 0.23–0.58 but land at
+  0.17–0.98 against `ligands_consensus`; pocket inputs 0.20–0.29 against each other, 0.16–0.83
+  against `pockets_consensus`. ρ(`pockets_consensus`, length) **0.663 / 0.638 / 0.654**; AUROC vs
+  a measured PDB ligand — length alone **0.673 / 0.652 / 0.657**, P2Rank *within length deciles*
+  **0.489 / 0.565 / 0.614**. Reproduces `docs/pockets.md` to within the decile binning.
+- **cavities**: irp2 consensus 0.981 / 2,035 aa / 1 PDB ligand · acrB 0.968 / 1,048 / 3 ·
+  gyrB 0.891 / 805 / **14**. All three `pockets_evidence` 3.
 - **coverage**: GO-slim 73.7%, COG 79.1%, geptop 92.2%, studiedness ambiguous 1,961 (`no_hit`
   1,058 + `below_floor` 903), ligands assayed 275 of 5,728.
 - **degradability**: ADEP4 max 0.868, cut 0.328 selects 941 (16.4%), at 0.5 selects 220; ONC212
@@ -249,7 +258,7 @@ Reproducible from the deliverables; recorded here so they are not lost.
 
 ## Traps found while building this
 
-Four, all silent, all now in every script's docstring:
+Four in the stylia layer, all silent, all now in every script's docstring:
 
 1. **`REPO_ROOT` is `parents[1]` here, not `parents[2]`.** `plotting/` is one level deep.
    `parents[2]` resolves to the repo's PARENT and the ImportError names `src`, not the path — it
@@ -260,6 +269,22 @@ Four, all silent, all now in every script's docstring:
 4. **`stylia.set_style("ersilia")` must precede `NamedColors()`.** Without it `NamedColors()` returns
    `ArticleColors`, whose palette is `amber/cobalt/crimson/...` — every `NC.plum` raises
    `AttributeError`.
+
+And four more from `cavities.py`, where the structures are images rather than plots. **Each fix
+caused the next**, and every one of them is invisible once correct:
+
+5. **Per-panel `zoom` destroys comparability.** Filling each frame independently made an 805-aa
+   protein (gyrB) render LARGER than a 1,048-aa one (acrB), contradicting the lengths in the
+   titles. The worker now renders twice: once to learn the camera distance each molecule needs,
+   once with the largest of them for every panel.
+6. **A common camera distance puts the smallest molecule in the depth fog.** gyrB came out visibly
+   pale beside irp2 purely because it is smaller — the exact misreading the common scale exists to
+   prevent. `depth_cue`, `fog` and `ray_trace_fog` are all off.
+7. **A union crop box leaves the narrow panels empty on one side**, and a per-panel box re-expands
+   the small ones and undoes the common scale.
+8. **`imshow` STRETCHES an image to fill its axes.** So cropping each panel to its own width is
+   only safe when the axes carry `width_ratios` equal to those widths. Without that the narrow
+   panels are silently stretched back and the common scale is lost with no visible symptom.
 
 And the known one, which did bite: **run plot scripts ONE AT A TIME.** stylia `rmtree`s the
 matplotlib cache dir at import, so a tight loop over the scripts produces a *different* subset of
@@ -273,7 +298,14 @@ P=~/miniconda3/envs/gradi/bin/python
 for f in plotting/*.py; do $P "$f" || break; done   # ONE AT A TIME
 
 $P plotting/shortlist.py          # must print 5728 -> 4294 -> 3497 -> 235 -> 59
+$P plotting/cavities.py           # reuses cached renders; --refresh re-runs pymol
 ```
+
+**`cavities.py` crosses a process boundary** into `gradi-pymol` via `conda run`, calling
+`scripts/pockets/workers/pymol_render.py`. It is the only figure here that is not pure matplotlib.
+Renders cache in `data/processed/pockets/scratch/renders/`, so a re-run is seconds unless
+`--refresh` is passed. **Never activate `gradi-pymol` to run it** — the worker exists so the stage
+does not have to.
 
 Outputs land in `output/plots/presentation/`. Nothing here recomputes anything: every figure reads
 the stages' own tables through `src/` loaders.

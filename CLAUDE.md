@@ -1682,8 +1682,40 @@ counts and the evidence tiers, and only the within-species panel uses the consen
    reports a *different* spurious subset as broken each run.
 
 Each script prints its own numbers and its own caveats after the figures, and **no figure asserts a
-value its own script did not compute** — that is how these ten were validated against the measured
+value its own script did not compute** — that is how they were validated against the measured
 tables already in this file.
+
+**`cavities.py` is the one figure that is not pure matplotlib.** It renders AlphaFold models with
+their best-scoring P2Rank pocket, which needs `from pymol import cmd` — available only in
+**`gradi-pymol`** — so it crosses a process boundary to
+`scripts/pockets/workers/pymol_render.py` and the orchestrator only selects, tiles and captions.
+Renders cache in `data/processed/pockets/scratch/renders/`; `--refresh` re-runs pymol.
+
+**Four more traps, from rendering STRUCTURES rather than plotting values. Each fix caused the
+next, and every one is invisible once correct:**
+
+5. **Per-panel `zoom` destroys comparability** — filling each frame independently made an 805-aa
+   protein render LARGER than a 1,048-aa one, contradicting the lengths in the titles. The worker
+   renders TWICE: once to learn each molecule's camera distance, once with the largest for all.
+6. **A common camera distance drops the smallest molecule into the DEPTH FOG**, so it comes out
+   pale purely for being small. `depth_cue`, `fog` and `ray_trace_fog` all off.
+7. **A union crop box leaves narrow panels empty on one side**; a per-panel box re-expands the
+   small ones and undoes the common scale.
+8. **`imshow` STRETCHES an image to fill its axes**, so per-panel crop widths are safe only when
+   the axes carry `width_ratios` equal to them. Otherwise the scale is lost with no symptom.
+
+**Four pocket-rendering idioms were compared and three rejected** (`pymol_render.py` records them):
+an OPAQUE surface interpenetrates the cartoon and reads as broken geometry; SPHERES are crisp but
+lose the sense of a volume; a WHOLE-PROTEIN surface cannot show a buried site like gyrB's ATP
+pocket at all; and zooming ON the pocket puts the camera inside the protein, which clips black.
+The pocket is **magenta, not v1's teal** — teal sits in the same hue family as the blue/cyan pLDDT
+ramp and the pocket vanishes into it.
+
+**`druggability_consensus.py` must NEVER score a consensus against one of its own inputs.**
+Checking `pockets_consensus` against `n_ligands_pdb` returns **0.958** and is circular — that
+column is one of the four it averages. The honest external comparison is protein length, and it is
+unflattering: length alone scores **0.673** on Kp against P2Rank *within length deciles* at
+**0.489**, below chance. ρ(`pockets_consensus`, length) is **0.663 / 0.638 / 0.654**.
 
 ## Legacy
 
