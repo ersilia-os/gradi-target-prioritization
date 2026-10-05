@@ -141,7 +141,7 @@ def plot_screens(ax) -> dict:
     ax.legend(fontsize=SS * 0.74, frameon=False, loc="lower right", handletextpad=0.4,
               labelspacing=0.3, markerscale=2.2)
     stylia.label(ax, xlabel="Rousset 2018 CRISPRi (log2FC)",
-                 ylabel="Wang 2018 CRISPRi (fitness)", title="Two screens, where they agree")
+                 ylabel="Wang 2018 CRISPRi (fitness)", title="Agreement between screens")
     return out
 
 
@@ -172,7 +172,7 @@ def plot_cross_species(ax) -> dict:
               bbox_to_anchor=(0.5, -0.225), ncol=2, handletextpad=0.4, handlelength=1.2)
     counts = n_ess[keep].value_counts()
     stylia.label(ax, xlabel="", ylabel=f"{len(mat):,} proteins, sorted by conservation",
-                 title="Essential where?")
+                 title="Cross-essential genes")
     return {"covered": len(cov), "any": int(len(mat)), "all12": int(counts.get(len(cols), 0)),
             "one": int(counts.get(1, 0)), "dist": counts.sort_index().to_dict()}
 
@@ -226,7 +226,7 @@ def plot_proteomelm_rank(ax, species: str, n_label: int) -> dict:
     ax.set_ylim(0, 1.04)
     stylia.label(ax, xlabel=f"Rank within {LABELS[species]} (log)",
                  ylabel="ProteomeLM-Ess p(essential)",
-                 title="What the language model ranks first")
+                 title="ProteomeLM-ess predictions")
     return {"n": len(d), "top": top[["gene_name", "uniprot_ac", "p", "is_interest"]],
             "above_0_9": int((d["p"] > 0.9).sum()), "median": float(d["p"].median())}
 
