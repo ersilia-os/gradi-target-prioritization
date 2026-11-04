@@ -1297,9 +1297,10 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   the bar at 0.50 separation and would have failed the gold standard: **Keio reaches only 0.774**,
   and its misses are genuinely dispensable in *E. coli*.
 
-  **TEN training sets, NINE screen endpoints.** `ogee_corpus` is the tenth and feeds `ogee_ess`
+  **TEN training sets, NINE endpoints = EIGHT measured screens + ONE conservation label** (`core_essential_gammaproteobacteria`, a gene-family property, not a screen). `ogee_corpus` is the tenth and feeds `ogee_ess`
   instead, so `screens_ess_mean` is the mean of **9** model probabilities, not 10 — and they are **not 9
-  independent votes**: all nine read the same ProtT5 embedding, so a high value is one correlated
+  independent votes**: all nine read the same ProtT5 embedding, and five are *E. coli* (Keio, Goodall and
+  Choe are all BW25113-lineage; the two Bruchmann Kp sets share a study), so a high value is one correlated
   opinion, not a consensus count.
 
   **Features: ProtT5, measured not assumed** — on Keio, paired over identical folds, ProtT5 −

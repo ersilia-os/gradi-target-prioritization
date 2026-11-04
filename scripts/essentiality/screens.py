@@ -1,8 +1,11 @@
 """Published essentiality screens -> one training set per output column.
 
-Nine measured screens plus one conservation label. Each stays SEPARATE: different strains, different
-assays, different analyses. Merging them would produce a number with no referent -- the base rate
-alone spans 0.060 to 0.194 across this set, and that spread is real information about method and
+Eight measured screens plus one conservation label (`core_essential_gammaproteobacteria`, a gene-
+FAMILY property, not a screen) -- nine endpoints, the nine that `screens_ess_mean` averages. The tenth
+training set, `ogee_corpus`, is built elsewhere and feeds `ogee_ess`. Each endpoint stays SEPARATE:
+different strains, different assays, different analyses. Merging them would produce a number with no
+referent -- the base rate alone spans 0.060 to 0.194 across the eight screens (0.048 with the
+conservation label), and that spread is real information about method and
 strain rather than noise to average away.
 
 THREE FILTERS define the set, each on instruction from the project owner:
@@ -221,6 +224,10 @@ def s_keio() -> tuple[pd.DataFrame, str]:
 
     Column 9 is `Class(1:essential 2:noessential 3:unknown)`; column 3 packs synonyms including the
     b-number (`b0001,ECK0001,JW4367`). Unknown is DROPPED, never made negative.
+
+    45 rows share a `source_id` with another row: the multi-copy insertion elements (`insA`-`insL`,
+    up to 10 distinct accessions under one symbol). All 45 are labelled 0 and every `key` is unique,
+    so nothing is double-counted -- `source_id` is provenance, not a key.
     """
     p = RAW / "ecoli" / "essentiality" / "pec" / "PECData.dat"
     d = pd.read_csv(p, sep="\t", header=None, low_memory=False, skiprows=1,

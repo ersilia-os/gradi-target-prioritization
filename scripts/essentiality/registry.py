@@ -60,6 +60,18 @@ COLUMNS = ["dataset_id", "organism", "assay", "disposition", "reason", "produces
            "n_labels", "n_positives", "base_rate", "join_rate", "features_from",
            "path_on_disk", "has_source_md"]
 
+# A staged directory whose name differs from the id `screens.py` knows the same dataset by. DECLARED,
+# not inferred (see `declared_path`): the first registry listed each of these twice, once from the
+# dict and once from the directory, and `eichelberger2024_ECL8` was both `held_back` and `refuted`.
+# Directory name -> dataset_id. The dict's id wins, so the reason and disposition stay the dict's.
+DIR_ALIASES = {
+    "ramage2017_KPNIH1":     "ramage2017_kpnih1",
+    "rome2026":              "rome2026_njst258",
+    "short2020":             "short2020_serum",
+    "eichelberger2024_ECL8": "eichelberger2024_ecl8",
+    "fitness_browser":       "fitness_browser_rbtnseq",
+}
+
 VERBOSE = True
 
 
@@ -187,12 +199,22 @@ def main() -> None:
                      "path_on_disk": "data/source/ogee",
                      "has_source_md": (REPO_ROOT / "data/source/ogee/SOURCE.md").exists()})
 
+    # Attach each aliased directory to the row that already describes it, so it is neither listed
+    # twice nor left without its provenance link.
+    by_id = {r["dataset_id"]: r for r in rows}
+    for dname, did in DIR_ALIASES.items():
+        # Always overwrite: on a case-insensitive filesystem `declared_path` resolves the dict's
+        # lower-case id to a path with the WRONG case, which then fails the `claimed` test below.
+        if dname in dirs and did in by_id:
+            by_id[did]["path_on_disk"] = str(dirs[dname].relative_to(REPO_ROOT))
+            by_id[did]["has_source_md"] = (dirs[dname] / "SOURCE.md").exists()
+
     # ---- 5. staged directories no registry entry claims. NOT noise: these are datasets someone
     # fetched and nothing consumes, which is exactly what this table exists to surface.
     claimed = {r["path_on_disk"] for r in rows if r["path_on_disk"]}
     for name, p in dirs.items():
         rel = str(p.relative_to(REPO_ROOT))
-        if rel in claimed or not (p / "SOURCE.md").exists():
+        if rel in claimed or name in DIR_ALIASES or not (p / "SOURCE.md").exists():
             continue
         if "essentiality" not in rel and not rel.startswith("data/source"):
             continue
