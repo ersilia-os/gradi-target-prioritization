@@ -207,7 +207,17 @@ RF_PARAMS: dict = {
 # baseline. On log_length alone it scored 0.682 against logistic's 0.776 on identical splits, because
 # 500 bootstrapped trees bin a single variable into steps instead of using it monotonically. Quoting
 # the forest's length number would have credited the embedding with the baseline's handicap.
-FEATURE_BLOCKS = ("esmc",)
+#
+# **Two embedding blocks since 2026-11-04 (project owner's call): ESM-C and ProtT5, FUSED LATE.** One
+# TabPFN model per embedding, and the shipped `<act>_prob` is the MEAN of their probabilities. Late and
+# not concatenated because 1,152 + 1,024 = 2,176 features is above the installed `tabpfn` limit of
+# 2,000. Measured on identical cluster-grouped folds (`output/results/degradability/fusion_eval.tsv`,
+# 5 seeds): ADEP4 0.8819 / PR 0.6302 against ESM-C 0.8734 / 0.6046 and ProtT5 0.8752 / 0.6190; ONC212
+# 0.7712 / 0.5896 against 0.7671 / 0.5807 and 0.7580 / 0.5686. PR-AUC wins all 5 seeds against the best
+# single arm on both activators; the ONC212 ROC-AUC gain over ESM-C is marginal (4/5 seeds).
+FEATURE_BLOCKS = ("esmc", "prott5")
+FUSED = "fused"  # the pseudo-block: mean of the per-block probabilities, never a feature set of its own
+SHIPPED_BLOCK = FUSED if len(FEATURE_BLOCKS) > 1 else FEATURE_BLOCKS[0]  # what `<act>_prob` is
 
 # Kyte-Doolittle hydropathy, for the composition block.
 KYTE_DOOLITTLE: dict[str, float] = dict(zip(
@@ -234,7 +244,12 @@ SIMILARITY_BANDS: tuple[tuple[float, float], ...] = (
 VALIDATED_SIMILARITY = SIMILARITY_BANDS[2][0]
 
 OUT_COLUMNS = ["uniprot_ac", "adep4_prob", "onc212_prob", "nn_similarity",
-               "degradability_consensus", "degradability_evidence"]
+               "degradability_consensus", "degradability_evidence",
+               "adep4_ortholog_hit", "onc212_ortholog_hit"]
+
+# Nullable Int64 in the file (blank = no measured S. aureus ortholog), so `load()` coerces by name:
+# neither matches a prefix rule and pandas would otherwise read them back as float.
+ORTHOLOG_HIT_COLUMNS = ("adep4_ortholog_hit", "onc212_ortholog_hit")
 
 
 def sequence_features(sequences: pd.Series) -> pd.DataFrame:
@@ -262,12 +277,17 @@ def block_columns(block: str, feature_frame: pd.DataFrame) -> list[str]:
     """Which columns of the assembled feature frame a named block uses."""
     comp = [c for c in feature_frame.columns if c.startswith("frac_") or c == "gravy"]
     esmc = [c for c in feature_frame.columns if c.startswith("e") and c[1:].isdigit()]
+    prott5 = [c for c in feature_frame.columns if c.startswith("t") and c[1:].isdigit()]
     if block == "length":
         return ["log_length"]
     if block == "composition":
         return comp
     if block == "esmc":
         return esmc
+    if block == "prott5":
+        if not prott5:
+            raise ValueError("block 'prott5' asked for but the frame has no t0..t1023 columns")
+        return prott5
     if block == "esmc+length":
         return esmc + ["log_length"]
     raise ValueError(f"unknown feature block {block!r}; expected one of {FEATURE_BLOCKS}")
@@ -343,7 +363,11 @@ def _path(directory: Path, name: str) -> Path:
 def load(species: str) -> pd.DataFrame:
     """One species' table: measured call, model probability and source per activator."""
     _check(species)
-    return pd.read_csv(_path(DEGRADABILITY_DIR, f"degradability_{species}.tsv"), sep="\t")
+    df = pd.read_csv(_path(DEGRADABILITY_DIR, f"degradability_{species}.tsv"), sep="\t")
+    for c in ORTHOLOG_HIT_COLUMNS:
+        if c in df.columns:
+            df[c] = df[c].astype("Int64")
+    return df
 
 
 def load_all(species: tuple[str, ...] = SPECIES) -> pd.DataFrame:
@@ -567,3 +591,51 @@ def load_enrichment(
     if min_group:
         df = df[df["group_n"] >= min_group]
     return df.reset_index(drop=True)
+
+
+def saureus_ortholog_support(species: str, accessions=None, rbh_only: bool = False) -> pd.DataFrame:
+    """What the measured *S. aureus* orthologs say about each protein, indexed by `uniprot_ac`.
+
+    Per activator: `<act>_ortholog_hit` (Int64: 1 = at least one measured ortholog is a degrader,
+    0 = every measured ortholog is not, NA = nothing to say), `<act>_ortholog_log2fc_min` (the most
+    degraded measured ortholog) and `<act>_support`, the label that tells the NAs apart:
+    `ortholog_degradable` / `ortholog_not_degradable` / `ortholog_unmeasured` (has an ortholog,
+    none was in that screen) / `no_ortholog` / `self` (S. aureus -- the protein IS the measurement).
+
+    Orthologs are the union of OrthoFinder and RBH (`rbh_only` for the strict set); many-to-many is
+    kept, and a protein counts as a hit if ANY measured ortholog is. **Not independent of the model**:
+    the ortholog's label was training data, so agreement is a consistency check.
+    """
+    from src import orthology as O
+
+    _check(species)
+    acs = load(species)["uniprot_ac"] if accessions is None else pd.Series(list(accessions))
+    out = pd.DataFrame(index=pd.Index(acs, name="uniprot_ac"))
+    if species == "saureus":
+        for act in ACTIVATORS:
+            out[f"{act}_ortholog_hit"] = pd.array([pd.NA] * len(out), dtype="Int64")
+            out[f"{act}_ortholog_log2fc_min"] = np.nan
+            out[f"{act}_support"] = "self"
+        out["n_orthologs"] = 0
+        return out
+    lab = load_labels().set_index("uniprot_ac")
+    o = O.load_orthologs()
+    o = o[(o.query_species == species) & (o.target_species == "saureus")]
+    o = o[o.is_rbh] if rbh_only else o[o.is_rbh | o.is_ortholog_orthofinder]
+    grp = o.groupby("query_ac")
+    out["n_orthologs"] = grp["target_ac"].nunique().reindex(out.index).fillna(0).astype(int)
+    for act in ACTIVATORS:
+        calls, fcs = {}, {}
+        for q, g in grp:
+            v = lab[act].reindex(g["target_ac"]).dropna()
+            calls[q] = np.nan if v.empty else float(v.max())
+            f = lab[f"{act}_log2fc"].reindex(g["target_ac"]).dropna()
+            fcs[q] = np.nan if f.empty else float(f.min())
+        hit = pd.Series(calls, dtype=float).reindex(out.index)
+        out[f"{act}_ortholog_hit"] = pd.array(hit.round(0), dtype="Int64")
+        out[f"{act}_ortholog_log2fc_min"] = pd.Series(fcs, dtype=float).reindex(out.index)
+        out[f"{act}_support"] = np.select(
+            [out["n_orthologs"] == 0, hit == 1, hit == 0],
+            ["no_ortholog", "ortholog_degradable", "ortholog_not_degradable"],
+            "ortholog_unmeasured")
+    return out

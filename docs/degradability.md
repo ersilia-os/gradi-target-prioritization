@@ -958,6 +958,36 @@ expectation (OR 0.21–0.82) with every q > 0.2, i.e. a trend toward depletion w
 it. `src/interest.py` had to be written to test it at all, since the targets existed only as prose;
 it is a draft, with every expansion judgement recorded in its `EXPANSION_NOTES`.
 
+### 2026-11-04 — ESM-C + ProtT5 late fusion, label sensitivity, S. aureus ortholog support
+
+**Shipped probability is now the mean of two TabPFN-3.5 models**, one per embedding (ESM-C 1152-d,
+ProtT5 1024-d), per activator. Late fusion, not concatenation: 2,176 features exceed the installed
+`tabpfn` limit of 2,000. Cluster-grouped CV, 5 seeds x 5 folds, same folds as the single arms
+(`scripts/degradability/fusion_eval.py` -> `output/results/degradability/fusion_eval.tsv`):
+ESM-C arm reproduces ADEP4 0.874 / PR 0.610 and ONC212 0.767 / PR 0.580; **fused ADEP4 0.882 /
+0.635, ONC212 0.769 / 0.587**. Fused vs the old E. coli ranking: Spearman 0.954 / 0.961.
+
+**Binarization** (`label_sensitivity.py` -> `label_sensitivity.tsv`): dropping the grey zone
+(-1 < log2FC <= -0.5) and requiring both Conlon replicates to agree do not move the ranking;
+stricter labels (<= -2, stringency-matched ONC212) do, and raise length confounding. No extra
+predictors recommended; the cutoff stays at -1. AUROC is not comparable across label definitions.
+
+**`adep4_ortholog_hit` / `onc212_ortholog_hit`** are now in the deliverable (8 columns): 1 = at
+least one measured *S. aureus* ortholog is a degrader, 0 = measured and none is, **NA = nothing to
+say** (no ortholog, or none in that screen; all-NA on *S. aureus*, whose proteins are the
+measurement). Orthologs = OrthoFinder or RBH, many-to-many kept. The label that tells the NAs apart
+(`ortholog_degradable` / `_not_degradable` / `_unmeasured` / `no_ortholog` / `self`) and the
+ortholog's log2FC are in `evidence/ortholog_support_<sp>.tsv`. E. coli adep4: 143 / 941 / NA 3,319.
+**Not independent of the model**: ortholog labels were training data.
+
+**Orthology check** (`orthology_check.py`, `output/results/degradability/orthology_check_<sp>.tsv`):
+top-decile proteins with a measured ortholog have a degradable one 76% (ADEP4) / 83% (ONC212) of the
+time vs 8% / 19% elsewhere. But 71% of the consensus >= 0.7 set has no *S. aureus* ortholog and is
+dominated by very short proteins (median 104 aa), and the 0.7 floor is permissive (ADEP4 hit rate
+among upranked with a measured ortholog 34% at >= 0.7, 65% at >= 0.9). Discordant: ribosomal
+proteins, rpoZ, ihfA/B, folA. `BASE_RATE_THRESHOLD` (0.328 / 0.313) is NOT yet re-derived for the
+fused scores.
+
 ### Superseded: the regression variant (2026-09-01)
 
 This stage was first built as a **regression** on the continuous abundance log2FC, on the argument

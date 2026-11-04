@@ -628,13 +628,29 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   `data/source/cdd/cog_func_category.tsv`: a schema that depends on a pip install is not
   reproducible. Details: `docs/function.md`.
 
-- **`degradability/predict.py`** → `degradability_<species>.tsv`, **6 columns**: `uniprot_ac` ·
+- **`degradability/predict.py`** → `degradability_<species>.tsv`, **8 columns**: `uniprot_ac` ·
   `adep4_prob` · `onc212_prob` · `nn_similarity` · `degradability_consensus` ·
-  `degradability_evidence`. Is this protein a substrate of activated
-  partnerless ClpP? A binary **TabPFN-3.5** classifier on ESM-C embeddings, trained on the two
+  `degradability_evidence` · `adep4_ortholog_hit` · `onc212_ortholog_hit`. Is this protein a
+  substrate of activated partnerless ClpP? A binary **TabPFN-3.5** classifier, **one model per
+  embedding (ESM-C, ProtT5) averaged — late fusion** (2026-11-04; concatenation exceeds TabPFN's
+  2,000-feature limit), trained on the two
   *S. aureus* activator screens and applied to the rest of Sa and all of Ec/Kp. `<act>_prob` is the
   **seed-averaged out-of-fold** probability for every protein, so it is one comparable scale across
   all 13,020.
+
+  **Fusion, measured** (5 seeds, cluster-grouped CV, identical folds): ADEP4 **0.882 / PR
+  0.635**, ONC212 **0.769 / 0.587** vs the ESM-C-only 0.874 / 0.610 and 0.767 / 0.580. The 0.8738 /
+  0.7671 figures further down are the ESM-C arm, which still reproduces under
+  `GRADI_TABPFN_CACHE_ONLY=1`. `BASE_RATE_THRESHOLD` is **not yet re-derived** for fused scores.
+
+  **`<act>_ortholog_hit` (nullable 1/0/NA)**: a measured *S. aureus* ortholog (OrthoFinder or RBH, any
+  measured one) is a degrader (1) or all are not (0). **NA means nothing to say, NEVER 0** — no
+  ortholog (71% of the consensus >= 0.7 set) or none measured — and is all-NA on *S. aureus*. The
+  label separating the NAs is `evidence/ortholog_support_<sp>.tsv`. **Not independent of the model**:
+  the ortholog's label was training data, so agreement is consistency, not validation. Defined once
+  in `D.saureus_ortholog_support()`; `scripts/degradability/orthology_check.py` reports it.
+  `fusion_eval.py` and `label_sensitivity.py` are the fusion and binarization checks
+  (`output/results/degradability/`); `label_sensitivity.py` spends hosted credits.
 
   **The standard pair, added 2026-10-04** — the first axis with both a magnitude and an experiment,
   so unlike function and proteomes it ships both. **`degradability_consensus` ADDS VERY LITTLE and

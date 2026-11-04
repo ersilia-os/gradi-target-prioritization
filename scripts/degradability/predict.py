@@ -243,15 +243,23 @@ def build_labels(audit: pd.DataFrame) -> pd.DataFrame:
 # ---------------- features
 
 def feature_frame(species: str) -> pd.DataFrame:
-    """Sequence features plus ESM-C embeddings for one species, indexed by `uniprot_ac`."""
+    """Sequence features plus the ESM-C (`e*`) and ProtT5 (`t*`) embeddings, indexed by `uniprot_ac`.
+
+    Joined INNER, and a protein missing from ANY block is a hard failure rather than a warning: the
+    shipped probability is the mean of one model per block, and a protein one block cannot score
+    would silently get a one-embedding value on a different scale from its neighbours.
+    """
     prot = P.load(species)[["uniprot_ac", "sequence"]].set_index("uniprot_ac")
     feats = D.sequence_features(prot["sequence"])
     accs, mat = E.load(species)
     emb = pd.DataFrame(mat, index=pd.Index(accs, name="uniprot_ac"),
                        columns=[f"e{i}" for i in range(mat.shape[1])])
     out = feats.join(emb, how="inner")
+    if "prott5" in D.FEATURE_BLOCKS:
+        out = out.join(E.load_prott5_frame(species), how="inner")
     if len(out) != len(prot):
-        say(f"    [!] {species}: {len(prot) - len(out)} proteins have no embedding and are dropped")
+        sys.exit(f"FATAL {species}: {len(prot) - len(out)} of {len(prot)} proteins lack an embedding "
+                 f"in at least one of {D.FEATURE_BLOCKS}; the fused probability needs all of them")
     return out
 
 
@@ -391,6 +399,7 @@ def cross_validate(activator: str, lab: pd.DataFrame, feats: pd.DataFrame,
         f"{int(y.sum()):>4} positives ({100 * base_rate:.1f}%)")
 
     rows, oof_store, fold_of = [], {}, None
+    seed_probs = {}   # (block, scheme) -> one out-of-fold vector per seed, for the fused arm below
     for block in D.FEATURE_BLOCKS:
         cols = D.block_columns(block, X_all)
         X = X_all[cols].to_numpy(dtype=float)
@@ -424,6 +433,7 @@ def cross_validate(activator: str, lab: pd.DataFrame, feats: pd.DataFrame,
                             fold_of[te] = k
             # Seed-averaged out-of-fold probability. Every seed's value for a protein comes from a
             # model that excluded it, so averaging is leakage-free and strictly lower-variance.
+            seed_probs[(block, scheme)] = probs
             mean_prob = np.mean(probs, axis=0)
             st = D.auroc_ci(y, mean_prob)
             rec[f"roc_auc_{scheme}"] = round(float(np.mean(aucs)), 4)
@@ -439,6 +449,33 @@ def cross_validate(activator: str, lab: pd.DataFrame, feats: pd.DataFrame,
         if rec["roc_auc_clustered_sd"] == 0.0:
             sys.exit(f"FAILED: {activator}/{block} reports a zero seed SD over "
                      f"{D.N_CV_SEEDS} seeds -- the seed loop collapsed to one split.")
+        rows.append(rec)
+
+    if len(D.FEATURE_BLOCKS) > 1:
+        # THE FUSED ARM: per seed, the mean of the blocks' out-of-fold probabilities, then scored
+        # exactly like a single block. Every block ran on the SAME materialised folds (same seed ->
+        # same splitter), so the average is of predictions each made without that protein or its
+        # cluster, and a per-seed paired comparison against any single block is valid.
+        rec = {"activator": activator, "block": D.FUSED, "estimator": estimator,
+               "n_features": sum(r["n_features"] for r in rows), "n": len(sub),
+               "n_pos": int(y.sum()), "base_rate": round(base_rate, 4), "n_cv_seeds": D.N_CV_SEEDS}
+        for scheme in ("clustered", "plain"):
+            probs = [np.mean([seed_probs[(b, scheme)][si] for b in D.FEATURE_BLOCKS], axis=0)
+                     for si in range(D.N_CV_SEEDS)]
+            aucs = [roc_auc_score(y, p) for p in probs]
+            prs = [D.pr_auc(y, p) for p in probs]
+            mean_prob = np.mean(probs, axis=0)
+            st = D.auroc_ci(y, mean_prob)
+            rec[f"roc_auc_{scheme}"] = round(float(np.mean(aucs)), 4)
+            rec[f"roc_auc_{scheme}_sd"] = round(float(np.std(aucs)), 4)
+            rec[f"roc_auc_{scheme}_lo"] = st["roc_auc_lo"]
+            rec[f"roc_auc_{scheme}_hi"] = st["roc_auc_hi"]
+            rec[f"pr_auc_{scheme}"] = round(float(np.mean(prs)), 4)
+            rec[f"pr_auc_{scheme}_sd"] = round(float(np.std(prs)), 4)
+            rec[f"saturated_{scheme}"] = round(_saturated(mean_prob), 4)
+            if scheme == "clustered":
+                oof_store[D.FUSED] = mean_prob
+        rec["leakage_gap"] = round(rec["roc_auc_plain"] - rec["roc_auc_clustered"], 4)
         rows.append(rec)
 
     cv = pd.DataFrame(rows)
@@ -585,7 +622,7 @@ def domain_bands(activator: str, oof: pd.DataFrame, lab: pd.DataFrame,
     per_band, rows = {}, []
     for lo, hi in D.SIMILARITY_BANDS:
         g = o[(o["nn"] >= lo) & (o["nn"] < hi)]
-        st = (D.auroc_ci(g["hit"], g["oof_esmc"]) if len(g) >= 20
+        st = (D.auroc_ci(g["hit"], g[f"oof_{D.SHIPPED_BLOCK}"]) if len(g) >= 20
               else {"roc_auc": np.nan, "roc_auc_lo": np.nan, "roc_auc_hi": np.nan,
                     "n": len(g), "n_pos": int(g["hit"].sum()) if len(g) else 0})
         per_band[(lo, hi)] = st["roc_auc"]
@@ -626,24 +663,30 @@ def fit_final(activator: str, lab: pd.DataFrame, feats: pd.DataFrame, cv: pd.Dat
     determines the predictions, it survives a library upgrade that would invalidate a pickle, and
     for the forest it reproduces the same model given the same seed.
 
-    Returns `(X_train, y_train)` -- fed to `predict_fold` per species by the caller.
+    Returns `({block: X_train}, y_train)` -- fed to `predict_fold` per block and species by the
+    caller. The labels are shared: every block trains on the same proteins in the same order.
     """
     sub = lab[lab[activator].notna() & lab["uniprot_ac"].isin(feats.index)]
-    cols = D.block_columns("esmc", feats)
-    Xtr = feats.loc[sub["uniprot_ac"], cols].to_numpy(dtype=float)
     ytr = sub[activator].to_numpy(dtype=float).astype(int)
-    row = cv[cv["block"] == "esmc"].iloc[0]
-    np.savez_compressed(
-        EVIDENCE_DIR / f"model_{activator}.npz",
-        accessions=sub["uniprot_ac"].to_numpy().astype(object),
-        X_train=Xtr.astype("float32"), y_train=ytr,
-        estimator=estimator, activator=activator, block="esmc",
-        n_train=len(sub), n_pos=int(sub[activator].sum()),
-        roc_auc_clustered=float(row["roc_auc_clustered"]),
-        roc_auc_plain=float(row["roc_auc_plain"]),
-        pr_auc_clustered=float(row["pr_auc_clustered"]),
-        label=D.ACTIVATOR_PAPER[activator])
-    return Xtr, ytr
+    Xs = {}
+    for block in D.FEATURE_BLOCKS:
+        cols = D.block_columns(block, feats)
+        Xtr = feats.loc[sub["uniprot_ac"], cols].to_numpy(dtype=float)
+        row = cv[cv["block"] == block].iloc[0]
+        # `model_<act>.npz` stays the ESM-C artifact it always was; the other block sits beside it.
+        name = f"model_{activator}.npz" if block == "esmc" else f"model_{activator}_{block}.npz"
+        np.savez_compressed(
+            EVIDENCE_DIR / name,
+            accessions=sub["uniprot_ac"].to_numpy().astype(object),
+            X_train=Xtr.astype("float32"), y_train=ytr,
+            estimator=estimator, activator=activator, block=block,
+            n_train=len(sub), n_pos=int(sub[activator].sum()),
+            roc_auc_clustered=float(row["roc_auc_clustered"]),
+            roc_auc_plain=float(row["roc_auc_plain"]),
+            pr_auc_clustered=float(row["pr_auc_clustered"]),
+            label=D.ACTIVATOR_PAPER[activator])
+        Xs[block] = Xtr
+    return Xs, ytr
 
 
 # ---------------- main
@@ -677,7 +720,8 @@ def main() -> None:
     say("STAGE 04 - degradability from the S. aureus activator screens")
     rule("=")
     say(f"  labels   : {D.LABEL_TABLE.relative_to(REPO_ROOT)}  (v1's audited *_bin columns)")
-    say("  features : stage-01 ESM-C 600M (1152-dim) + length/composition baselines")
+    say(f"  features : ESM-C 600M (1152-d) + ProtT5 (1024-d), blocks {D.FEATURE_BLOCKS}, FUSED LATE "
+        "(mean of one TabPFN per block)")
     say(f"  estimator: {args.estimator}"
         + (f"  RandomForest{tuple(D.RF_PARAMS.values())}" if args.estimator == "forest"
            else f"  TabPFN-{D.TABPFN_MODEL} via gradi-tabpfn (non-commercial weights)"))
@@ -761,10 +805,10 @@ def main() -> None:
                 f"{r['pr_auc_clustered']:>7.3f} +/-{r['pr_auc_clustered_sd']:<5.3f} "
                 f"{r['roc_auc_plain']:>7.3f} {r['leakage_gap']:>7.3f} "
                 f"{100 * r['saturated_clustered']:>6.1f}")
-        esm = float(cv.loc[cv["block"] == "esmc", "roc_auc_clustered"].iloc[0])
-        sd = float(cv.loc[cv["block"] == "esmc", "roc_auc_clustered_sd"].iloc[0])
+        esm = float(cv.loc[cv["block"] == D.SHIPPED_BLOCK, "roc_auc_clustered"].iloc[0])
+        sd = float(cv.loc[cv["block"] == D.SHIPPED_BLOCK, "roc_auc_clustered_sd"].iloc[0])
         xa = D.CROSS_ASSAY_AUROC[a]
-        say(f"    -> this model {esm:.3f} +/- {sd:.3f} over {D.N_CV_SEEDS} CV seeds")
+        say(f"    -> this model ({D.SHIPPED_BLOCK}) {esm:.3f} +/- {sd:.3f} over {D.N_CV_SEEDS} CV seeds")
         say(f"       v1 length-only {D.V1_LENGTH_ONLY_AUROC[a]}   "
             f"cross-assay reference {xa}   gap {esm - xa:+.3f}")
         say(f"    -> base rate {float(cv['base_rate'].iloc[0]):.3f}, so a PR-AUC must be read "
@@ -843,22 +887,28 @@ def main() -> None:
     models = {a: fit_final(a, lab, feats, cvs[a], args.estimator) for a in args.activator}
     meas_hit = {a: dict(zip(lab["uniprot_ac"], lab[a])) for a in D.ACTIVATORS}
     # Out-of-fold probability for the labeled proteins, so `_prob` is one comparable scale.
-    oof_prob = {a: dict(zip(oofs[a]["uniprot_ac"], oofs[a]["oof_esmc"])) for a in args.activator}
+    oof_prob = {a: dict(zip(oofs[a]["uniprot_ac"], oofs[a][f"oof_{D.SHIPPED_BLOCK}"]))
+                for a in args.activator}
     rows = []
     audit_rows = []
     for sp in args.species:
         f = feats if sp == "saureus" else feature_frame(sp)
-        cols = D.block_columns("esmc", f)
+        cols = D.block_columns("esmc", f)  # nn_similarity stays in ESM-C space: the bands are calibrated on it
         out = pd.DataFrame({"uniprot_ac": P.load(sp)["uniprot_ac"]})
         for a in D.ACTIVATORS:
             if a not in models:
                 out[f"{a}_hit"] = pd.array([pd.NA] * len(out), dtype="Int64")
                 out[f"{a}_prob"], out[f"{a}_source"] = np.nan, ""
                 continue
-            Xtr, ytr = models[a]
-            fresh = pd.Series(predict_fold(Xtr, ytr, f[cols].to_numpy(dtype=float),
-                                           estimator=args.estimator, tag=f"predict/{a}/{sp}"),
-                              index=f.index)
+            Xs, ytr = models[a]
+            # One full-fit prediction per block, then the mean -- the same late fusion as the CV.
+            per_block = {
+                b: pd.Series(predict_fold(Xs[b], ytr, f[D.block_columns(b, f)].to_numpy(dtype=float),
+                                          estimator=args.estimator,
+                                          tag=f"predict/{a}/{sp}" + ("" if b == "esmc" else f"/{b}")),
+                             index=f.index)
+                for b in D.FEATURE_BLOCKS}
+            fresh = pd.concat(per_block.values(), axis=1).mean(axis=1)
             hit = out["uniprot_ac"].map(meas_hit[a])
             oofp = out["uniprot_ac"].map(oof_prob[a])
             out[f"{a}_hit"] = pd.array(hit.astype("Float64").round(0), dtype="Int64")
@@ -885,6 +935,14 @@ def main() -> None:
         # `out`, computed through `src/degradability.py` so the file and the loader cannot drift.
         out["degradability_consensus"] = D.consensus(out).round(6)
         out["degradability_evidence"] = D.evidence(out)
+
+        # What the measured S. aureus orthologs say. NA is "nothing to say" (no ortholog, or none
+        # in that screen), never 0; the label that separates the NAs ships in evidence/.
+        orth = D.saureus_ortholog_support(sp, accessions=out["uniprot_ac"])
+        for c in D.ORTHOLOG_HIT_COLUMNS:
+            out[c] = out["uniprot_ac"].map(orth[c]).astype("Int64")
+        if not args.limit:
+            orth.reset_index().to_csv(EVIDENCE_DIR / f"ortholog_support_{sp}.tsv", sep="\t", index=False)
 
         path = (SCRATCH_DIR / f"smoke_degradability_{sp}.tsv") if args.limit \
             else (OUT_DIR / f"degradability_{sp}.tsv")
@@ -949,7 +1007,9 @@ def main() -> None:
     fails = []
     if sa_path.exists():
         names = P.load("saureus")[["uniprot_ac", "gene_name"]]
-        sa = pd.read_csv(sa_path, sep="\t").merge(names, on="uniprot_ac")
+        # `<act>_hit` is no longer a column of the deliverable (dropped 2026-10-03); put the measured
+        # calls back from the labels, which is what `with_measured` is for.
+        sa = D.with_measured(pd.read_csv(sa_path, sep="\t")).merge(names, on="uniprot_ac")
         l2 = lab.set_index("uniprot_ac")
         for gene, note in SPOT_CHECKS.items():
             r = sa[sa["gene_name"].str.lower() == gene.lower()]
@@ -973,7 +1033,8 @@ def main() -> None:
         for sp in args.species:
             d = pd.read_csv((SCRATCH_DIR / f"smoke_degradability_{sp}.tsv") if args.limit
                             else (OUT_DIR / f"degradability_{sp}.tsv"), sep="\t")
-            p = d[(d["adep4_source"] == "predicted") & (d["onc212_source"] == "predicted")]
+            dm = D.with_measured(d)
+            p = d[dm["adep4_hit"].isna() & dm["onc212_hit"].isna()]   # never measured under either
             if len(p) > 50:
                 r = float(spearmanr(p["adep4_prob"], p["onc212_prob"]).statistic)
                 note = "  <- suspiciously high: both may be tracking length" if r > 0.90 else ""
@@ -999,11 +1060,11 @@ def main() -> None:
     for sp in args.species:
         d = pd.read_csv((SCRATCH_DIR / f"smoke_degradability_{sp}.tsv") if args.limit
                         else (OUT_DIR / f"degradability_{sp}.tsv"), sep="\t")
+        dm = D.with_measured(d)
         for a in args.activator:
-            m = d[d[f"{a}_source"] == "measured"]
-            if m[f"{a}_hit"].isna().any():
-                sys.exit(f"FAILED: {sp}/{a} has 'measured' rows with no hit call.")
-            if not d[f"{a}_hit"].dropna().isin([0, 1]).all():
+            # `_hit` and `_source` are not in the deliverable any more, so the integrity check is on
+            # the measured calls it is reconstructed from.
+            if not dm[f"{a}_hit"].dropna().isin([0, 1]).all():
                 sys.exit(f"FAILED: {sp}/{a}_hit contains values outside {{0,1}}.")
             p = d[f"{a}_prob"]
             if p.isna().any() or not p.between(0, 1).all():
