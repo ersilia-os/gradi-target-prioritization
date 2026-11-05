@@ -257,6 +257,13 @@ def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, lmix: pd.DataFrame
                            f"100-150 aa scores below the median, so the short bands cannot be filled. Length bands {p['ctrl_band_txt']}; median length {p['control_len']:.0f} aa against "
                            f"{p['list_len']:.0f} for the list. Compare with the list within a length band, and note that the list prefers ligand evidence by design, so ligand "
                            "evidence is not matched."),
+        ("CAVEATS", "(1) E. coli degradability is extrapolated from S. aureus labels. (2) The length dependence is in those labels (ADEP4 hit rate 57% up to 100 aa, "
+                    "4% above 400) but the direct cleavage readouts barely show it, so it may reflect indirect depletion; the list therefore ranks degradability "
+                    "relative to length. (3) The model is least informative for the longest proteins (within-band AUROC 0.75 ADEP4 / 0.66 ONC212 above 400 aa), "
+                    "which is where a length-representative list must draw. (4) The eligibility cut (top 30% in a length decile) and the essentiality consensus "
+                    "cut (0.7) are chosen, not derived; membership changes by about a quarter if the eligibility cut moves by 10 points. (5) E. coli essentiality "
+                    "consensus is built from the same screens as the measured calls. (6) The control cannot match the list on length. (7) The earlier plan to keep "
+                    "the absolute top 50 by raw degradability no longer holds: 23 of those 50 (median 75 aa) are in the list."),
         ("ORDER", "Each sheet is ordered by degradability consensus, descending. A tiebreak, not a score."),
         ("", ""),
         ("COLUMN GUIDE", ""),
@@ -266,14 +273,14 @@ def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, lmix: pd.DataFrame
         ("Degradability consensus", "Mean within-species percentile of ADEP4 and ONC212 probabilities, trained on S. aureus screens and EXTRAPOLATED to "
                                     "E. coli: ranking hypotheses, not measurements. The two activators are close to one opinion (rho ~0.97). "
                                     "Strongly length-driven (small proteins score high)."),
-        ("Essential: how", "Measured + consensus / Measured only / Consensus only / Neither (top-ups). Consensus cut 0.7, chosen. Essentiality is a FLAG here, "
-                           "not a gate; 'Neither' proteins were selected for degradability alone."),
+        ("Essential: how", "Measured + consensus / Measured only / Consensus only / Neither. Consensus cut 0.7, chosen. Essentiality is a FLAG and an ordering "
+                           "preference here, not a gate; 'Neither' proteins were selected for degradability alone."),
         ("Measured essential (any / all)", "Any = at least one DEG screen calls it essential; all = every screen covering it does. Rich-medium screens."),
         ("Essentiality consensus", "Mean within-species percentile of Geptop, ProteomeLM-Ess and the screen-trained models. On E. coli it is built from the same "
                                    "screens as the measured calls, so agreement is not independent confirmation. Compare within a species only."),
         ("Human ortholog", "Union of OrthoFinder and reciprocal best hit. A decorator, never a gate: yes means a selectivity liability."),
         ("Ligand evidence", "Yes = a potent ChEMBL ligand (this protein or a bacterial homolog), a drug-like ligand on its own PDB structure, or a recorded drug. "
-                            "Used only to order the top-ups inside a function, never as a gate or a score; P2Rank is not used because it mostly ranks protein length."),
+                            "Used only to order proteins inside a function-and-length cell, never as a gate or a score; P2Rank is not used because it mostly ranks protein length."),
         ("Ligands / pockets", "Decorators only. Ligands consensus is ChEMBL potent-ligand evidence (0 with evidence 1 = nobody screened it). Recorded drug = "
                               "a drug in any ChEMBL mechanism category against a >=95% identical target (target-level, mostly ribosome/PBP/gyrase). "
                               "P2Rank score is largely a ranking by protein length."),
@@ -333,8 +340,7 @@ def main() -> int:
     assert mix.dev.abs().max() < 2 and (lmix.list_pct - lmix.target_pct).abs().max() < 2, "list is more than 2 points from its target mixes"
 
     params = {"cut": d.attrs["cons_deg_cut"], "floor": d.attrs["orth_floor"], "ess_cut": d.attrs["cons_cut"], "or_cut": 0.7,
-              "n": len(lst), "pool": len(pool), "seed": 0, "bands": S.LENGTH_LABELS, "elig_pct": 30, "eligible": int((pool.length > 0).sum() * 0 + (
-                  pool.groupby(pd.qcut(pool.length, 10, labels=False)).degradability_consensus.rank(pct=True) >= 0.7).sum()),
+              "n": len(lst), "pool": len(pool), "seed": 0, "bands": S.LENGTH_LABELS, "elig_pct": 30, "eligible": int((pool.groupby(pd.qcut(pool.length, 10, labels=False)).degradability_consensus.rank(pct=True) >= 0.7).sum()),
               "below_gate": int(lst.below_gate.sum()), "ess_rule": int((lst.list_source == "Meets essential rule").sum()),
               "ess_any": int(lst.essential_any.sum()), "ess_strict": int(lst.essential_strict.sum()), "ligand": int(lst.ligand_evidence.sum()),
               "top50": int(lst.top50.sum()), "ribo": int(lst.ribosomal.sum()), "max_dev": float(mix.dev.abs().max()),

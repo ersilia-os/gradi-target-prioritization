@@ -24,17 +24,19 @@ measured calls, so `any AND consensus` reads "a screen says essential and the sc
 contradict it", not independent confirmation. Only about 55% of measured-any essentials clear the consensus
 cut; the ones that do not are written to a second table, never dropped silently.
 
-Writes   output/results/shortlist/shortlist_ecoli_aska.tsv                  the survivors
-         output/results/shortlist/shortlist_ecoli_aska_measured_below_cut.tsv  passes the other gates, measured
-                                                                          essential, consensus below the cut
-         output/results/shortlist/shortlist_ecoli_aska_gates.tsv             funnel + leave-one-out
-         output/results/shortlist/shortlist_ecoli_aska_top200.tsv            THE LIST: absolute top 50 by degradability
-                                                                          among the first three gates + the essential-gate
-                                                                          survivors by degradability, to 200; `list_source`
-         output/results/shortlist/shortlist_ecoli_aska_top200_overflow.tsv   essential-gate proteins that did not fit
-         output/results/shortlist/shortlist_ecoli_aska_control50.tsv         random control: 50 cytosolic ASKA proteins below
-                                                                          the median degradability, not on the list, measured
-                                                                          essential / not in the list's proportion
+THE LIST THAT IS DELIVERED is the FUNCTION- AND LENGTH-REPRESENTATIVE list of 200 (`balanced_list`), not the cascade above, which is kept
+as the cost analysis (funnel, leave-one-out, `shortlist_ecoli_aska*.tsv`). Slots follow the cytosolic ASKA proteome on COG function and on
+four length bands whose target is the equal-weight mean of three distributions (`length_targets`). Eligible = degradability consensus in
+the top 30% of the protein's own length decile (`--len-adj-min`, CHOSEN: the consensus is length-driven, rho -0.73); inside a cell the
+order is the essential rule (measured any OR `essentiality_consensus` >= `--ess-or-cut`, CHOSEN), then ligand evidence (never for
+ribosomal proteins), then within-decile degradability. One control of 50, raw consensus below the proteome median, matched on function and
+measured-essential share but not on length. The raw degradability gate and essentiality are FLAGS here.
+
+Writes   output/results/shortlist/shortlist_ecoli_aska_balanced200.tsv           THE LIST
+         output/results/shortlist/shortlist_ecoli_aska_balanced_control50.tsv    THE CONTROL
+         output/results/shortlist/shortlist_ecoli_aska_length_targets.tsv        the three length distributions and their mean
+         output/results/shortlist/shortlist_ecoli_aska{,_measured_below_cut,_gates}.tsv   the four-gate cascade analysis
+         output/results/shortlist/shortlist_ecoli_aska_top200{,_overflow}.tsv, ..._control50.tsv   the EARLIER top-50-plus-essential-gate list (superseded)
 
 Run with the `gradi` env:  python plotting/shortlist_ecoli.py [--essential any_and_consensus] [-q]
 """
@@ -207,7 +209,8 @@ def margin_greedy(cells: dict, n: int, target_f: pd.Series, target_b: pd.Series,
 
 
 def balanced_list(d: pd.DataFrame, n: int, or_cut: float, len_adj_min: float, n_control: int, seed: int,
-                  band_edges: list | None = None, band_shares: dict | None = None):
+                  band_edges: list | None = None, band_shares: dict | None = None,
+                  order: list | None = None, lig_len_adj_min: float | None = None):
     """Function- AND length-representative list by degradability. Returns (list, control, notes).
 
     Slots follow the cytosolic ASKA proteome on two margins: COG function letter and length band. A
@@ -234,7 +237,10 @@ def balanced_list(d: pd.DataFrame, n: int, or_cut: float, len_adj_min: float, n_
     share_b = pd.Series(band_shares) if band_shares else pool.lband.value_counts(normalize=True)
     share_b = share_b.reindex(labels).fillna(0)
 
-    elig = pool[pool.deg_pct_in_len >= len_adj_min].sort_values(["ess_rule", "lig_rank", "deg_pct_in_len"], ascending=False)
+    ok = pool.deg_pct_in_len >= len_adj_min
+    if lig_len_adj_min is not None:  # ligand evidence may lower the degradability bar (still never ribosomal)
+        ok = ok | (pool.lig_rank & (pool.deg_pct_in_len >= lig_len_adj_min))
+    elig = pool[ok].sort_values(order or ["ess_rule", "lig_rank", "deg_pct_in_len"], ascending=False)
     pos = {u: i for i, u in enumerate(elig.uniprot_ac)}
     cells = {k: g.uniprot_ac.tolist() for k, g in elig.groupby(["cog", "lband"])}
     chosen = margin_greedy(cells, n, share_f * n, share_b * n, pos)

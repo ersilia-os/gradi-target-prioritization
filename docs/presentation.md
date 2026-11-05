@@ -226,7 +226,7 @@ Reproducible from the deliverables; recorded here so they are not lost.
 - **`ligands_consensus` is ~97% ties at exactly 0 on Kp** (the zero block is pinned by design), so
   any Spearman involving it is dominated by that tie block and is not an ordinary correlation.
 
-## E. coli x ASKA shortlist (2026-11-05)
+## E. coli x ASKA shortlist (2026-11-05, list revised the same day)
 
 E. coli only, restricted to proteins with a clone in the ASKA (-) library (4,076 distinct proteins).
 `plotting/ecoli_aska_analysis.py` measures what each criterion costs (tables `output/results/shortlist/ecoli_aska_*.tsv`),
@@ -252,17 +252,34 @@ and `plotting/shortlist_ecoli.py` builds the table. Four gates, each a stated pr
 - **Decorators, never gated:** `has_human_ortholog` (98 of the 166 have one), ligandability, `n_drugs` (45 have a
   recorded drug), pockets, studiedness, route, ASKA clone ids. 43 of the 166 are ribosomal; median length 180 aa
   against 282 for the ASKA pool.
-- **The list of 200** (`shortlist_ecoli_aska_top200.tsv`, a two-part rule, not a score): the absolute top 50 by
-  `degradability_consensus` among the 940 that pass the first three gates, topped up with the 166 essential-gate
-  survivors in degradability order to 200. `list_source` says why each row is there (43 `top_degradability`, 150
-  `essential_gate`, 7 `both`); the 9 lowest-degradability essential-gate proteins are in `..._top200_overflow.tsv`.
-- **Random control** (`shortlist_ecoli_aska_control50.tsv`, seed 0): 50 of the 1,072 cytosolic ASKA proteins below the
-  proteome-median consensus (0.4951) and not on the list, 40 measured essential / 10 not (the list's 80% share; the
-  pool's own is 12%). It is much longer than the list (median 382 vs 156 aa), so a comparison mixes degradability
-  with protein size.
-- **Caveats:** E. coli degradability is extrapolated from *S. aureus* labels (ranking hypotheses), and the E. coli
-  essentiality consensus is built from the same screens as the measured calls, so the AND reads "the screens agree
-  and nothing contradicts them".
+- **The delivered list of 200 (2026-11-05, supersedes the top-50-plus-essential-gate list)**
+  (`shortlist_ecoli_aska_balanced200.tsv`, built by `balanced_list` in `plotting/shortlist_ecoli.py`). The cascade above is the cost
+  analysis; the list asks for a function- and length-representative set. Slots follow the **cytosolic ASKA proteome (2,638)** on COG
+  function (first letter) and on four length bands (<=100, 100-150, 150-300, >300 aa) whose **target is the equal-weight mean of three
+  distributions**: the E. coli cytosolic proteome, its measured-essential proteins and the *S. aureus* proteome
+  (`..._length_targets.tsv`; 13 / 14 / 36 / 37%). **Eligible** = degradability consensus in the top 30% of the protein's own length decile
+  (796 proteins). **Order inside a cell**: essential rule (measured any OR `essentiality_consensus` >= 0.7), ligand evidence (never for
+  ribosomal proteins, whose drug records belong to the whole ribosome), then within-decile degradability. Result: function within 0.3
+  points of the proteome, length bands 26 / 27 / 72 / 75, median 251 aa (proteome 266); 154 meet the essential rule, 88 are measured
+  essential, 66 meet the strict rule (measured AND consensus >= 0.7682); 55 have ligand evidence, 66 a human ortholog, 4 are ribosomal;
+  55 fail the full degradability gate (flagged); **23 of the absolute top 50 are in it** (their median length is 75 aa).
+- **Chosen, not derived:** the eligibility cut (0.7) and the essentiality-consensus cut (0.7; the derived one is 0.7682 and moves 8
+  proteins). Moving the eligibility cut by 0.1 changes 37-54 of the 200 proteins; at 0.8 no list protein falls below the proteome
+  median and 42 fail the full gate.
+- **Why length is handled at all.** The *S. aureus* labels carry it (measured ADEP4 hit rate 57% up to 100 aa, 4% above 400; ONC212 70% vs
+  14%; length alone AUROC 0.778 / 0.687) and the model is calibrated per band, so the E. coli list would otherwise be short (the earlier
+  list: median 126 aa, 5% above 300). But the direct cleavage readouts barely show it (Conlon partially tryptic peptides: rho 0.06 with
+  length; Jacques early non-tryptic: -0.18, against +0.28 for 24 h abundance), so much of the abundance effect may be indirect. Neither
+  paper comments on size (Jacques 2020 read in full; Conlon 2013 full text not accessible). The model is least informative for the longest
+  proteins (within-band AUROC 0.75 / 0.66 above 400 aa), exactly where a length-representative list must draw.
+- **Random control** (`shortlist_ecoli_aska_balanced_control50.tsv`, seed 0): 50 of the 1,065 cytosolic ASKA proteins with RAW consensus
+  below the proteome median (0.4951), not on the list, with the list's function mix and measured-essential share (22 of 50). **It cannot
+  match the list on length**: no protein up to 100 aa and one of 286 at 100-150 aa scores below the median (median 303 vs 251 aa), so
+  compare within a length band. A control below the median of its own length decile fills the short bands but holds scores above the
+  proteome median (21 of 50), so it was rejected. 7 list proteins are also below the proteome median, so the two groups overlap slightly
+  at the raw-score level.
+- **Caveats:** E. coli degradability is extrapolated from *S. aureus* labels (ranking hypotheses), and the E. coli essentiality consensus
+  is built from the same screens as the measured calls. Ligand evidence is not matched in the control (the list prefers it by design).
 
 ## Caveats that must travel with the deck
 
