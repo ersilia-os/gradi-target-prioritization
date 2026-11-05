@@ -243,8 +243,12 @@ SIMILARITY_BANDS: tuple[tuple[float, float], ...] = (
 # drift apart. **Do not retune it** -- rerun the bands and read the new edge off them.
 VALIDATED_SIMILARITY = SIMILARITY_BANDS[2][0]
 
+# `degradability_evidence` is deliberately NOT shipped (owner's call, 2026-11-05): its 0.90
+# similarity cut sits at the 95th percentile of random-pair ESM-C cosine, so it did not mean
+# "similar protein". `D.evidence()` still computes it and `evidence/consensus_audit.tsv` keeps it
+# per protein, so nothing is lost.
 OUT_COLUMNS = ["uniprot_ac", "adep4_prob", "onc212_prob", "nn_similarity",
-               "degradability_consensus", "degradability_evidence",
+               "degradability_consensus",
                "adep4_ortholog_hit", "onc212_ortholog_hit"]
 
 # Nullable Int64 in the file (blank = no measured S. aureus ortholog), so `load()` coerces by name:

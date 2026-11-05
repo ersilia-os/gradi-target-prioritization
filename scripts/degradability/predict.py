@@ -74,10 +74,13 @@ to the distances each species actually lands in. Read that file's caveats before
 Output
 ------
     data/processed/degradability/degradability_<species>.tsv
-        uniprot_ac   adep4_prob   onc212_prob   nn_similarity
+        uniprot_ac   adep4_prob   onc212_prob   nn_similarity   degradability_consensus
+        adep4_ortholog_hit   onc212_ortholog_hit
 
-`_prob` is the model's probability for EVERY protein -- out-of-fold where labeled, so it is one
-comparable scale across all 13,020. **The measured calls are not a column here**: they were empty
+`_prob` is the model's probability for EVERY protein -- out-of-fold for the labeled S. aureus
+proteins, the full-fit prediction for the rest (all of E. coli and K. pneumoniae are unseen, so
+there is no fold to hold out), so it is one comparable scale across all 13,020. The 1-3 ladder
+is no longer a column; it stays per protein in `evidence/consensus_audit.tsv`. **The measured calls are not a column here**: they were empty
 for every E. coli and K. pneumoniae row, and they live in `evidence/labels_saureus.tsv` with their
 continuous log2FCs. `src.degradability.measured()` re-attaches them on `uniprot_ac`.
 

@@ -132,12 +132,6 @@ COLUMNS: dict[str, dict[str, str]] = {
                                    "alone at rho 0.97, because the two are one opinion (rho 0.88). "
                                    "`nn_similarity` is deliberately not an input -- it measures "
                                    "reach, not degradability.",
-        "degradability_evidence": "1-3. 3 = the protein was in an activator screen; 2 = predicted "
-                                  "within a band where the model has a validated AUROC "
-                                  "(nn_similarity >= 0.90); 1 = predicted beyond any validated "
-                                  "band. KP AND EC CANNOT EXCEED 2 -- the screens are S. aureus "
-                                  "only, so the cap is a consequence, not a rule. Here a 3 is ONE "
-                                  "measurement, unlike the generic ladder in src/consensus.py.",
     },
     "essentiality": AC | {
         "geptop_ess": "Geptop 2.0 orthology+phylogeny score, 0-1, always present. CIRCULAR on Ec "

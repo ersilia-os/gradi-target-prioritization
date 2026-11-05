@@ -628,9 +628,9 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   `data/source/cdd/cog_func_category.tsv`: a schema that depends on a pip install is not
   reproducible. Details: `docs/function.md`.
 
-- **`degradability/predict.py`** → `degradability_<species>.tsv`, **8 columns**: `uniprot_ac` ·
+- **`degradability/predict.py`** → `degradability_<species>.tsv`, **7 columns**: `uniprot_ac` ·
   `adep4_prob` · `onc212_prob` · `nn_similarity` · `degradability_consensus` ·
-  `degradability_evidence` · `adep4_ortholog_hit` · `onc212_ortholog_hit`. Is this protein a
+  `adep4_ortholog_hit` · `onc212_ortholog_hit`. Is this protein a
   substrate of activated partnerless ClpP? A binary **TabPFN-3.5** classifier, **one model per
   embedding (ESM-C, ProtT5) averaged — late fusion** (2026-11-04; concatenation exceeds TabPFN's
   2,000-feature limit), trained on the two
@@ -656,9 +656,24 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   so unlike function and proteomes it ships both. **`degradability_consensus` ADDS VERY LITTLE and
   must not be sold as corroboration**: it tracks either activator alone at **rho 0.970–0.973**,
   because the two probabilities are themselves at rho 0.884. `nn_similarity` is deliberately **not**
-  an input — it measures reach, not degradability, and belongs to the evidence column.
+  an input — it measures reach, not degradability.
 
-  `degradability_evidence`: **3** measured, in an activator screen · **2** predicted inside a band
+  **`degradability_evidence` IS NO LONGER A COLUMN** (owner's call, 2026-11-05), so this axis ships
+  `consensus` without the `evidence` half of the pair. Reason, measured: raw ESM-C cosine barely
+  separates relatives from strangers — random *S. aureus*–Gram-negative pairs have median **0.775**
+  (95th percentile **0.90**, 99th 0.93) against a median ortholog pair at **0.906 (Ec) / 0.894
+  (Kp)**, and a protein's nearest *S. aureus* neighbour is a true ortholog only **1.7–6.9%** of the
+  time below 0.97. So the 0.90 cut sat at the random-pair 95th percentile and the tier did not mean
+  "similar protein"; the band AUROCs also exclude only the protein itself, not its paralogs, so
+  they are probably optimistic. **`nn_similarity` stays but is raw cosine, not relatedness.** The
+  ladder is still computed by `D.evidence()` and kept per protein in `evidence/consensus_audit.tsv`
+  (verified equal to the dropped column on all 13,020 rows). If a tier returns it should be built
+  on sequence identity or the ortholog call (`orthology/neighbors.tsv`), not on cosine. Ortholog
+  context for that: only ~30% of Ec/Kp proteins have an *S. aureus* ortholog (31% / 27%), which
+  matches the sequence route (best hit ≥25% identity, both coverages ≥50%: 31% / 27%) and 29–30 of
+  30 conserved genes (`rpoB`, `gyrA`, `ftsZ`, …) all having one.
+
+  *Historical definition of the dropped ladder:* **3** measured, in an activator screen · **2** predicted inside a band
   with a validated AUROC (`nn_similarity >= 0.90`) · **1** predicted beyond any validated band.
   Counts Kp **1,175 / 4,553 / 0** · Ec **541 / 3,862 / 0** · Sa **221 / 959 / 1,709**.
   **Kp and Ec cannot exceed 2 and that needed no special-casing** (owner's constraint): the screens

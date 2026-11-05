@@ -334,7 +334,6 @@ a way a pickled forest does not.
 | `<act>_prob` | the model's probability, for **every** protein — **out-of-fold** where labeled, and **averaged over the 5 CV seeds** |
 | `nn_similarity` | cosine to the nearest *S. aureus* training protein in ESM-C space |
 | `degradability_consensus` | 0–1, the mean within-species percentile rank of the two `_prob` columns |
-| `degradability_evidence` | 1–3, how far the value rests on a measurement |
 
 ### The two standard columns
 
