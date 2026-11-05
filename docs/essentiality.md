@@ -578,7 +578,7 @@ question.
 ```
 data/{raw,source}/**/SOURCE.md        34 dirs — what each dataset IS, and whether v2 uses it
 data/processed/essentiality/
-  dataset_registry.tsv                every dataset found + its DISPOSITION          (47 rows)
+  dataset_registry.tsv                every dataset found + its DISPOSITION          (42 rows)
   training_sets/                      the clean ML-ready sets, one schema            (10 files)
   geptop_<sp>.tsv                     evidence source: orthology prediction
   deg_<sp>.tsv                        evidence source: DEG measurement

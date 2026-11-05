@@ -270,14 +270,14 @@ def main() -> None:
     VERBOSE = not args.quiet
 
     rule("=")
-    say("STAGE 07 - merged essentiality: measurement where it exists, prediction where it does not")
+    say("merge.py - essentiality_<species>.tsv: three predictors, a consensus and an evidence level")
     rule("=")
     say(f"  rule         '{args.rule}' -- {'any screen' if args.rule=='any' else 'every screen'} "
-        "calling a gene essential makes it essential")
-    say("  measured     DEG, joined BY SEQUENCE, only on our exact anchor strains")
-    say("  predicted    Geptop 2.0 score (accuracy 0.59-0.84 by organism; the paper quotes 0.84)")
-    say("  NOTE         the merged column MIXES UNITS (measured pinned to 1/0, predictions")
-    say("               continuous) and is NOT comparable across species -- rank within a species")
+        "calling a gene essential sets `deg_essential_any` in deg_<species>.tsv")
+    say("  measured     DEG, joined BY SEQUENCE, only on our exact anchor strains; written to deg_<sp>.tsv")
+    say("  consensus    plain mean of the within-species percentile of geptop_ess, proteomelm_ess and")
+    say("               screens_ess_mean -- predictors only, never a measurement; rank within a species")
+    say("  evidence     count + concordance over the sources in EVIDENCE_USES_DEG / EVIDENCE_SCREENS")
     rule("=")
 
     lab = Es.load_labels()

@@ -267,7 +267,7 @@ under `UNJOINABLE` so nobody re-derives it.
 Enforced by `.gitignore`:
 
 - **Git**: `src/`, `scripts/`, `docs/`, `assets/`, `legacy/` (code and docs), `LICENSE`, `README.md`, `install.sh`, `requirements.txt`, `access.json`.
-- **eosvc (DVC + S3), not Git**: `data/` and `output/`. Use `~/miniconda3/bin/eosvc {view,upload,download,delete} --path <relative path>`.
+- **eosvc (DVC + S3), not Git**: `data/` and `output/`. Use `~/miniconda3/envs/eosvc/bin/eosvc {view,upload,download,delete} --path <relative path>` (`~/miniconda3/bin/eosvc` is broken: ModuleNotFoundError).
 - `tmp/` is local-only scratch, tracked by neither. The only generated artifacts in Git are `legacy/app/data/*.json`, the webapp payloads.
 
 `eosvc upload` PUTs **one object at a time (~2 files/sec)**, so a directory of many small files is
@@ -1441,7 +1441,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   ```
   data/{raw,source}/**/SOURCE.md          34 dirs: what each dataset IS and whether v2 uses it
   data/processed/essentiality/
-    dataset_registry.tsv                  47 rows: every dataset found + its DISPOSITION
+    dataset_registry.tsv                  42 rows: every dataset found + its DISPOSITION
     training_sets/                        10 files: the clean ML-ready sets, uniform schema
     <source>_<species>.tsv                one table per EVIDENCE SOURCE, per species
     essentiality_<species>.tsv            the headline summary, one column per source
