@@ -3,13 +3,12 @@
 Reads the tables `plotting/shortlist_ecoli.py` writes (nothing is re-derived here, so the workbook cannot
 disagree with them):
 
-    shortlist_ecoli_aska_balanced200.tsv         Sheet "Shortlist"      proteins with slots per COG function proportional to the
-                                                                        cytosolic ASKA proteome, filled by degradability; the
-                                                                        essential set plus top-ups by degradability
+    shortlist_ecoli_aska_balanced200.tsv         Sheet "Shortlist"      proteins with slots proportional to the cytosolic ASKA
+                                                                        proteome by COG function AND length band
     shortlist_ecoli_aska_balanced_control50.tsv  Sheet "Random control" random cytosolic ASKA proteins below the median
                                                                         degradability, not on the list, same function mix
                                                                         and essential share per function
-                                                                        Sheet "Function mix"    proteome vs list vs control, per COG letter
+                                                                        Sheet "Function and length mix"    proteome vs list vs control, per COG letter
                                                                         Sheet "Method"          how it was built, caveats, column guide
 
 NO composite score. The order within each sheet is `degradability_consensus`, descending, a stated tiebreak.
@@ -39,7 +38,7 @@ from plotting import palette as PAL  # noqa: E402
 
 OUT = REPO_ROOT / "output" / "results" / "shortlist"
 SPECIES = "ecoli"
-SOURCE_LABEL = {"essential_set": "Essential set", "top_up_degradability": "Top-up by degradability",
+SOURCE_LABEL = {"essential_rule": "Meets essential rule", "degradability_only": "Degradability only",
                 "random_control_below_median": "Random control"}
 ROUTE_LABEL = {"measured_and_consensus": "Measured + consensus", "measured_only": "Measured only",
                "consensus_only": "Consensus only", "neither": "Neither"}
@@ -85,6 +84,8 @@ COLUMNS = [  # (column, header, width, kind)
     ("protein_name", "Protein", 42, "text"),
     ("function", "Function (COG category)", 40, "text"),
     ("cog_letter", "COG letter (- = unclassified)", 9, "text"),
+    ("length_band", "Length band (aa)", 10, "text"),
+    ("deg_pct_in_len", "Degradability percentile within its length decile", 14, "dec"),
     ("list_source", "Why on the list", 20, "text"),
     ("essential_route", "Essential: how (measured / consensus >= 0.7)", 18, "text"),
     ("top50", "In the absolute top 50", 9, "bool"),
@@ -104,6 +105,7 @@ COLUMNS = [  # (column, header, width, kind)
     ("ligands_consensus", "Ligands consensus", 12, "scale_lig"),
     ("ligands_evidence", "Lig. evidence", 10, "ev"),
     ("n_ligands_bacterial", "Potent ligands (bacterial)", 12, "int"),
+    ("ligand_evidence", "Ligand evidence (potent ChEMBL, PDB ligand or drug)", 14, "bool"),
     ("recorded_drug", "Recorded drug", 10, "bool"),
     ("n_drugs", "Drugs (n)", 8, "int"),
     ("n_ligands_pdb", "PDB ligands", 9, "int"),
@@ -163,7 +165,7 @@ def write_sheet(ws, s: pd.DataFrame, hdr: PatternFill, border: Border, columns=C
                 f"{idx[col]}2:{idx[col]}{last}",
                 CellIsRule(operator="equal", formula=[str(val)], fill=PatternFill("solid", bgColor=colour)))
     for col, colour in (("essential_any", "A9DDB8"), ("essential_all", "A9DDB8"), ("recorded_drug", "A9DDB8"),
-                        ("human_ortholog", "F4B6A9"), ("top50", "A9DDB8"), ("below_gate", "F4B6A9")):
+                        ("human_ortholog", "F4B6A9"), ("top50", "A9DDB8"), ("below_gate", "F4B6A9"), ("ligand_evidence", "A9DDB8")):
         if col not in idx:
             continue
         ws.conditional_formatting.add(
@@ -173,7 +175,7 @@ def write_sheet(ws, s: pd.DataFrame, hdr: PatternFill, border: Border, columns=C
     ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{last}"
 
 
-def write_mix(ws, mix: pd.DataFrame, hdr: PatternFill, border: Border) -> None:
+def write_mix(ws, mix: pd.DataFrame, lmix: pd.DataFrame, hdr: PatternFill, border: Border) -> None:
     heads = ["COG letter (- = unclassified)", "Function", "Cytosolic ASKA proteome (n)", "Proteome %", "List (n)", "List %",
              "List minus proteome (points)", "Control (n)"]
     widths = [14, 38, 16, 11, 9, 9, 16, 11]
@@ -191,10 +193,26 @@ def write_mix(ws, mix: pd.DataFrame, hdr: PatternFill, border: Border) -> None:
             c.border = border
             if j > 2:
                 c.alignment = Alignment(horizontal="center")
+    r0 = len(mix) + 4
+    for j, h in enumerate(["Length band (aa)", "", "Cytosolic ASKA proteome (n)", "Proteome %", "List (n)", "List %", "List minus proteome (points)", "Control (n)",
+                           "Target % (mean of 3 distributions)", "List minus target (points)"], 1):
+        c = ws.cell(row=r0, column=j, value=h)
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), hdr
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for i, r in enumerate(lmix.itertuples(index=False), r0 + 1):
+        vals = [r.letter, "", int(r.proteome_n), round(r.proteome_pct, 1), int(r.list_n), round(r.list_pct, 1),
+                round(r.list_pct - r.proteome_pct, 1), int(r.control_n), round(r.target_pct, 1), round(r.list_pct - r.target_pct, 1)]
+        for j, v in enumerate(vals, 1):
+            c = ws.cell(row=i, column=j, value=v)
+            c.border = border
+            if j > 2:
+                c.alignment = Alignment(horizontal="center")
+    for j, w in ((9, 20), (10, 16)):
+        ws.column_dimensions[get_column_letter(j)].width = w
     ws.freeze_panes = "A2"
 
 
-def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, params: dict, path: Path) -> None:
+def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, lmix: pd.DataFrame, params: dict, path: Path) -> None:
     hdr = PatternFill("solid", fgColor=hexa(PAL.PRIMARY))
     thin = Side(style="thin", color="D9D9D9")
     border = Border(top=thin, bottom=thin, left=thin, right=thin)
@@ -205,7 +223,7 @@ def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, params: dict, path
         first = False
         ws.title = name
         write_sheet(ws, s, hdr, border)
-    write_mix(wb.create_sheet("Function mix"), mix, hdr, border)
+    write_mix(wb.create_sheet("Function and length mix"), mix, lmix, hdr, border)
 
     p = params
     m = wb.create_sheet("Method")
@@ -214,25 +232,31 @@ def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, params: dict, path
     rows = [
         ("ORGANISM", "E. coli K-12 MG1655, restricted to proteins with a clone in the ASKA (-) library and predicted cytosolic"),
         ("", ""),
-        ("HOW THE LIST WAS BUILT", "Not a score: three stated steps, ordered inside each function by degradability consensus."),
-        ("1. Proportional base", f"{p['base_n']} proteins from the {p['pool']:,} cytosolic ASKA proteins, with slots per COG function proportional to "
-                                 "the function's share of that proteome (largest remainder), each filled by degradability consensus."),
-        ("2. Essential set", f"From those, the {p['essential_set']} that are measured essential in any DEG/Keio screen OR have an essentiality consensus >= "
-                             f"{p['or_cut']} (a CHOSEN cut, not derived; the derived base-rate cut is {p['ess_cut']:.4f})."),
-        ("3. Top-ups", f"{p['top_up']} proteins added, best degradability first, among those that pass the degradability gate, to bring each function toward "
-                       f"its share of {p['n']}. Unclassified is capped at {p['cap_none']} top-ups; the slots that frees go to the largest functions that are "
-                       "still below their share + 1 point."),
-        ("Result", f"{p['n']} proteins; {p['top50']} of the absolute top 50 by degradability are in it (the other {50 - p['top50']} are not essential under the "
-                   f"rule and were not topped up); {p['ess_any']} are measured essential in any screen, {p['ess_strict']} under the strict rule "
-                   f"(measured AND consensus >= {p['ess_cut']:.4f}); {p['below_gate']} fall below the degradability gate (all in the essential set, flagged)."),
-        ("Balance", "Sheet 'Function mix' compares the list with the cytosolic proteome per function. Every function is within 2 points except "
-                    f"unclassified ({p['none_dev']:+.1f}), which the cap holds down; unclassified proteins are small and score high on degradability, "
-                    "and few are measured essential."),
+        ("HOW THE LIST WAS BUILT", "Not a score: stated steps. Slots follow the cytosolic ASKA proteome on two margins, COG function and length band."),
+        ("1. Quotas", f"{p['n']} slots, matched as closely as possible on COG function (first letter) to the {p['pool']:,} cytosolic ASKA proteins AND on "
+                      f"length band ({', '.join(p['bands'])} aa) to a TARGET mix: the equal-weight average of three distributions ({p['target_srcs']}). No single "
+                      "distribution is right: degradation references (S. aureus hits, essential proteins) run shorter and ligandable proteins longer; this sits "
+                      "in between. Each step adds a protein to the function and length band furthest below their targets; exact function x length cells are not "
+                      "targeted (too small for 200 proteins)."),
+        ("2. Eligibility", f"A protein is eligible if its degradability consensus is in the top {p['elig_pct']:.0f}% of its own length decile ({p['eligible']:,} proteins). "
+                           "The consensus is strongly length-driven, so a raw cut would only admit short proteins; this asks whether a protein is unusually "
+                           f"degradable for its size. The {p['elig_pct']:.0f}% is a CHOSEN value. The raw degradability gate is NOT applied: {p['below_gate']} of the "
+                           "200 fall below it and are flagged."),
+        ("3. Order inside a cell", f"(a) meets the essential rule: measured essential in any DEG/Keio screen OR essentiality consensus >= {p['or_cut']} (a CHOSEN cut; the "
+                                   f"derived base-rate cut is {p['ess_cut']:.4f}); (b) has ligand evidence; (c) degradability percentile within its length decile. "
+                                   "Ribosomal proteins never get the ligand preference: a recorded drug on the ribosome belongs to the whole complex."),
+        ("Result", f"{p['n']} proteins; {p['ess_rule']} meet the essential rule, {p['ess_any']} are measured essential in any screen, {p['ess_strict']} under the strict rule "
+                   f"(measured AND consensus >= {p['ess_cut']:.4f}); {p['ligand']} have ligand evidence; {p['top50']} of the absolute top 50 by raw degradability are "
+                   f"in it; {p['ribo']} are ribosomal; median length {p['list_len']:.0f} aa against {p['pool_len']:.0f} for the cytosolic proteome."),
+        ("Balance", "Sheet 'Function and length mix' compares the list with the cytosolic proteome and the length targets. Largest function deviation: "
+                    f"{p['max_dev']:.1f} points; length bands: {p['band_txt']}."),
         ("", ""),
-        ("RANDOM CONTROL", f"{p['n_control']} random cytosolic ASKA proteins with degradability consensus below the proteome median ({p['floor']:.4f}), not on "
-                           f"the list, drawn from {p['control_pool']:,}. Same function mix as the list; inside each function the measured-essential share follows the "
-                           f"list's ({p['control_ess']} of {p['n_control']} measured essential; the pool's own share is 12%). Seed {p['seed']}. It is much longer than "
-                           f"the list (median {p['control_len']:.0f} vs {p['list_len']:.0f} aa), so a comparison mixes degradability with protein size."),
+        ("RANDOM CONTROL", f"{p['n_control']} random cytosolic ASKA proteins, not on the list, with raw degradability consensus BELOW THE PROTEOME MEDIAN ({p['floor']:.4f}), drawn from "
+                           f"{p['control_pool']:,}. It follows the list's function mix and measured-essential share ({p['control_ess']} of {p['n_control']}; the pool's own share is "
+                           f"lower). Seed {p['seed']}. Highest raw consensus {p['control_raw_max']:.2f}, median {p['control_raw_med']:.2f}. LIMITATION: no protein up to 100 aa and only one of 286 at "
+                           f"100-150 aa scores below the median, so the short bands cannot be filled. Length bands {p['ctrl_band_txt']}; median length {p['control_len']:.0f} aa against "
+                           f"{p['list_len']:.0f} for the list. Compare with the list within a length band, and note that the list prefers ligand evidence by design, so ligand "
+                           "evidence is not matched."),
         ("ORDER", "Each sheet is ordered by degradability consensus, descending. A tiebreak, not a score."),
         ("", ""),
         ("COLUMN GUIDE", ""),
@@ -248,6 +272,8 @@ def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, params: dict, path
         ("Essentiality consensus", "Mean within-species percentile of Geptop, ProteomeLM-Ess and the screen-trained models. On E. coli it is built from the same "
                                    "screens as the measured calls, so agreement is not independent confirmation. Compare within a species only."),
         ("Human ortholog", "Union of OrthoFinder and reciprocal best hit. A decorator, never a gate: yes means a selectivity liability."),
+        ("Ligand evidence", "Yes = a potent ChEMBL ligand (this protein or a bacterial homolog), a drug-like ligand on its own PDB structure, or a recorded drug. "
+                            "Used only to order the top-ups inside a function, never as a gate or a score; P2Rank is not used because it mostly ranks protein length."),
         ("Ligands / pockets", "Decorators only. Ligands consensus is ChEMBL potent-ligand evidence (0 with evidence 1 = nobody screened it). Recorded drug = "
                               "a drug in any ChEMBL mechanism category against a >=95% identical target (target-level, mostly ribosome/PBP/gyrase). "
                               "P2Rank score is largely a ranking by protein length."),
@@ -294,28 +320,41 @@ def main() -> int:
                         "control_n": ctrl.cog.value_counts().reindex(letters).fillna(0).values})
     mix["proteome_pct"] = mix.proteome_n / mix.proteome_n.sum() * 100
     mix["list_pct"] = mix.list_n / mix.list_n.sum() * 100
-    none_dev = float(mix.loc[mix.letter == "-", "list_pct"].iloc[0] - mix.loc[mix.letter == "-", "proteome_pct"].iloc[0])
-    over = mix[(mix.list_pct - mix.proteome_pct).abs() > 2].letter.tolist()
-    assert over == ["-"], f"functions outside the 2-point band: {over}"  # the Method sheet says only unclassified is
+    for df in (mix,):
+        df["dev"] = (df.list_pct - df.proteome_pct)
+    pool_b = pd.cut(pool.length, S.LENGTH_EDGES, labels=S.LENGTH_LABELS)
+    lmix = pd.DataFrame({"letter": S.LENGTH_LABELS, "proteome_n": pool_b.value_counts().reindex(S.LENGTH_LABELS).values,
+                         "list_n": lst.length_band.value_counts().reindex(S.LENGTH_LABELS).fillna(0).values,
+                         "control_n": ctrl.length_band.value_counts().reindex(S.LENGTH_LABELS).fillna(0).values})
+    lmix["proteome_pct"] = lmix.proteome_n / lmix.proteome_n.sum() * 100
+    lmix["list_pct"] = lmix.list_n / lmix.list_n.sum() * 100
+    targets = pd.read_csv(OUT / "shortlist_ecoli_aska_length_targets.tsv", sep="\t", index_col=0).reindex(S.LENGTH_LABELS)
+    lmix["target_pct"] = targets.target.values * 100
+    assert mix.dev.abs().max() < 2 and (lmix.list_pct - lmix.target_pct).abs().max() < 2, "list is more than 2 points from its target mixes"
 
     params = {"cut": d.attrs["cons_deg_cut"], "floor": d.attrs["orth_floor"], "ess_cut": d.attrs["cons_cut"], "or_cut": 0.7,
-              "n": len(lst), "base_n": 300, "pool": len(pool), "cap_none": 8, "seed": 0,
-              "essential_set": int((lst.list_source == "Essential set").sum()), "top_up": int((lst.list_source == "Top-up by degradability").sum()),
-              "top50": int(lst.top50.sum()), "ess_any": int(lst.essential_any.sum()), "ess_strict": int(lst.essential_strict.sum()),
-              "below_gate": int(lst.below_gate.sum()), "none_dev": none_dev, "n_control": len(ctrl),
-              "control_ess": int(ctrl.essential_any.sum()), "control_pool": int(((pool.degradability_consensus < d.attrs["orth_floor"])
-                                                                              & ~pool.uniprot_ac.isin(lst.uniprot_ac)).sum()),
-              "control_len": float(ctrl.length.median()), "list_len": float(lst.length.median())}
+              "n": len(lst), "pool": len(pool), "seed": 0, "bands": S.LENGTH_LABELS, "elig_pct": 30, "eligible": int((pool.length > 0).sum() * 0 + (
+                  pool.groupby(pd.qcut(pool.length, 10, labels=False)).degradability_consensus.rank(pct=True) >= 0.7).sum()),
+              "below_gate": int(lst.below_gate.sum()), "ess_rule": int((lst.list_source == "Meets essential rule").sum()),
+              "ess_any": int(lst.essential_any.sum()), "ess_strict": int(lst.essential_strict.sum()), "ligand": int(lst.ligand_evidence.sum()),
+              "top50": int(lst.top50.sum()), "ribo": int(lst.ribosomal.sum()), "max_dev": float(mix.dev.abs().max()),
+              "band_txt": ", ".join(f"{r.letter} {r.list_pct:.0f}% (target {r.target_pct:.0f}%, proteome {r.proteome_pct:.0f}%)" for r in lmix.itertuples()),
+              "target_srcs": ", ".join(f"{k.replace('_', ' ')}" for k in targets.columns if k != "target"),
+              "ctrl_band_txt": ", ".join(f"{r.letter} {int(r.control_n)}" for r in lmix.itertuples()),
+              "n_control": len(ctrl), "control_ess": int(ctrl.essential_any.sum()),
+              "control_pool": int(((pool.degradability_consensus < d.attrs["orth_floor"]) & ~pool.uniprot_ac.isin(lst.uniprot_ac)).sum()),
+              "control_len": float(ctrl.length.median()),  "control_raw_med": float(ctrl.degradability_consensus.median()), "control_raw_max": float(ctrl.degradability_consensus.max()),
+              "list_len": float(lst.length.median()), "pool_len": float(pool.length.median())}
 
     path = OUT / "shortlist_ecoli_aska.xlsx"
-    write({f"Shortlist ({len(lst)})": lst, f"Random control ({len(ctrl)})": ctrl}, mix, params, path)
+    write({f"Shortlist ({len(lst)})": lst, f"Random control ({len(ctrl)})": ctrl}, mix, lmix, params, path)
     say(f"\n  wrote {path.relative_to(REPO_ROOT)}")
     say(f"  list {len(lst)}: {lst.list_source.value_counts().to_dict()} | measured essential {params['ess_any']} | strict {params['ess_strict']} | "
-        f"top 50 inside {params['top50']} | below gate {params['below_gate']} | human ortholog {int(lst.human_ortholog.sum())} | "
-        f"recorded drug {int(lst.recorded_drug.sum())}")
-    say(f"  control {len(ctrl)}: measured essential {params['control_ess']} | median consensus {ctrl.degradability_consensus.median():.3f} | "
-        f"max {ctrl.degradability_consensus.max():.3f} (< {params['floor']:.4f})")
-    say(f"  unclassified {none_dev:+.1f} points; every other function within 2")
+        f"top 50 inside {params['top50']} | below gate {params['below_gate']} | ribosomal {params['ribo']} | human ortholog {int(lst.human_ortholog.sum())} | "
+        f"ligand evidence {params['ligand']} | median length {params['list_len']:.0f}")
+    say(f"  control {len(ctrl)}: measured essential {params['control_ess']} | length bands {params['ctrl_band_txt']} | median length {params['control_len']:.0f} | "
+        f"raw consensus median {params['control_raw_med']:.2f}, max {params['control_raw_max']:.2f}")
+    say(f"  largest function deviation {params['max_dev']:.1f} points; length bands {params['band_txt']}")
     return 0
 
 

@@ -49,6 +49,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from plotting import filters as F  # noqa: E402
@@ -145,77 +146,141 @@ def run(d: pd.DataFrame, gates: list[F.Filter], skip: str | None = None):
     return cur, steps
 
 
-def quotas(n: int, frame: pd.DataFrame) -> pd.Series:
-    """Slots per COG letter, proportional to the frame's own mix, largest remainder (sums to n exactly)."""
-    share = frame.cog.value_counts(normalize=True)
-    raw = share * n
-    q = raw.apply(int)
-    q[(raw - q).sort_values(ascending=False).index[: n - int(q.sum())]] += 1
-    return q
+LENGTH_EDGES = [0, 100, 150, 300, 100000]
+LENGTH_LABELS = ["<=100", "100-150", "150-300", ">300"]
 
 
-def balanced_list(d: pd.DataFrame, n: int, base_n: int, or_cut: float, cap_none: int, n_control: int, seed: int):
-    """Function-balanced list by degradability, essentiality a flag. Returns (list, control, notes).
+def band_labels(edges: list) -> list:
+    """Labels for right-closed length bands, e.g. [0, 100, 300, 1e5] -> ["<=100", "100-300", ">300"]."""
+    return [f"<={edges[1]}"] + [f"{lo}-{hi}" for lo, hi in zip(edges[1:-2], edges[2:-1])] + [f">{edges[-2]}"]
 
-    1. `base_n` proteins from the cytosolic ASKA proteome with slots per COG letter proportional to its share,
-       each filled by `degradability_consensus` (the stated tiebreak, not a score).
-    2. Keep those measured essential in any screen OR with `essentiality_consensus` >= `or_cut`: the essential set.
-    3. Top up to `n` from each category's best gate-compliant proteins until it reaches its proportional
-       share of `n`; unclassified is capped at `cap_none` top-ups, and the slots that cap frees go, one at a
-       time, to the largest categories that are still below their share + 2 proteins (1 point of 200).
-    The control draws `n_control` below-median proteins not on the list, with the list's COG mix and the
-    list's measured-essential share inside each category.
+
+def length_targets(d: pd.DataFrame) -> pd.DataFrame:
+    """Target length mix: the equal-weight average of three distributions, one row per band.
+
+    E. coli cytosolic ASKA proteome (representativeness), the measured-essential proteins in it (the target
+    space of the essential rule) and the S. aureus proteome (where the degradability labels come from). No
+    single distribution is right: degradation references run shorter and ligandable proteins longer.
     """
-    pool = d[d.in_aska & d.cytosolic]
-    q_base = quotas(base_n, pool)
-    sel = pd.concat([pool[pool.cog == c].nlargest(k, "degradability_consensus") for c, k in q_base.items() if k > 0])
-    base = sel[(sel.deg_essential_any == 1) | (sel.essentiality_consensus >= or_cut)]
-    tgt = quotas(n, pool)
-    have = base.cog.value_counts().reindex(tgt.index).fillna(0).astype(int)
-    cand = {c: pool[(pool.cog == c) & pool.degradable & ~pool.uniprot_ac.isin(base.uniprot_ac)]
-            .sort_values("degradability_consensus", ascending=False) for c in tgt.index}
-    add = {c: min(max(0, int(tgt[c] - have[c])), len(cand[c])) for c in tgt.index}
-    add["none"] = min(add["none"], cap_none)
-    extra = n - len(base) - sum(add.values())
-    placed = extra
-    while extra > 0:
-        moved = False
-        for c in pool.cog.value_counts().index:
-            if c != "none" and extra > 0 and have[c] + add[c] < tgt[c] + 2 and add[c] < len(cand[c]):
-                add[c] += 1
-                extra -= 1
-                moved = True
-        assert moved, "no category has room for the remaining slots"
+    from src import proteomes
+
+    cy = d[d.in_aska & d.cytosolic]
+    sa = proteomes.load("saureus")
+    sets = {"ecoli_cytosolic": cy.length, "ecoli_measured_essential": cy[cy.deg_essential_any == 1].length,
+            "saureus_proteome": sa.sequence.str.len()}
+    t = pd.DataFrame({k: pd.cut(v, LENGTH_EDGES, labels=LENGTH_LABELS).value_counts(normalize=True).reindex(LENGTH_LABELS)
+                      for k, v in sets.items()})
+    t["target"] = t.mean(axis=1)
+    assert abs(t.target.sum() - 1) < 1e-9
+    return t
+
+
+def margin_greedy(cells: dict, n: int, target_f: pd.Series, target_b: pd.Series, tiebreak: dict, pick=None) -> list:
+    """Pick `n` proteins so BOTH margins (function letter, length band) track their targets.
+
+    `cells[(f, b)]` is the ordered candidate list of one cell. Each step adds one protein to the cell whose
+    function and length band are the furthest below their targets (the squared-deviation cost of both
+    margins), ties broken by `tiebreak` (smaller is better). A cell with no candidates left is skipped, so
+    availability limits are absorbed by the other cells. Exact joint cells are not targeted: they are
+    too small for 200 proteins.
+    """
+    nf, nb = {f: 0 for f in target_f.index}, {b: 0 for b in target_b.index}
+    cells = {k: list(v) for k, v in cells.items() if v and k[0] in nf and k[1] in nb}  # a function/band with no target gets no slot
+    chosen = []
+    for _ in range(n):
+        best = None
+        for (f, b), lst in cells.items():
+            if not lst:
+                continue
+            cost = (2 * (nf[f] - target_f[f]) + 1) + (2 * (nb[b] - target_b[b]) + 1)
+            key = (round(cost, 9), tiebreak[lst[0]])
+            if best is None or key < best[0]:
+                best = (key, (f, b))
+        if best is None:
+            break
+        f, b = best[1]
+        i = pick(cells[(f, b)], chosen) if pick else 0
+        chosen.append(cells[(f, b)].pop(i))
+        nf[f] += 1
+        nb[b] += 1
+    return chosen
+
+
+def balanced_list(d: pd.DataFrame, n: int, or_cut: float, len_adj_min: float, n_control: int, seed: int,
+                  band_edges: list | None = None, band_shares: dict | None = None):
+    """Function- AND length-representative list by degradability. Returns (list, control, notes).
+
+    Slots follow the cytosolic ASKA proteome on two margins: COG function letter and length band. A
+    protein is ELIGIBLE if its degradability consensus is in the top `1 - len_adj_min` of its own length decile
+    (the raw gate cannot be met by long proteins: the consensus is strongly length-driven). Inside a cell the
+    order is, as stated predicates and never a score: (1) meets the essential rule (measured essential in
+    any screen OR `essentiality_consensus` >= `or_cut`, a CHOSEN cut), (2) has ligand evidence, then (3) the
+    percentile within its length decile. Ribosomal proteins never get the ligand preference: their drug
+    records belong to the whole ribosome.
+    The control matches the list's two margins and its measured-essential share, drawn at random from
+    proteins below the median degradability of their own length decile that are not on the list.
+    """
+    pool = d[d.in_aska & d.cytosolic].copy()
+    edges = band_edges or LENGTH_EDGES
+    labels = band_labels(edges)
+    pool["lband"] = pd.cut(pool.length, edges, labels=labels).astype(str)
+    pool["len_decile"] = pd.qcut(pool.length, 10, labels=False)
+    pool["deg_pct_in_len"] = pool.groupby("len_decile").degradability_consensus.rank(pct=True)
+    pool["ligand_evidence"] = ((pool.n_ligands_own.fillna(0) > 0) | (pool.n_ligands_bacterial.fillna(0) > 0)
+                               | (pool.n_ligands_pdb.fillna(0) > 0) | (pool.n_drugs.fillna(0) > 0))
+    pool["ess_rule"] = (pool.deg_essential_any == 1) | (pool.essentiality_consensus >= or_cut)
+    pool["lig_rank"] = pool.ligand_evidence & ~pool.ribosomal
+    share_f = pool.cog.value_counts(normalize=True)
+    share_b = pd.Series(band_shares) if band_shares else pool.lband.value_counts(normalize=True)
+    share_b = share_b.reindex(labels).fillna(0)
+
+    elig = pool[pool.deg_pct_in_len >= len_adj_min].sort_values(["ess_rule", "lig_rank", "deg_pct_in_len"], ascending=False)
+    pos = {u: i for i, u in enumerate(elig.uniprot_ac)}
+    cells = {k: g.uniprot_ac.tolist() for k, g in elig.groupby(["cog", "lband"])}
+    chosen = margin_greedy(cells, n, share_f * n, share_b * n, pos)
+    assert len(chosen) == n, f"only {len(chosen)} eligible proteins fit the quotas"
     top50 = set(pool.nlargest(50, "degradability_consensus").uniprot_ac)
-    final = pd.concat([base.assign(list_source="essential_set")]
-                      + [cand[c].head(add[c]).assign(list_source="top_up_degradability") for c in tgt.index if add[c] > 0])
-    assert len(final) == n and final.uniprot_ac.is_unique
+    final = pool.set_index("uniprot_ac").loc[chosen].reset_index()
+    final = final.assign(list_source=["essential_rule" if e else "degradability_only" for e in final.ess_rule],
+                         top50=final.uniprot_ac.isin(top50), passes_degradability_gate=final.degradable.astype(bool),
+                         essential_strict=(final.deg_essential_any == 1) & (final.essentiality_consensus >= d.attrs["cons_cut"]),
+                         length_band=final.lband)
     meas, cons = final.deg_essential_any == 1, final.essentiality_consensus >= or_cut
-    final = final.assign(top50=final.uniprot_ac.isin(top50), passes_degradability_gate=final.degradable,
-                         essential_strict=meas & (final.essentiality_consensus >= d.attrs["cons_cut"]),
-                         essential_route=["measured_and_consensus" if m and c else "measured_only" if m else "consensus_only" if c else "neither"
-                                          for m, c in zip(meas, cons)])
+    final["essential_route"] = ["measured_and_consensus" if m and c else "measured_only" if m else "consensus_only" if c else "neither"
+                                for m, c in zip(meas, cons)]
     final = final.sort_values("degradability_consensus", ascending=False)
 
-    cp = pool[(pool.degradability_consensus < d.attrs["orth_floor"]) & ~pool.uniprot_ac.isin(final.uniprot_ac)]
-    cp = cp.assign(ess=cp.deg_essential_any == 1)
-    final_ess = (final.deg_essential_any == 1)
-    picks = []
-    for c, k in quotas(n_control, final).items():
-        if k == 0:
-            continue
-        g = cp[cp.cog == c]
-        ke = int(round(k * final_ess[final.cog == c].mean()))
-        e, ne = g[g.ess], g[~g.ess]
-        ke = min(ke, len(e))
-        kn = min(k - ke, len(ne))
-        ke = min(k - kn, len(e))
-        picks += [e.sample(ke, random_state=seed), ne.sample(kn, random_state=seed)]
-    ctrl = pd.concat(picks).assign(list_source="random_control_below_median")
-    assert len(ctrl) == n_control and not set(ctrl.uniprot_ac) & set(final.uniprot_ac)
+    # ONE control, drawn with the LIST's two margins and its measured-essential share, random inside each cell, from proteins
+    # whose RAW degradability is below the proteome median. No protein up to 100 aa and one of 286 at 100-150 aa scores that
+    # low, so the short bands cannot be filled and the control is longer than the list. A control below the median of its own
+    # length decile would fill them but hold raw scores above the proteome median, which is not a low-degradability control.
+    free = pool[~pool.uniprot_ac.isin(final.uniprot_ac)]
+    want = float((final.deg_essential_any == 1).mean())
+    lf, lb = final.cog.value_counts(normalize=True), final.lband.value_counts(normalize=True).reindex(labels).fillna(0)
+
+    def draw(cp: pd.DataFrame, name: str) -> pd.DataFrame:
+        cp = cp.copy()
+        cp["ess"] = cp.deg_essential_any == 1
+        cp["rnd"] = np.random.default_rng(seed).permutation(len(cp))
+        cells_c = {k: g.sort_values("rnd").uniprot_ac.tolist() for k, g in cp.groupby(["cog", "lband"])}
+        ess_of, rnd_of = cp.set_index("uniprot_ac").ess.to_dict(), cp.set_index("uniprot_ac").rnd.to_dict()
+
+        def pick(lst, chosen_so_far):
+            # steer the running measured-essential share toward the list's
+            prefer = sum(ess_of[u] for u in chosen_so_far) / max(len(chosen_so_far), 1) < want
+            return next((i for i, u in enumerate(lst) if ess_of[u] == prefer), 0)
+
+        chosen = margin_greedy(cells_c, n_control, lf * n_control, lb * n_control, rnd_of, pick=pick)
+        out = cp.set_index("uniprot_ac").loc[chosen].reset_index().assign(list_source=name, length_band=lambda x: x.lband)
+        assert len(out) == n_control and not set(out.uniprot_ac) & set(final.uniprot_ac)
+        return out
+
+    cp_raw = free[free.degradability_consensus < d.attrs["orth_floor"]]
+    ctrl = draw(cp_raw, "random_control_below_median")
     assert (ctrl.degradability_consensus < d.attrs["orth_floor"]).all()
-    notes = {"base_n": base_n, "essential_set": len(base), "top_up": n - len(base), "extra_placed": placed,
-             "control_pool": len(cp), "targets": tgt.to_dict(), "have": have.to_dict(), "add": add}
+    band = lambda x: x.lband.value_counts().reindex(labels).fillna(0).astype(int).to_dict()
+    notes = {"eligible": len(elig), "control_pool": len(cp_raw), "share_b": share_b.to_dict(),
+             "list_b": band(final), "ctrl_b": band(ctrl), "labels": labels}
     return final, ctrl, notes
 
 
@@ -228,9 +293,8 @@ def main() -> int:
     ap.add_argument("--control", type=int, default=50, help="size of the random below-median control")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--balanced-n", type=int, default=200, help="size of the function-balanced list")
-    ap.add_argument("--balanced-base-n", type=int, default=300, help="size of the proportional list the essential set is cut from")
+    ap.add_argument("--len-adj-min", type=float, default=0.7, help="CHOSEN: minimum percentile of degradability_consensus within the protein's own length decile")
     ap.add_argument("--ess-or-cut", type=float, default=0.7, help="CHOSEN, not derived: essentiality_consensus cut of the OR rule")
-    ap.add_argument("--cap-unclassified", type=int, default=8, help="max top-ups for COG 'none' (unclassified)")
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args()
     QUIET = a.quiet
@@ -307,17 +371,28 @@ def main() -> int:
     say(f"  control median length {ctrl.length.median():.0f} vs list {final.length.median():.0f} | median consensus {ctrl.degradability_consensus.median():.3f} "
         f"vs list {final.degradability_consensus.median():.3f} | ribosomal {int(ctrl.ribosomal.sum())}")
 
-    bal, bctrl, bn = balanced_list(d, a.balanced_n, a.balanced_base_n, a.ess_or_cut, a.cap_unclassified, a.control, a.seed)
-    bal[COLUMNS + ["list_source", "essential_route", "essential_strict", "top50", "passes_degradability_gate"]].to_csv(
-        OUT / f"shortlist_ecoli_aska_balanced{a.balanced_n}.tsv", sep="\t", index=False)
-    bctrl[COLUMNS + ["list_source"]].to_csv(OUT / f"shortlist_ecoli_aska_balanced_control{a.control}.tsv", sep="\t", index=False)
-    say(f"\n  BALANCED LIST {len(bal)}: essential set {bn['essential_set']} (measured any OR consensus >= {a.ess_or_cut}, chosen not derived, "
-        f"from a proportional list of {a.balanced_base_n}) + {bn['top_up']} top-ups by degradability (unclassified capped at {a.cap_unclassified})")
-    say(f"    measured essential {int((bal.deg_essential_any == 1).sum())} | strict (measured AND consensus >= {d.attrs['cons_cut']:.4f}) "
+    targets = length_targets(d)
+    targets.to_csv(OUT / "shortlist_ecoli_aska_length_targets.tsv", sep="\t")
+    bal, bctrl, bn = balanced_list(d, a.balanced_n, a.ess_or_cut, a.len_adj_min, a.control, a.seed, band_shares=targets.target.to_dict())
+    bal[COLUMNS + ["list_source", "essential_route", "essential_strict", "top50", "passes_degradability_gate", "ligand_evidence",
+                   "length_band", "deg_pct_in_len"]].to_csv(OUT / f"shortlist_ecoli_aska_balanced{a.balanced_n}.tsv", sep="\t", index=False)
+    bctrl[COLUMNS + ["list_source", "length_band", "deg_pct_in_len"]].to_csv(OUT / f"shortlist_ecoli_aska_balanced_control{a.control}.tsv", sep="\t", index=False)
+    cyto = d[d.in_aska & d.cytosolic]
+    sf, lf = cyto.cog.value_counts(normalize=True), bal.cog.value_counts(normalize=True).reindex(cyto.cog.value_counts().index).fillna(0)
+    say(f"\n  BALANCED LIST {len(bal)}: slots on function AND length band (cytosolic ASKA proteome), eligible = top {100 * (1 - a.len_adj_min):.0f}% of "
+        f"degradability inside its own length decile ({bn['eligible']:,} proteins); order inside a cell: essential rule (measured any OR consensus >= "
+        f"{a.ess_or_cut}, chosen), ligand evidence, within-decile degradability")
+    say("    length bands (target % = mean of E. coli cytosolic, E. coli measured essential, S. aureus proteome -> list n): "
+        + " | ".join(f"{k} {100 * bn['share_b'][k]:.0f}% -> {bn['list_b'][k]}" for k in LENGTH_LABELS))
+    say(f"    largest function deviation {100 * (lf - sf).abs().max():.1f} points ({(lf - sf).abs().idxmax()}) | functions beyond 2 points: "
+        f"{{{', '.join(f'{k} {100 * v:+.1f}' for k, v in (lf - sf).items() if abs(v) > 0.02)}}}")
+    say(f"    measured essential {int((bal.deg_essential_any == 1).sum())} | essential rule {int((bal.list_source == 'essential_rule').sum())} | strict "
         f"{int(bal.essential_strict.sum())} | top 50 inside {int(bal.top50.sum())} | ribosomal {int(bal.ribosomal.sum())} | "
-        f"fail the degradability gate {int((~bal.passes_degradability_gate).sum())} | median length {bal.length.median():.0f}")
-    say(f"    control {len(bctrl)} from {bn['control_pool']:,}: measured essential {int((bctrl.deg_essential_any == 1).sum())} | "
-        f"max consensus {bctrl.degradability_consensus.max():.3f} (< median {d.attrs['orth_floor']:.4f}) | median length {bctrl.length.median():.0f}")
+        f"fail the degradability gate {int((~bal.passes_degradability_gate).sum())} | median length {bal.length.median():.0f} | "
+        f"ligand evidence {int(bal.ligand_evidence.sum())} | median degradability {bal.degradability_consensus.median():.2f}")
+    say(f"    control: {len(bctrl)} from {bn['control_pool']:,} (raw consensus below the proteome median) | length bands {bn['ctrl_b']} | measured essential "
+        f"{int((bctrl.deg_essential_any == 1).sum())} | raw consensus median {bctrl.degradability_consensus.median():.2f}, max {bctrl.degradability_consensus.max():.3f} | "
+        f"median length {bctrl.length.median():.0f}")
 
     say(f"\n  final list {len(final)}: top {a.top} by degradability {len(top)} (of which also pass the essential gate {int(top.uniprot_ac.isin(g.uniprot_ac).sum())}) "
         f"+ essential gate {len(final) - len(top)}; {len(overflow)} essential-gate proteins left out (lowest degradability, in the overflow table)")

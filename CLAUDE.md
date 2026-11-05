@@ -1786,12 +1786,17 @@ ASKA, cytosolic (DeepLocPro `cytoplasm` OR TMbed fraction 1), degradable (consen
 *S. aureus* ortholog degrader above the proteome-median floor), essential (measured any AND consensus >= base-rate
 cut, `--essential` swaps it) — 4,403 → 4,076 → 2,638 → 940 → **166**. Every cut is computed each run, never
 hard-coded; selectivity, ligands, pockets and studiedness are decorators. `filters.py` is still the Kp cascade.
-`shortlist_ecoli.py` also writes the **function-balanced list of 200** (`shortlist_ecoli_aska_balanced200.tsv`: slots per COG letter
-proportional to the cytosolic ASKA proteome, the essential set = measured any OR `essentiality_consensus` >= 0.7 (a CHOSEN cut, not derived),
-topped up by degradability, unclassified capped at 8 top-ups; essentiality is a flag, not a gate) and a matched random control of 50 below the
-proteome-median degradability. `plotting/shortlist_excel.py` (`gradi` env) reads those TSVs and writes
-`output/results/shortlist/shortlist_ecoli_aska.xlsx` — run `shortlist_ecoli.py` first; it recomputes nothing.
-Record: `docs/presentation.md`.
+`shortlist_ecoli.py` also writes the **function- and length-representative list of 200** (`shortlist_ecoli_aska_balanced200.tsv`): slots follow
+the cytosolic ASKA proteome on COG function and on four length bands (<=100, 100-150, 150-300, >300 aa), the length target being the
+equal-weight mean of the E. coli cytosolic proteome, its measured-essential proteins and the *S. aureus* proteome
+(`shortlist_ecoli_aska_length_targets.tsv`). Eligible = degradability in the top 30% of the protein's own length decile (CHOSEN; the raw
+consensus is length-driven, rho -0.73); inside a cell the order is essential rule (measured any OR `essentiality_consensus` >= 0.7, CHOSEN),
+ligand evidence (never for ribosomal proteins), then within-decile degradability. Essentiality and the raw degradability gate are flags, not
+gates. ONE control of 50, raw degradability below the proteome median, matched on function and measured-essential share but NOT on length
+(no protein up to 100 aa scores that low). The *S. aureus* labels themselves carry the length effect (ADEP4 hit rate 57% up to 100 aa, 4% above
+400), but the direct cleavage readouts barely do (Conlon rho 0.06, Jacques -0.18), so treat it as a property of the abundance readout.
+`plotting/shortlist_excel.py` (`gradi` env) reads those TSVs and writes `output/results/shortlist/shortlist_ecoli_aska.xlsx` — run
+`shortlist_ecoli.py` first; it recomputes nothing. Record: `docs/presentation.md`.
 
 **Four more traps, from rendering STRUCTURES rather than plotting values. Each fix caused the
 next, and every one is invisible once correct:**
