@@ -1,4 +1,4 @@
-"""The E. coli x ASKA shortlist as a colour-coded Excel workbook: the list of 200, its random control, the overflow.
+"""The E. coli x ASKA shortlist as a colour-coded Excel workbook: the list of 200, and its random control.
 
 Reads the tables `plotting/shortlist_ecoli.py` writes (nothing is re-derived here, so the workbook cannot
 disagree with them):
@@ -8,7 +8,6 @@ disagree with them):
                                                                       topped up with the essential-gate survivors
     shortlist_ecoli_aska_control50.tsv        Sheet "Random control"  random cytosolic ASKA proteins below the median
                                                                       degradability, not on the list
-    shortlist_ecoli_aska_top200_overflow.tsv  Sheet "Left out"        essential-gate proteins that did not fit
     shortlist_ecoli_aska_gates.tsv            Sheet "Method"          funnel and leave-one-out
 
 NO composite score. The order within each sheet is `degradability_consensus`, descending, a stated tiebreak.
@@ -186,7 +185,7 @@ def write(sheets: dict[str, pd.DataFrame], gates: pd.DataFrame, params: dict, pa
         ("THE LIST OF 200", "Not a score. The absolute top 50 by degradability consensus among the proteins that pass the first three gates "
                             "(ASKA, cytosolic, degradable), topped up with the proteins that also pass the essential gate, in degradability "
                             "order, to 200. 'Why on the list' says which part: Top 50 degradability / Essential gate / Both. "
-                            f"{params['n_left_out']} essential-gate proteins with the lowest degradability did not fit (sheet 'Left out')."),
+                            f"{params['n_left_out']} essential-gate proteins with the lowest degradability did not fit (not in this workbook; see shortlist_ecoli_aska_top200_overflow.tsv)."),
         ("RANDOM CONTROL", f"{params['n_control']} random cytosolic ASKA proteins below the proteome-median degradability consensus "
                            f"({params['floor']:.4f}) that are not on the list; {params['control_ess']} measured essential, "
                            f"{params['n_control'] - params['control_ess']} not (the list's essential share, 80%; the pool's own is 12%). Seed 0. "
@@ -230,7 +229,7 @@ def main() -> int:
     a = ap.parse_args()
     say = (lambda *_: None) if a.quiet else print
 
-    say("shortlist_excel.py  E. coli x ASKA: list of 200, random control, left out")
+    say("shortlist_excel.py  E. coli x ASKA: list of 200, random control")
     lst = load_sheet("shortlist_ecoli_aska_top200.tsv")
     ctrl = load_sheet("shortlist_ecoli_aska_control50.tsv")
     over = load_sheet("shortlist_ecoli_aska_top200_overflow.tsv")
@@ -248,13 +247,12 @@ def main() -> int:
               "n_left_out": len(over), "n_control": len(ctrl), "control_ess": int(ctrl.essential_any.sum())}
 
     path = OUT / "shortlist_ecoli_aska.xlsx"
-    write({f"Shortlist ({len(lst)})": lst, f"Random control ({len(ctrl)})": ctrl, f"Left out ({len(over)})": over},
+    write({f"Shortlist ({len(lst)})": lst, f"Random control ({len(ctrl)})": ctrl},
           gates, params, path)
     say(f"\n  wrote {path.relative_to(REPO_ROOT)}")
     say(f"  list {len(lst)}: {lst.list_source.value_counts().to_dict()} | measured essential {int(lst.essential_any.sum())} | "
         f"human ortholog {int(lst.human_ortholog.sum())} | recorded drug {int(lst.recorded_drug.sum())}")
     say(f"  control {len(ctrl)}: measured essential {int(ctrl.essential_any.sum())} | median consensus {ctrl.degradability_consensus.median():.3f}")
-    say(f"  left out {len(over)}")
     return 0
 
 
