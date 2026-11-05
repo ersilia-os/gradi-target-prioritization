@@ -1786,8 +1786,11 @@ ASKA, cytosolic (DeepLocPro `cytoplasm` OR TMbed fraction 1), degradable (consen
 *S. aureus* ortholog degrader above the proteome-median floor), essential (measured any AND consensus >= base-rate
 cut, `--essential` swaps it) — 4,403 → 4,076 → 2,638 → 940 → **166**. Every cut is computed each run, never
 hard-coded; selectivity, ligands, pockets and studiedness are decorators. `filters.py` is still the Kp cascade.
-`plotting/shortlist_excel.py` (`gradi` env) reads that script's TSVs (list of 200, random control of 50) and
-writes `output/results/shortlist/shortlist_ecoli_aska.xlsx` — run `shortlist_ecoli.py` first; it recomputes nothing.
+`shortlist_ecoli.py` also writes the **function-balanced list of 200** (`shortlist_ecoli_aska_balanced200.tsv`: slots per COG letter
+proportional to the cytosolic ASKA proteome, the essential set = measured any OR `essentiality_consensus` >= 0.7 (a CHOSEN cut, not derived),
+topped up by degradability, unclassified capped at 8 top-ups; essentiality is a flag, not a gate) and a matched random control of 50 below the
+proteome-median degradability. `plotting/shortlist_excel.py` (`gradi` env) reads those TSVs and writes
+`output/results/shortlist/shortlist_ecoli_aska.xlsx` — run `shortlist_ecoli.py` first; it recomputes nothing.
 Record: `docs/presentation.md`.
 
 **Four more traps, from rendering STRUCTURES rather than plotting values. Each fix caused the

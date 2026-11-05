@@ -1,14 +1,16 @@
-"""The E. coli x ASKA shortlist as a colour-coded Excel workbook: the list of 200, and its random control.
+"""The E. coli x ASKA shortlist as a colour-coded Excel workbook: the function-balanced list of 200 and its random control.
 
 Reads the tables `plotting/shortlist_ecoli.py` writes (nothing is re-derived here, so the workbook cannot
 disagree with them):
 
-    shortlist_ecoli_aska_top200.tsv           Sheet "Shortlist"       the absolute top 50 by degradability among the
-                                                                      proteins passing ASKA, cytosolic and degradable,
-                                                                      topped up with the essential-gate survivors
-    shortlist_ecoli_aska_control50.tsv        Sheet "Random control"  random cytosolic ASKA proteins below the median
-                                                                      degradability, not on the list
-    shortlist_ecoli_aska_gates.tsv            Sheet "Method"          funnel and leave-one-out
+    shortlist_ecoli_aska_balanced200.tsv         Sheet "Shortlist"      proteins with slots per COG function proportional to the
+                                                                        cytosolic ASKA proteome, filled by degradability; the
+                                                                        essential set plus top-ups by degradability
+    shortlist_ecoli_aska_balanced_control50.tsv  Sheet "Random control" random cytosolic ASKA proteins below the median
+                                                                        degradability, not on the list, same function mix
+                                                                        and essential share per function
+                                                                        Sheet "Function mix"    proteome vs list vs control, per COG letter
+                                                                        Sheet "Method"          how it was built, caveats, column guide
 
 NO composite score. The order within each sheet is `degradability_consensus`, descending, a stated tiebreak.
 Selectivity, ligandability, pockets and studiedness are decorators, shown and never used to select or rank.
@@ -37,8 +39,10 @@ from plotting import palette as PAL  # noqa: E402
 
 OUT = REPO_ROOT / "output" / "results" / "shortlist"
 SPECIES = "ecoli"
-SOURCE_LABEL = {"top_degradability": "Top 50 degradability", "essential_gate": "Essential gate",
-                "both": "Both", "random_control_below_median": "Random control"}
+SOURCE_LABEL = {"essential_set": "Essential set", "top_up_degradability": "Top-up by degradability",
+                "random_control_below_median": "Random control"}
+ROUTE_LABEL = {"measured_and_consensus": "Measured + consensus", "measured_only": "Measured only",
+               "consensus_only": "Consensus only", "neither": "Neither"}
 
 
 def hexa(rgb) -> str:
@@ -64,8 +68,11 @@ def load_sheet(name: str) -> pd.DataFrame:
     d["essential_all"] = d["deg_essential_all"] == 1
     d["human_ortholog"] = d["has_human_ortholog"].astype(bool)
     d["recorded_drug"] = d["n_drugs"].fillna(0) > 0
-    if "list_source" in d:
-        d["list_source"] = d["list_source"].map(SOURCE_LABEL)
+    d["list_source"] = d["list_source"].map(SOURCE_LABEL)
+    if "essential_route" in d:
+        d["essential_route"] = d["essential_route"].map(ROUTE_LABEL)
+        d["below_gate"] = ~d["passes_degradability_gate"].astype(bool)
+    d["cog_letter"] = d["cog"].replace("none", "-")
     d = d.sort_values("degradability_consensus", ascending=False).reset_index(drop=True)
     d.insert(0, "rank", range(1, len(d) + 1))
     return d
@@ -77,7 +84,11 @@ COLUMNS = [  # (column, header, width, kind)
     ("gene_name", "Gene", 10, "text"),
     ("protein_name", "Protein", 42, "text"),
     ("function", "Function (COG category)", 40, "text"),
+    ("cog_letter", "COG letter (- = unclassified)", 9, "text"),
     ("list_source", "Why on the list", 20, "text"),
+    ("essential_route", "Essential: how (measured / consensus >= 0.7)", 18, "text"),
+    ("top50", "In the absolute top 50", 9, "bool"),
+    ("below_gate", "Below degradability gate", 10, "bool"),
     ("degradability_consensus", "Degradability consensus", 14, "scale_deg"),
     ("adep4_prob", "ADEP4 prob", 10, "dec"),
     ("onc212_prob", "ONC212 prob", 10, "dec"),
@@ -152,7 +163,9 @@ def write_sheet(ws, s: pd.DataFrame, hdr: PatternFill, border: Border, columns=C
                 f"{idx[col]}2:{idx[col]}{last}",
                 CellIsRule(operator="equal", formula=[str(val)], fill=PatternFill("solid", bgColor=colour)))
     for col, colour in (("essential_any", "A9DDB8"), ("essential_all", "A9DDB8"), ("recorded_drug", "A9DDB8"),
-                        ("human_ortholog", "F4B6A9")):
+                        ("human_ortholog", "F4B6A9"), ("top50", "A9DDB8"), ("below_gate", "F4B6A9")):
+        if col not in idx:
+            continue
         ws.conditional_formatting.add(
             f"{idx[col]}2:{idx[col]}{last}",
             CellIsRule(operator="equal", formula=['"yes"'], fill=PatternFill("solid", bgColor=colour)))
@@ -160,7 +173,28 @@ def write_sheet(ws, s: pd.DataFrame, hdr: PatternFill, border: Border, columns=C
     ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{last}"
 
 
-def write(sheets: dict[str, pd.DataFrame], gates: pd.DataFrame, params: dict, path: Path) -> None:
+def write_mix(ws, mix: pd.DataFrame, hdr: PatternFill, border: Border) -> None:
+    heads = ["COG letter (- = unclassified)", "Function", "Cytosolic ASKA proteome (n)", "Proteome %", "List (n)", "List %",
+             "List minus proteome (points)", "Control (n)"]
+    widths = [14, 38, 16, 11, 9, 9, 16, 11]
+    for j, (h, w) in enumerate(zip(heads, widths), 1):
+        c = ws.cell(row=1, column=j, value=h)
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), hdr
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(j)].width = w
+    ws.row_dimensions[1].height = 45
+    for i, r in enumerate(mix.itertuples(index=False), 2):
+        vals = [r.letter, r.name, int(r.proteome_n), round(r.proteome_pct, 1), int(r.list_n), round(r.list_pct, 1),
+                round(r.list_pct - r.proteome_pct, 1), int(r.control_n)]
+        for j, v in enumerate(vals, 1):
+            c = ws.cell(row=i, column=j, value=v)
+            c.border = border
+            if j > 2:
+                c.alignment = Alignment(horizontal="center")
+    ws.freeze_panes = "A2"
+
+
+def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, params: dict, path: Path) -> None:
     hdr = PatternFill("solid", fgColor=hexa(PAL.PRIMARY))
     thin = Side(style="thin", color="D9D9D9")
     border = Border(top=thin, bottom=thin, left=thin, right=thin)
@@ -171,39 +205,48 @@ def write(sheets: dict[str, pd.DataFrame], gates: pd.DataFrame, params: dict, pa
         first = False
         ws.title = name
         write_sheet(ws, s, hdr, border)
+    write_mix(wb.create_sheet("Function mix"), mix, hdr, border)
 
+    p = params
     m = wb.create_sheet("Method")
     m.column_dimensions["A"].width = 40
     m.column_dimensions["B"].width = 120
     rows = [
-        ("ORGANISM", "E. coli K-12 MG1655, restricted to proteins with a clone in the ASKA (-) library"),
+        ("ORGANISM", "E. coli K-12 MG1655, restricted to proteins with a clone in the ASKA (-) library and predicted cytosolic"),
         ("", ""),
-        ("GATES (in order)", "proteins remaining"),
-        *[(f"{r.gate}: {r.rule}", f"{r.n_after:,}  (removes {r.n_removed:,}; survivors with this gate dropped: {int(r.n_without_gate):,})")
-          for r in gates.itertuples()],
+        ("HOW THE LIST WAS BUILT", "Not a score: three stated steps, ordered inside each function by degradability consensus."),
+        ("1. Proportional base", f"{p['base_n']} proteins from the {p['pool']:,} cytosolic ASKA proteins, with slots per COG function proportional to "
+                                 "the function's share of that proteome (largest remainder), each filled by degradability consensus."),
+        ("2. Essential set", f"From those, the {p['essential_set']} that are measured essential in any DEG/Keio screen OR have an essentiality consensus >= "
+                             f"{p['or_cut']} (a CHOSEN cut, not derived; the derived base-rate cut is {p['ess_cut']:.4f})."),
+        ("3. Top-ups", f"{p['top_up']} proteins added, best degradability first, among those that pass the degradability gate, to bring each function toward "
+                       f"its share of {p['n']}. Unclassified is capped at {p['cap_none']} top-ups; the slots that frees go to the largest functions that are "
+                       "still below their share + 1 point."),
+        ("Result", f"{p['n']} proteins; {p['top50']} of the absolute top 50 by degradability are in it (the other {50 - p['top50']} are not essential under the "
+                   f"rule and were not topped up); {p['ess_any']} are measured essential in any screen, {p['ess_strict']} under the strict rule "
+                   f"(measured AND consensus >= {p['ess_cut']:.4f}); {p['below_gate']} fall below the degradability gate (all in the essential set, flagged)."),
+        ("Balance", "Sheet 'Function mix' compares the list with the cytosolic proteome per function. Every function is within 2 points except "
+                    f"unclassified ({p['none_dev']:+.1f}), which the cap holds down; unclassified proteins are small and score high on degradability, "
+                    "and few are measured essential."),
         ("", ""),
-        ("THE LIST OF 200", "Not a score. The absolute top 50 by degradability consensus among the proteins that pass the first three gates "
-                            "(ASKA, cytosolic, degradable), topped up with the proteins that also pass the essential gate, in degradability "
-                            "order, to 200. 'Why on the list' says which part: Top 50 degradability / Essential gate / Both. "
-                            f"{params['n_left_out']} essential-gate proteins with the lowest degradability did not fit (not in this workbook; see shortlist_ecoli_aska_top200_overflow.tsv)."),
-        ("RANDOM CONTROL", f"{params['n_control']} random cytosolic ASKA proteins below the proteome-median degradability consensus "
-                           f"({params['floor']:.4f}) that are not on the list; {params['control_ess']} measured essential, "
-                           f"{params['n_control'] - params['control_ess']} not (the list's essential share, 80%; the pool's own is 12%). Seed 0. "
-                           "It is much longer than the list (median 382 vs 156 aa), so a comparison mixes degradability with protein size."),
+        ("RANDOM CONTROL", f"{p['n_control']} random cytosolic ASKA proteins with degradability consensus below the proteome median ({p['floor']:.4f}), not on "
+                           f"the list, drawn from {p['control_pool']:,}. Same function mix as the list; inside each function the measured-essential share follows the "
+                           f"list's ({p['control_ess']} of {p['n_control']} measured essential; the pool's own share is 12%). Seed {p['seed']}. It is much longer than "
+                           f"the list (median {p['control_len']:.0f} vs {p['list_len']:.0f} aa), so a comparison mixes degradability with protein size."),
         ("ORDER", "Each sheet is ordered by degradability consensus, descending. A tiebreak, not a score."),
         ("", ""),
         ("COLUMN GUIDE", ""),
-        ("Cytosolic", "DeepLocPro class cytoplasm OR TMbed cytoplasmic fraction = 1 (two independent predictors; DeepLocPro mislabels many ribosomal proteins)."),
-        ("Degradable", f"Degradability consensus >= {params['cut']:.4f} (derived: the quantile where it passes the same share as either activator above its "
-                       f"base-rate cut), OR a measured S. aureus ortholog is a degrader AND the consensus >= {params['floor']:.4f} (the proteome median)."),
+        ("COG letter", "First COG category letter of the protein (9-16% carry several); - means unclassified."),
+        ("Degradable gate", f"Degradability consensus >= {p['cut']:.4f} (derived: the quantile where it passes the same share as either activator above its "
+                            f"base-rate cut), OR a measured S. aureus ortholog is a degrader AND the consensus >= {p['floor']:.4f} (the proteome median)."),
         ("Degradability consensus", "Mean within-species percentile of ADEP4 and ONC212 probabilities, trained on S. aureus screens and EXTRAPOLATED to "
                                     "E. coli: ranking hypotheses, not measurements. The two activators are close to one opinion (rho ~0.97). "
                                     "Strongly length-driven (small proteins score high)."),
-        ("Essential gate", f"Measured essential in any DEG/Keio screen AND essentiality consensus >= {params['ess_cut']:.4f} (the quantile at 1 minus the "
-                           "measured base rate, top 15.8%). On E. coli the consensus is built from the same screens as the measured calls, so this reads "
-                           "'the screens agree and nothing contradicts them', not independent confirmation. Only ~55% of measured essentials clear the cut."),
+        ("Essential: how", "Measured + consensus / Measured only / Consensus only / Neither (top-ups). Consensus cut 0.7, chosen. Essentiality is a FLAG here, "
+                           "not a gate; 'Neither' proteins were selected for degradability alone."),
         ("Measured essential (any / all)", "Any = at least one DEG screen calls it essential; all = every screen covering it does. Rich-medium screens."),
-        ("Essentiality consensus", "Mean within-species percentile of Geptop, ProteomeLM-Ess and the screen-trained models. Compare within a species only."),
+        ("Essentiality consensus", "Mean within-species percentile of Geptop, ProteomeLM-Ess and the screen-trained models. On E. coli it is built from the same "
+                                   "screens as the measured calls, so agreement is not independent confirmation. Compare within a species only."),
         ("Human ortholog", "Union of OrthoFinder and reciprocal best hit. A decorator, never a gate: yes means a selectivity liability."),
         ("Ligands / pockets", "Decorators only. Ligands consensus is ChEMBL potent-ligand evidence (0 with evidence 1 = nobody screened it). Recorded drug = "
                               "a drug in any ChEMBL mechanism category against a >=95% identical target (target-level, mostly ribosome/PBP/gyrase). "
@@ -226,33 +269,53 @@ def write(sheets: dict[str, pd.DataFrame], gates: pd.DataFrame, params: dict, pa
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("-q", "--quiet", action="store_true")
+    ap.add_argument("--n", type=int, default=200)
+    ap.add_argument("--control", type=int, default=50)
     a = ap.parse_args()
     say = (lambda *_: None) if a.quiet else print
 
-    say("shortlist_excel.py  E. coli x ASKA: list of 200, random control")
-    lst = load_sheet("shortlist_ecoli_aska_top200.tsv")
-    ctrl = load_sheet("shortlist_ecoli_aska_control50.tsv")
-    over = load_sheet("shortlist_ecoli_aska_top200_overflow.tsv")
-    gates = pd.read_csv(OUT / "shortlist_ecoli_aska_gates.tsv", sep="\t")
+    say("shortlist_excel.py  E. coli x ASKA: function-balanced list, random control")
+    lst = load_sheet(f"shortlist_ecoli_aska_balanced{a.n}.tsv")
+    ctrl = load_sheet(f"shortlist_ecoli_aska_balanced_control{a.control}.tsv")
     assert lst.uniprot_ac.is_unique and not set(lst.uniprot_ac) & set(ctrl.uniprot_ac), "list and control overlap"
 
-    # The cuts are re-derived by the same loader the shortlist uses, so the Method sheet states what ran.
-    import importlib.util
+    # The cuts and the proteome mix come from the same loader the shortlist uses, so the workbook states what ran.
+    from plotting import shortlist_ecoli as S
 
-    spec = importlib.util.spec_from_file_location("ecoli_aska_analysis", REPO_ROOT / "plotting/ecoli_aska_analysis.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    d = mod.load_ecoli()
-    params = {"cut": d.attrs["cons_deg_cut"], "floor": d.attrs["orth_floor"], "ess_cut": d.attrs["cons_cut"],
-              "n_left_out": len(over), "n_control": len(ctrl), "control_ess": int(ctrl.essential_any.sum())}
+    d = S.load()
+    pool = d[d.in_aska & d.cytosolic]
+    cog_names = pd.read_csv(REPO_ROOT / "data/source/cdd/cog_func_category.tsv", sep="\t", header=None,
+                            names=["letter", "group", "colour", "name"]).set_index("letter")["name"]
+    letters = pool.cog.value_counts().index
+    mix = pd.DataFrame({"letter": ["-" if c == "none" else c for c in letters],
+                        "name": ["Unclassified" if c == "none" else cog_names.get(c, c) for c in letters],
+                        "proteome_n": pool.cog.value_counts().reindex(letters).values,
+                        "list_n": lst.cog.value_counts().reindex(letters).fillna(0).values,
+                        "control_n": ctrl.cog.value_counts().reindex(letters).fillna(0).values})
+    mix["proteome_pct"] = mix.proteome_n / mix.proteome_n.sum() * 100
+    mix["list_pct"] = mix.list_n / mix.list_n.sum() * 100
+    none_dev = float(mix.loc[mix.letter == "-", "list_pct"].iloc[0] - mix.loc[mix.letter == "-", "proteome_pct"].iloc[0])
+    over = mix[(mix.list_pct - mix.proteome_pct).abs() > 2].letter.tolist()
+    assert over == ["-"], f"functions outside the 2-point band: {over}"  # the Method sheet says only unclassified is
+
+    params = {"cut": d.attrs["cons_deg_cut"], "floor": d.attrs["orth_floor"], "ess_cut": d.attrs["cons_cut"], "or_cut": 0.7,
+              "n": len(lst), "base_n": 300, "pool": len(pool), "cap_none": 8, "seed": 0,
+              "essential_set": int((lst.list_source == "Essential set").sum()), "top_up": int((lst.list_source == "Top-up by degradability").sum()),
+              "top50": int(lst.top50.sum()), "ess_any": int(lst.essential_any.sum()), "ess_strict": int(lst.essential_strict.sum()),
+              "below_gate": int(lst.below_gate.sum()), "none_dev": none_dev, "n_control": len(ctrl),
+              "control_ess": int(ctrl.essential_any.sum()), "control_pool": int(((pool.degradability_consensus < d.attrs["orth_floor"])
+                                                                              & ~pool.uniprot_ac.isin(lst.uniprot_ac)).sum()),
+              "control_len": float(ctrl.length.median()), "list_len": float(lst.length.median())}
 
     path = OUT / "shortlist_ecoli_aska.xlsx"
-    write({f"Shortlist ({len(lst)})": lst, f"Random control ({len(ctrl)})": ctrl},
-          gates, params, path)
+    write({f"Shortlist ({len(lst)})": lst, f"Random control ({len(ctrl)})": ctrl}, mix, params, path)
     say(f"\n  wrote {path.relative_to(REPO_ROOT)}")
-    say(f"  list {len(lst)}: {lst.list_source.value_counts().to_dict()} | measured essential {int(lst.essential_any.sum())} | "
-        f"human ortholog {int(lst.human_ortholog.sum())} | recorded drug {int(lst.recorded_drug.sum())}")
-    say(f"  control {len(ctrl)}: measured essential {int(ctrl.essential_any.sum())} | median consensus {ctrl.degradability_consensus.median():.3f}")
+    say(f"  list {len(lst)}: {lst.list_source.value_counts().to_dict()} | measured essential {params['ess_any']} | strict {params['ess_strict']} | "
+        f"top 50 inside {params['top50']} | below gate {params['below_gate']} | human ortholog {int(lst.human_ortholog.sum())} | "
+        f"recorded drug {int(lst.recorded_drug.sum())}")
+    say(f"  control {len(ctrl)}: measured essential {params['control_ess']} | median consensus {ctrl.degradability_consensus.median():.3f} | "
+        f"max {ctrl.degradability_consensus.max():.3f} (< {params['floor']:.4f})")
+    say(f"  unclassified {none_dev:+.1f} points; every other function within 2")
     return 0
 
 

@@ -75,7 +75,7 @@ COLUMNS = ["uniprot_ac", "gene_name", "protein_name", "aska_id", "aska_confidenc
            "has_human_ortholog", "bacterial_panel_orthologs",
            "ligands_consensus", "ligands_evidence", "n_ligands_own", "n_ligands_bacterial", "n_drugs",
            "pockets_evidence", "n_ligands_pdb", "n_ligands_alphafill", "n_pdb_structures", "p2rank_score",
-           "n_papers_uniprot_prokaryotic", "length", "ribosomal", "on_panel"]
+           "n_papers_uniprot_prokaryotic", "length", "ribosomal", "on_panel", "cog"]
 QUIET = False
 
 
@@ -90,13 +90,17 @@ def load() -> pd.DataFrame:
     spec.loader.exec_module(m)
     d = m.load_ecoli()
     attrs = dict(d.attrs)  # merge() returns a new frame and drops .attrs
-    from src import interest, ligandability, orthology, pockets
+    from src import function, interest, ligandability, orthology, pockets
 
     for mod, cols in ((orthology, ["has_human_ortholog", "bacterial_panel_orthologs"]),
                       (ligandability, ["ligands_consensus", "ligands_evidence", "n_ligands_own", "n_ligands_bacterial", "n_drugs"]),
                       (pockets, ["pockets_evidence", "n_ligands_pdb", "n_ligands_alphafill", "n_pdb_structures", "p2rank_score"])):
         part = mod.load(SPECIES)[["uniprot_ac", *[c for c in cols if c not in d.columns]]]
         d = d.merge(part, on="uniprot_ac", how="left", validate="1:1")
+    fn = function.load(SPECIES)[["uniprot_ac", "cog_categories"]]
+    d = d.merge(fn, on="uniprot_ac", how="left", validate="1:1")
+    # The FIRST COG letter is the protein's function (9-16% carry several); no letter -> "none" (unclassified)
+    d["cog"] = d.cog_categories.fillna("").astype(str).str.replace(r"[^A-Z]", "", regex=True).str[:1].replace("", "none")
     d.attrs.update(attrs)
     d["on_panel"] = d["gene_name"].isin(set(interest.genes()))
     d["ortholog_support"] = pd.Series(
@@ -141,6 +145,80 @@ def run(d: pd.DataFrame, gates: list[F.Filter], skip: str | None = None):
     return cur, steps
 
 
+def quotas(n: int, frame: pd.DataFrame) -> pd.Series:
+    """Slots per COG letter, proportional to the frame's own mix, largest remainder (sums to n exactly)."""
+    share = frame.cog.value_counts(normalize=True)
+    raw = share * n
+    q = raw.apply(int)
+    q[(raw - q).sort_values(ascending=False).index[: n - int(q.sum())]] += 1
+    return q
+
+
+def balanced_list(d: pd.DataFrame, n: int, base_n: int, or_cut: float, cap_none: int, n_control: int, seed: int):
+    """Function-balanced list by degradability, essentiality a flag. Returns (list, control, notes).
+
+    1. `base_n` proteins from the cytosolic ASKA proteome with slots per COG letter proportional to its share,
+       each filled by `degradability_consensus` (the stated tiebreak, not a score).
+    2. Keep those measured essential in any screen OR with `essentiality_consensus` >= `or_cut`: the essential set.
+    3. Top up to `n` from each category's best gate-compliant proteins until it reaches its proportional
+       share of `n`; unclassified is capped at `cap_none` top-ups, and the slots that cap frees go, one at a
+       time, to the largest categories that are still below their share + 2 proteins (1 point of 200).
+    The control draws `n_control` below-median proteins not on the list, with the list's COG mix and the
+    list's measured-essential share inside each category.
+    """
+    pool = d[d.in_aska & d.cytosolic]
+    q_base = quotas(base_n, pool)
+    sel = pd.concat([pool[pool.cog == c].nlargest(k, "degradability_consensus") for c, k in q_base.items() if k > 0])
+    base = sel[(sel.deg_essential_any == 1) | (sel.essentiality_consensus >= or_cut)]
+    tgt = quotas(n, pool)
+    have = base.cog.value_counts().reindex(tgt.index).fillna(0).astype(int)
+    cand = {c: pool[(pool.cog == c) & pool.degradable & ~pool.uniprot_ac.isin(base.uniprot_ac)]
+            .sort_values("degradability_consensus", ascending=False) for c in tgt.index}
+    add = {c: min(max(0, int(tgt[c] - have[c])), len(cand[c])) for c in tgt.index}
+    add["none"] = min(add["none"], cap_none)
+    extra = n - len(base) - sum(add.values())
+    placed = extra
+    while extra > 0:
+        moved = False
+        for c in pool.cog.value_counts().index:
+            if c != "none" and extra > 0 and have[c] + add[c] < tgt[c] + 2 and add[c] < len(cand[c]):
+                add[c] += 1
+                extra -= 1
+                moved = True
+        assert moved, "no category has room for the remaining slots"
+    top50 = set(pool.nlargest(50, "degradability_consensus").uniprot_ac)
+    final = pd.concat([base.assign(list_source="essential_set")]
+                      + [cand[c].head(add[c]).assign(list_source="top_up_degradability") for c in tgt.index if add[c] > 0])
+    assert len(final) == n and final.uniprot_ac.is_unique
+    meas, cons = final.deg_essential_any == 1, final.essentiality_consensus >= or_cut
+    final = final.assign(top50=final.uniprot_ac.isin(top50), passes_degradability_gate=final.degradable,
+                         essential_strict=meas & (final.essentiality_consensus >= d.attrs["cons_cut"]),
+                         essential_route=["measured_and_consensus" if m and c else "measured_only" if m else "consensus_only" if c else "neither"
+                                          for m, c in zip(meas, cons)])
+    final = final.sort_values("degradability_consensus", ascending=False)
+
+    cp = pool[(pool.degradability_consensus < d.attrs["orth_floor"]) & ~pool.uniprot_ac.isin(final.uniprot_ac)]
+    cp = cp.assign(ess=cp.deg_essential_any == 1)
+    final_ess = (final.deg_essential_any == 1)
+    picks = []
+    for c, k in quotas(n_control, final).items():
+        if k == 0:
+            continue
+        g = cp[cp.cog == c]
+        ke = int(round(k * final_ess[final.cog == c].mean()))
+        e, ne = g[g.ess], g[~g.ess]
+        ke = min(ke, len(e))
+        kn = min(k - ke, len(ne))
+        ke = min(k - kn, len(e))
+        picks += [e.sample(ke, random_state=seed), ne.sample(kn, random_state=seed)]
+    ctrl = pd.concat(picks).assign(list_source="random_control_below_median")
+    assert len(ctrl) == n_control and not set(ctrl.uniprot_ac) & set(final.uniprot_ac)
+    assert (ctrl.degradability_consensus < d.attrs["orth_floor"]).all()
+    notes = {"base_n": base_n, "essential_set": len(base), "top_up": n - len(base), "extra_placed": placed,
+             "control_pool": len(cp), "targets": tgt.to_dict(), "have": have.to_dict(), "add": add}
+    return final, ctrl, notes
+
+
 def main() -> int:
     global QUIET
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -149,6 +227,10 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=200, help="size of the final list")
     ap.add_argument("--control", type=int, default=50, help="size of the random below-median control")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--balanced-n", type=int, default=200, help="size of the function-balanced list")
+    ap.add_argument("--balanced-base-n", type=int, default=300, help="size of the proportional list the essential set is cut from")
+    ap.add_argument("--ess-or-cut", type=float, default=0.7, help="CHOSEN, not derived: essentiality_consensus cut of the OR rule")
+    ap.add_argument("--cap-unclassified", type=int, default=8, help="max top-ups for COG 'none' (unclassified)")
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args()
     QUIET = a.quiet
@@ -224,6 +306,18 @@ def main() -> int:
         f"measured essential {n_ess} / not {a.control - n_ess} (list share {share:.2f}; pool share {cpool.ess_any.mean():.3f}, seed {a.seed})")
     say(f"  control median length {ctrl.length.median():.0f} vs list {final.length.median():.0f} | median consensus {ctrl.degradability_consensus.median():.3f} "
         f"vs list {final.degradability_consensus.median():.3f} | ribosomal {int(ctrl.ribosomal.sum())}")
+
+    bal, bctrl, bn = balanced_list(d, a.balanced_n, a.balanced_base_n, a.ess_or_cut, a.cap_unclassified, a.control, a.seed)
+    bal[COLUMNS + ["list_source", "essential_route", "essential_strict", "top50", "passes_degradability_gate"]].to_csv(
+        OUT / f"shortlist_ecoli_aska_balanced{a.balanced_n}.tsv", sep="\t", index=False)
+    bctrl[COLUMNS + ["list_source"]].to_csv(OUT / f"shortlist_ecoli_aska_balanced_control{a.control}.tsv", sep="\t", index=False)
+    say(f"\n  BALANCED LIST {len(bal)}: essential set {bn['essential_set']} (measured any OR consensus >= {a.ess_or_cut}, chosen not derived, "
+        f"from a proportional list of {a.balanced_base_n}) + {bn['top_up']} top-ups by degradability (unclassified capped at {a.cap_unclassified})")
+    say(f"    measured essential {int((bal.deg_essential_any == 1).sum())} | strict (measured AND consensus >= {d.attrs['cons_cut']:.4f}) "
+        f"{int(bal.essential_strict.sum())} | top 50 inside {int(bal.top50.sum())} | ribosomal {int(bal.ribosomal.sum())} | "
+        f"fail the degradability gate {int((~bal.passes_degradability_gate).sum())} | median length {bal.length.median():.0f}")
+    say(f"    control {len(bctrl)} from {bn['control_pool']:,}: measured essential {int((bctrl.deg_essential_any == 1).sum())} | "
+        f"max consensus {bctrl.degradability_consensus.max():.3f} (< median {d.attrs['orth_floor']:.4f}) | median length {bctrl.length.median():.0f}")
 
     say(f"\n  final list {len(final)}: top {a.top} by degradability {len(top)} (of which also pass the essential gate {int(top.uniprot_ac.isin(g.uniprot_ac).sum())}) "
         f"+ essential gate {len(final) - len(top)}; {len(overflow)} essential-gate proteins left out (lowest degradability, in the overflow table)")
