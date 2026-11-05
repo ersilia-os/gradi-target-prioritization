@@ -28,6 +28,10 @@ counted in `mechanisms_audit.tsv` by ATC class and never silently dropped. A dru
 non-protein (vancomycin on D-Ala-D-Ala, polymyxin on LPS) correctly maps to nothing. **A 0 here is
 "no approved drug is recorded against this protein", NOT "not druggable".**
 
+**Clinical candidates (phase 1-3, never approved) are mapped the same way but ship ONLY in the
+evidence file** (`n_clinical_drugs_own`, `clinical_drugs`): measured, they add one protein per
+Gram-negative (`leuS`), so they did not earn a deliverable column.
+
 Run with the `gradi` env (DIAMOND is borrowed from `gradi-ortho`; `GRADI_DIAMOND_BIN` overrides):
     python scripts/ligands/mechanisms.py [--refresh] [-q]
 """
@@ -59,6 +63,7 @@ EVIDENCE_DIR = OUT_DIR / "evidence"
 CACHE_DIR = OUT_DIR / "scratch" / "mechanisms"
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
 APPROVED = 4                      # ChEMBL max_phase
+CANDIDATE = (1, 3)                # ChEMBL max_phase of a clinical candidate, inclusive
 BATCH = 80                        # ids per `__in` request, well inside URL limits
 # systemic antibacterials and antimycobacterials, plus the topical classes (retapamulin, finafloxacin,
 # ozenoxacin carry D06/S02 codes, not J01, and read as "non-antibacterial" without them)
@@ -151,9 +156,16 @@ def main() -> int:
         f"{int(appr.target_chembl_id.isna().sum()):,} rows carry no target at all")
     appr = appr[appr["target_chembl_id"].notna()]
 
+    # clinical candidates: phase 1-3, never approved. A drug whose parent is approved stays approved.
+    cand = mech[mech["max_phase"].between(*CANDIDATE) & mech["target_chembl_id"].notna()].copy()
+    cand["drug"] = cand["parent_molecule_chembl_id"].fillna(cand["molecule_chembl_id"])
+    cand = cand[~cand.drug.isin(set(appr.drug))]
+    say(f"  {len(cand):,} are clinical candidates, phase {CANDIDATE[0]}-{CANDIDATE[1]} "
+        f"({cand.drug.nunique():,} distinct molecules, none approved)")
+
     # ---- 2. the molecules, for names and the ATC class
     mol = pd.DataFrame(fetch_in("molecule", "molecules", "molecule_chembl_id",
-                                sorted(appr.drug.unique()), "molecules", a.refresh))
+                                sorted(set(appr.drug) | set(cand.drug)), "molecules", a.refresh))
     name = dict(zip(mol["molecule_chembl_id"], mol["pref_name"].fillna(mol["molecule_chembl_id"])))
     atc = {r.molecule_chembl_id: (r.atc_classifications or []) for r in mol.itertuples()}
     antibacterial = {k for k, v in atc.items() if any(c.startswith(ANTIBACTERIAL_ATC) for c in v)}
@@ -161,7 +173,7 @@ def main() -> int:
         f"({'/'.join(ANTIBACTERIAL_ATC)})")
 
     # ---- 3. the targets and their component sequences
-    tgt = fetch_in("target", "targets", "target_chembl_id", sorted(appr.target_chembl_id.unique()),
+    tgt = fetch_in("target", "targets", "target_chembl_id", sorted(set(appr.target_chembl_id) | set(cand.target_chembl_id)),
                    "targets", a.refresh)
     comp_of, ttype = {}, {}
     for t in tgt:
@@ -193,13 +205,17 @@ def main() -> int:
     audit.to_csv(EVIDENCE_DIR / "mechanisms_audit.tsv", sep="\t", index=False)
 
     # ---- 4. DIAMOND the three proteomes against the component sequences
-    rows = appr[appr.mappable]
-    drug_of_comp: dict[str, set] = {}
-    for r in rows.itertuples():
-        for x in comp_of[r.target_chembl_id]:
-            if x in seq:
-                drug_of_comp.setdefault(x, set()).add(r.drug)
-    subject = {x: seq[x] for x in drug_of_comp}
+    def by_component(mechs: pd.DataFrame) -> dict[str, set]:
+        out: dict[str, set] = {}
+        for r in mechs.itertuples():
+            for x in comp_of.get(r.target_chembl_id, []):
+                if x in seq:
+                    out.setdefault(x, set()).add(r.drug)
+        return out
+
+    drug_of_comp = by_component(appr[appr.mappable])
+    cand_of_comp = by_component(cand)
+    subject = {x: seq[x] for x in set(drug_of_comp) | set(cand_of_comp)}
     rule()
     say(f"  {len(subject):,} component sequences are the subject database")
     ev_rows = {}
@@ -227,11 +243,14 @@ def main() -> int:
             recs = []
             for ac in d.uniprot_ac:
                 hits = per.get(ac, [])
-                drugs = sorted({x for s, _ in hits for x in drug_of_comp[s]})
+                drugs = sorted({x for s, _ in hits for x in drug_of_comp.get(s, ())})
+                cands = sorted({x for s, _ in hits for x in cand_of_comp.get(s, ())})
                 recs.append({"uniprot_ac": ac,
                              "n_approved_drugs_own": len(drugs),
                              "n_antibacterial_drugs_own": sum(1 for x in drugs if x in antibacterial),
                              "approved_drugs": ";".join(name.get(x, x) for x in drugs),
+                             "n_clinical_drugs_own": len(cands),
+                             "clinical_drugs": ";".join(name.get(x, x) for x in cands),
                              "best_pident": max((p for _, p in hits), default=float("nan"))})
             t = M.reindex(pd.DataFrame(recs), sp)
             t.to_csv(EVIDENCE_DIR / f"mechanisms_{sp}.tsv", sep="\t", index=False)
@@ -239,7 +258,8 @@ def main() -> int:
             say(f"  {sp:<12} {len(t):>5,} proteins   with an approved drug "
                 f"{int((t.n_approved_drugs_own > 0).sum()):>4,} "
                 f"({100 * (t.n_approved_drugs_own > 0).mean():.1f}%)   with an antibacterial "
-                f"{int((t.n_antibacterial_drugs_own > 0).sum()):>4,}")
+                f"{int((t.n_antibacterial_drugs_own > 0).sum()):>4,}   with a clinical candidate "
+                f"{int((t.n_clinical_drugs_own > 0).sum()):>4,}")
 
     # ---- 5. control: the join must reach classes that are certainly there
     rule()
@@ -251,6 +271,9 @@ def main() -> int:
         r = ec[ec.gene_name == g]
         n = int(r.n_approved_drugs_own.iloc[0]) if len(r) else -1
         say(f"    {g:<6} {n:>3} approved drugs   ({why})")
+    only = ec[(ec.n_clinical_drugs_own > 0) & (ec.n_approved_drugs_own == 0)]
+    say(f"\n  E. coli proteins with a clinical candidate and NO approved drug: {len(only)}")
+    say(only[["gene_name", "n_clinical_drugs_own", "clinical_drugs"]].head(40).to_string(index=False))
     if int((ec.n_approved_drugs_own > 0).sum()) == 0:
         sys.exit("FAILED control: no E. coli protein carries an approved drug -- the join is broken")
     say(f"\n  wrote evidence/mechanisms_<species>.tsv x3 and evidence/mechanisms_audit.tsv")

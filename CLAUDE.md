@@ -1000,7 +1000,8 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   63 proteins the potency counts call empty. **A 0 is "no approved drug recorded", not "undruggable"**
   (`lpxC`, `dxr`, `ileS`, `acrB`, `bamA` read 0); mechanisms stored against a PROTEIN FAMILY/GROUP
   with no sequence, or a non-protein target, cannot map and are counted in
-  `evidence/mechanisms_audit.tsv` (14 of 147 antibacterial drugs). **NOT an input to
+  `evidence/mechanisms_audit.tsv` (22 of 164 antibacterial drugs). **Clinical candidates (phase 1-3) add 1 protein per Gram-negative and are in
+  `evidence/mechanisms_<sp>.tsv` only.** **NOT an input to
   `ligands_consensus`**; `ligands.py` exits if `evidence/mechanisms_<sp>.tsv` is missing.
 
   **`chembl_<species>.tsv` was DEMOTED to `evidence/` on 2026-10-03** (owner's call), because

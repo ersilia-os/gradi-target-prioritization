@@ -994,11 +994,19 @@ have a potent ChEMBL ligand**; 63 are proteins the potency counts call empty.
   read the same 41. It says "this protein belongs to a drugged target", not "this subunit binds the
   drug".
 - **A 0 is not "undruggable".** `lpxC`, `dxr`, `ileS`, `acrB`, `bamA`, `lptD` read 0: no approved
-  drug is recorded against them (several have clinical-stage compounds, which this does not count).
+  drug is recorded against them (see the next bullet for clinical-stage compounds, which this does not count).
   `ileS` (mupirocin) reads 0 because the recorded target is the S. aureus enzyme at ~40% identity,
   below the 95% floor.
-- **Unmappable mechanisms.** 14 of the 147 antibacterial drugs act on a target with no component
+- **Unmappable mechanisms.** 22 of the 164 antibacterial drugs act on a target with no component
   sequence (non-protein targets such as D-Ala-D-Ala or LPS, or a family stored without components);
   the full breakdown by target type is `evidence/mechanisms_audit.tsv`.
+- **Clinical candidates (phase 1-3) were measured and NOT shipped as a column** (2026-11-05). The
+  same ChEMBL mechanism table holds 3,520 candidate rows (2,702 molecules, none approved);
+  mapped at the same 95% rule they add **ONE protein per Gram-negative** (`leuS`, epetraborole, on
+  E. coli and Kp) and 3 on S. aureus (`fabI`, `clfA`, `hly`). Candidates mostly pile onto targets
+  that already carry an approved drug (73 of E. coli's 74 candidate-bearing proteins). `lpxC`,
+  `lptD` and E. coli `fabI` get none: ChEMBL records no mechanism for those candidates, or records
+  the S. aureus enzyme below the floor. Kept as `n_clinical_drugs_own` / `clinical_drugs` in
+  `evidence/mechanisms_<sp>.tsv` only.
 - **Not independent evidence of binding to *this* protein.** It is a database annotation of
   mechanism, not a measurement on the sequence.
