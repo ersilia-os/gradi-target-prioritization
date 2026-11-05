@@ -986,23 +986,24 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   `ligands_<species>.tsv`, **11 columns**; also a query tool for ANY sequence, needing no database
   (three cached extracts, 82 MB, ~1 s).
 
-  **`n_approved_drugs_own` (added 2026-11-05, owner's call) is CLINICAL VALIDATION, from
-  `ligands/mechanisms.py`**: distinct approved drugs (ChEMBL `max_phase` 4, parent molecule) whose
-  recorded mechanism targets a protein this one is **>= 95% identical to** (coverages >= 50%), read
+  **`n_drugs` (added 2026-11-05, owner's call) is CLINICAL VALIDATION, from
+  `ligands/mechanisms.py`**: distinct drugs in ANY category of ChEMBL's drug-mechanism table
+  (approved, phase 1-3, unknown; parent molecule) whose recorded mechanism targets a protein this one is **>= 95% identical to** (coverages >= 50%), read
   from ChEMBL's drug-mechanism records over the REST API (network, no dump). It exists because the
   potency counts cannot see a target characterised by MIC, covalent acylation or as a ribosome
   complex — **ChEMBL stores the bacterial ribosome as a PROTEIN NUCLEIC-ACID COMPLEX with 141
-  pChEMBL activities and 67 approved drugs, a target type `chembl.py` never read**. E. coli: **75
-  proteins** carry an approved drug (52 of 53 ribosomal proteins at 41, the PBPs `ftsI`/`mrcA`/`mrcB`/
-  `mrdA` at 57–59, gyrA/gyrB 14, `rpoB` 5, `parC`/`parE` 9, `folA` 1, `murA` 1, `fabI` 2); Kp 49, Sa 64.
+  pChEMBL activities and 67 approved drugs, a target type `chembl.py` never read**. E. coli: **76
+  proteins** carry a drug (75 an approved one; 52 of 53 ribosomal proteins at 57, the PBPs
+  `ftsI`/`mrcA`/`mrcB`/`mrdA` at 73, gyrA/gyrB 14, `rpoB` 5, `parC`/`parE` 9, `folA` 1, `murA` 1,
+  `fabI` 2); Kp 50, Sa 67. The approved/clinical split and the names are in `evidence/mechanisms_<sp>.tsv`.
   **It is TARGET-LEVEL, not subunit-level**: a drug recorded against a complex or family is
-  credited to EVERY member. **Only 12 of E. coli's 75 also have a potent ChEMBL ligand**, so it adds
-  63 proteins the potency counts call empty. **A 0 is "no approved drug recorded", not "undruggable"**
+  credited to EVERY member. **Only 12 of E. coli's 75 approved-drug proteins also have a potent ChEMBL ligand**, so it adds
+  63 proteins the potency counts call empty. **A 0 is "no drug recorded", not "undruggable"**
   (`lpxC`, `dxr`, `ileS`, `acrB`, `bamA` read 0); mechanisms stored against a PROTEIN FAMILY/GROUP
   with no sequence, or a non-protein target, cannot map and are counted in
-  `evidence/mechanisms_audit.tsv` (22 of 164 antibacterial drugs). **Clinical candidates (phase 1-3) add 1 protein per Gram-negative and are in
-  `evidence/mechanisms_<sp>.tsv` only.** **NOT an input to
-  `ligands_consensus`**; `ligands.py` exits if `evidence/mechanisms_<sp>.tsv` is missing.
+  `evidence/mechanisms_audit.tsv` (22 of 164 antibacterial drugs). Non-approved drugs add only 1 protein per Gram-negative (`leuS`). **NOT an input to
+  `ligands_consensus`, but it IS in `ligands_evidence`: a recorded drug lifts a protein to 3**
+  (Ec 173 -> 232); `ligands.py` exits if `evidence/mechanisms_<sp>.tsv` is missing.
 
   **`chembl_<species>.tsv` was DEMOTED to `evidence/` on 2026-10-03** (owner's call), because
   measured against `ligands_<species>.tsv` it is largely a duplicate: `n_ligands_bacterial` ==
@@ -1024,15 +1025,16 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   ligandable. For scale, `essentiality_consensus`'s largest tie block is **8**.
   **`percentile_consensus()` itself is unchanged.**
 
-  **`ligands_evidence` grades PROVENANCE, NOT OUTCOME** — **3** somebody assayed THIS protein ·
+  **`ligands_evidence` grades PROVENANCE, NOT OUTCOME** — **3** somebody assayed THIS protein, OR a drug is recorded against it (`n_drugs > 0`) ·
   **2** only a bacterial homolog was assayed · **1** nothing in ChEMBL, so the 0 beside it is an
-  open question, never a measured negative. Kp **5,453/264/11** · Ec **4,151/79/173** · Sa
-  **2,726/94/69**. The split keeps the two columns independent: overall ρ 0.79–0.85 but **only
-  0.11–0.24 within the evidence-bearing subset**, and **62 Ec proteins sit at evidence 3 with
-  consensus 0** — assayed directly, nothing potent, which no single column can say.
-  **KP'S 11 IS THE FINDING**: `bla`, `KPC-2`, `blaSHV-11`, `blaCTX-M-14`, `ybtE`, `rfbD`, `rpsR`,
-  `atsA`, `dxs`, `uppS`, `acpP` — **the only K. pneumoniae proteins anyone has screened directly
-  are the resistance enzymes.** **It is NOT the dropped four-tier `precedent_evidence`**, which was
+  open question, never a measured negative. Kp **5,413/258/57** · Ec **4,094/77/232** · Sa
+  **2,674/90/125**. The split keeps the two columns independent: overall ρ 0.70–0.74 but **only
+  0.22–0.30 within the evidence-bearing subset**, and **58 Ec proteins sit at evidence 3 with
+  consensus 0 and no drug** — assayed directly, nothing potent, which no single column can say
+  (120 including the drug-only proteins). **KP'S 11 WAS THE FINDING, until drugs counted**: before
+  2026-11-05 the only Kp proteins with a record of their own were `bla`, `KPC-2`, `blaSHV-11`,
+  `blaCTX-M-14`, `ybtE`, `rfbD`, `rpsR`, `atsA`, `dxs`, `uppS`, `acpP` — the resistance enzymes.
+  The other 46 Kp L3 proteins are drug targets (ribosome, PBPs, gyrase) with no assay of their own. **It is NOT the dropped four-tier `precedent_evidence`**, which was
   an identity-band vocabulary; every `<axis>_evidence` is derivable from its own axis, and the
   point is cross-axis comparability. Both columns match **no rule in `_read()`** and are registered
   by name in `_coerce_precedents()` plus a new `DELIVERABLE_DTYPES` assertion — the trap this axis

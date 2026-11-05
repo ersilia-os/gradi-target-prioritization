@@ -333,7 +333,7 @@ def _coerce_precedents(d: pd.DataFrame) -> pd.DataFrame:
     """
     for c in d.columns:
         if c.startswith(("n_ligands_own", "n_assayed_own", "n_measured_own", "n_targets", "n_compounds",
-                         "n_approved_drugs_own")):
+                         "n_drugs")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
         elif c.startswith(("best_pactivity", "best_pident", "best_pchembl", "hit_rate")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
@@ -390,7 +390,7 @@ CONSENSUS_COLUMNS = ("n_ligands_own", "n_ligands_bacterial", "best_pactivity_bac
 # '10.1'. The two standard columns match NO rule in `_read()` and are registered by explicit name
 # in `_coerce_precedents()` above, for exactly that reason.
 DELIVERABLE_DTYPES = {"uniprot_ac": "object", "n_ligands_own": "Int64",
-                      "n_approved_drugs_own": "Int64",
+                      "n_drugs": "Int64",
                       "best_pactivity_bacterial": "Float64",
                       "ligands_consensus": "Float64", "ligands_evidence": "Int64"}
 
@@ -434,11 +434,14 @@ def consensus(df: pd.DataFrame) -> pd.Series:
 def evidence(df: pd.DataFrame) -> pd.Series:
     """`ligands_evidence`, the 1-3 ladder, as a nullable integer.
 
-        3  n_assayed_own > 0 -- somebody assayed THIS protein
+        3  n_assayed_own > 0 -- somebody assayed THIS protein -- OR n_drugs > 0 (a drug is recorded
+           against it: the strongest provenance there is, and the potency counts cannot see it)
         2  only a bacterial homolog was assayed
         1  nothing in ChEMBL at all
 
-    Counts: Kp 5,453 / 264 / 11 · Ec 4,151 / 79 / 173 · Sa 2,726 / 94 / 69.
+    Counts: Kp 5,413 / 258 / 57 · Ec 4,094 / 77 / 232 · Sa 2,674 / 90 / 125 (a recorded drug lifts a
+    protein to 3: 11 -> 57, 173 -> 232, 69 -> 125; before 2026-11-05 it read 5,453/264/11, 4,151/79/173,
+    2,726/94/69).
 
     **IT GRADES PROVENANCE, NOT OUTCOME** (project owner, 2026-10-04). The consensus already
     carries the outcome, so a level 3 meaning "has a potent ligand" would give two columns that
@@ -474,7 +477,7 @@ def evidence(df: pd.DataFrame) -> pd.Series:
     raising. `chembl_assayed.tsv` is present and no row is NA, so the ladder is honest; this
     raises if that ever changes rather than shipping a proteome of 1s.
     """
-    need = ("n_assayed_own", "n_assayed_bacterial")
+    need = ("n_assayed_own", "n_assayed_bacterial", "n_drugs")
     missing = [c for c in need if c not in df.columns]
     if missing:
         raise KeyError(f"ligands_evidence needs {missing}; present: {list(df.columns)}")
@@ -487,6 +490,7 @@ def evidence(df: pd.DataFrame) -> pd.Series:
     level = pd.Series(1, index=df.index, dtype="Int64")
     level[pd.to_numeric(bact, errors="coerce").fillna(0) > 0] = 2
     level[pd.to_numeric(own, errors="coerce").fillna(0) > 0] = 3
+    level[pd.to_numeric(df["n_drugs"], errors="coerce").fillna(0) > 0] = 3
     return level
 
 
@@ -494,7 +498,7 @@ def load(species: str) -> pd.DataFrame:
     """`ligands_<species>.tsv` -- THE AXIS DELIVERABLE. Potent counts and assayed counts, three
     scopes each.
 
-    Written by `scripts/ligands/ligands.py --species`. Seven count columns, `n_approved_drugs_own`
+    Written by `scripts/ligands/ligands.py --species`. Seven count columns, `n_drugs`
     and the standard pair (ten in all, eleven with the key):
 
         n_ligands_own              POTENT (pChEMBL >= 6, i.e. sub-micromolar) on THIS protein
@@ -540,13 +544,15 @@ def load(species: str) -> pd.DataFrame:
     **MIC and %-inhibition are absent by construction**, so the potency counts do not say "has an
     antibiotic"; a ribosomal protein reading empty there is a fact about assay type, not biology.
 
-    **`n_approved_drugs_own` is what fills that gap** (added 2026-11-05): the number of DISTINCT
-    approved drugs (ChEMBL `max_phase` 4, parent molecule) whose recorded mechanism of action targets
+    **`n_drugs` is what fills that gap** (added 2026-11-05): the number of DISTINCT drugs, in ANY
+    category of ChEMBL's drug-mechanism table (approved, clinical or unknown phase; parent
+    molecule), whose recorded mechanism of action targets
     a protein this one is >= 95% identical to (coverages >= 50%), from `scripts/ligands/mechanisms.py`.
     **It is target-level, not subunit-level**: a drug recorded against a complex or a family (the
     70S ribosome, the penicillin-binding proteins) is credited to EVERY member, so `ftsI`, `mrcA` and
-    `mrdA` all read 57-59, and 52 of 53 E. coli ribosomal proteins read 41. A 0 means no approved drug
-    is recorded against this protein, NOT that it is undruggable. It is not an input to the consensus.
+    `mrdA` all read 57-59, and 52 of 53 E. coli ribosomal proteins read 41. A 0 means no drug
+    is recorded against this protein, NOT that it is undruggable. It is not an input to the
+    consensus, but a drug DOES lift `ligands_evidence` to 3.
     """
     _check(species)
     return _coerce_precedents(_read(_path(LIGAND_DIR, f"ligands_{species}.tsv")))

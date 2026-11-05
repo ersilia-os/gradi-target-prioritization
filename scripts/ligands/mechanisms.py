@@ -28,9 +28,11 @@ counted in `mechanisms_audit.tsv` by ATC class and never silently dropped. A dru
 non-protein (vancomycin on D-Ala-D-Ala, polymyxin on LPS) correctly maps to nothing. **A 0 here is
 "no approved drug is recorded against this protein", NOT "not druggable".**
 
-**Clinical candidates (phase 1-3, never approved) are mapped the same way but ship ONLY in the
-evidence file** (`n_clinical_drugs_own`, `clinical_drugs`): measured, they add one protein per
-Gram-negative (`leuS`), so they did not earn a deliverable column.
+**`n_drugs` (the deliverable column, owner's call 2026-11-05) counts distinct molecules in ANY
+category of ChEMBL's drug-mechanism table**: approved (phase 4), clinical (1-3) and unknown (-1),
+parent molecule, same mapping rule. The split stays in the evidence file (`n_approved_drugs_own`,
+`n_clinical_drugs_own`, and the names). Measured, non-approved drugs add one protein per
+Gram-negative (`leuS`), so `n_drugs` is nearly the approved count.
 
 Run with the `gradi` env (DIAMOND is borrowed from `gradi-ortho`; `GRADI_DIAMOND_BIN` overrides):
     python scripts/ligands/mechanisms.py [--refresh] [-q]
@@ -63,7 +65,7 @@ EVIDENCE_DIR = OUT_DIR / "evidence"
 CACHE_DIR = OUT_DIR / "scratch" / "mechanisms"
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
 APPROVED = 4                      # ChEMBL max_phase
-CANDIDATE = (1, 3)                # ChEMBL max_phase of a clinical candidate, inclusive
+CANDIDATE = (-1, 3)               # every max_phase below approved, -1 (unknown) included
 BATCH = 80                        # ids per `__in` request, well inside URL limits
 # systemic antibacterials and antimycobacterials, plus the topical classes (retapamulin, finafloxacin,
 # ozenoxacin carry D06/S02 codes, not J01, and read as "non-antibacterial" without them)
@@ -156,11 +158,12 @@ def main() -> int:
         f"{int(appr.target_chembl_id.isna().sum()):,} rows carry no target at all")
     appr = appr[appr["target_chembl_id"].notna()]
 
-    # clinical candidates: phase 1-3, never approved. A drug whose parent is approved stays approved.
+    # every other drug in the mechanism table (phases -1..3), never approved. A drug whose parent is
+    # approved stays approved. `n_drugs` is approved + these: ANY category of ChEMBL's drug table.
     cand = mech[mech["max_phase"].between(*CANDIDATE) & mech["target_chembl_id"].notna()].copy()
     cand["drug"] = cand["parent_molecule_chembl_id"].fillna(cand["molecule_chembl_id"])
     cand = cand[~cand.drug.isin(set(appr.drug))]
-    say(f"  {len(cand):,} are clinical candidates, phase {CANDIDATE[0]}-{CANDIDATE[1]} "
+    say(f"  {len(cand):,} are not approved, phase {CANDIDATE[0]}..{CANDIDATE[1]} "
         f"({cand.drug.nunique():,} distinct molecules, none approved)")
 
     # ---- 2. the molecules, for names and the ATC class
@@ -245,7 +248,10 @@ def main() -> int:
                 hits = per.get(ac, [])
                 drugs = sorted({x for s, _ in hits for x in drug_of_comp.get(s, ())})
                 cands = sorted({x for s, _ in hits for x in cand_of_comp.get(s, ())})
+                everyone = sorted(set(drugs) | set(cands))
                 recs.append({"uniprot_ac": ac,
+                             "n_drugs": len(everyone),
+                             "drugs": ";".join(name.get(x, x) for x in everyone),
                              "n_approved_drugs_own": len(drugs),
                              "n_antibacterial_drugs_own": sum(1 for x in drugs if x in antibacterial),
                              "approved_drugs": ";".join(name.get(x, x) for x in drugs),
@@ -257,7 +263,8 @@ def main() -> int:
             ev_rows[sp] = t
             say(f"  {sp:<12} {len(t):>5,} proteins   with an approved drug "
                 f"{int((t.n_approved_drugs_own > 0).sum()):>4,} "
-                f"({100 * (t.n_approved_drugs_own > 0).mean():.1f}%)   with an antibacterial "
+                f"({100 * (t.n_approved_drugs_own > 0).mean():.1f}%)   any drug {int((t.n_drugs > 0).sum()):>4,}   "
+                f"with an antibacterial "
                 f"{int((t.n_antibacterial_drugs_own > 0).sum()):>4,}   with a clinical candidate "
                 f"{int((t.n_clinical_drugs_own > 0).sum()):>4,}")
 
@@ -274,6 +281,8 @@ def main() -> int:
     only = ec[(ec.n_clinical_drugs_own > 0) & (ec.n_approved_drugs_own == 0)]
     say(f"\n  E. coli proteins with a clinical candidate and NO approved drug: {len(only)}")
     say(only[["gene_name", "n_clinical_drugs_own", "clinical_drugs"]].head(40).to_string(index=False))
+    if int((ec.n_drugs > 0).sum()) < int((ec.n_approved_drugs_own > 0).sum()):
+        sys.exit("FAILED: n_drugs must be >= n_approved_drugs_own")
     if int((ec.n_approved_drugs_own > 0).sum()) == 0:
         sys.exit("FAILED control: no E. coli protein carries an approved drug -- the join is broken")
     say(f"\n  wrote evidence/mechanisms_<species>.tsv x3 and evidence/mechanisms_audit.tsv")

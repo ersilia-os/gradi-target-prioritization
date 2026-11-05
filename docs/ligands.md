@@ -422,16 +422,20 @@ is a measurable but sub-potent binder, and those rows correctly rank above the z
 ### `ligands_evidence`
 
 ```
-3  n_assayed_own > 0 -- somebody assayed THIS protein
+3  n_assayed_own > 0 -- somebody assayed THIS protein -- OR n_drugs > 0 (a recorded drug)
 2  only a bacterial homolog was assayed
 1  nothing in ChEMBL at all
 ```
 
 | | L1 | L2 | L3 |
 |---|---|---|---|
-| Kp | 5,453 | 264 | **11** |
-| Ec | 4,151 | 79 | 173 |
-| Sa | 2,726 | 94 | 69 |
+| Kp | 5,413 | 258 | 57 |
+| Ec | 4,094 | 77 | 232 |
+| Sa | 2,674 | 90 | 125 |
+
+(2026-11-05: counting a recorded drug as provenance 3 moved 11 → 57 on Kp, 173 → 232 on Ec and
+69 → 125 on Sa. Before, they read 5,453/264/11, 4,151/79/173 and 2,726/94/69. The 46 new Kp level-3
+proteins are drug targets with no assay of their own.)
 
 **It grades PROVENANCE, not outcome** (project owner, 2026-10-04): the consensus already carries
 the outcome, so a 3 meaning "has a potent ligand" would give two columns that move together.
@@ -963,7 +967,15 @@ systematically weaker evidence than (b). `clpP` at 56.3% is a real ortholog; a 4
 not the same claim. Filter on `best_pident_human` in `precedents_full_<sp>.tsv` before relying on it.
 
 
-## Clinical validation: `n_approved_drugs_own` (2026-11-05)
+## Clinical validation: `n_drugs` (2026-11-05)
+
+**Update, same day (owner's call).** The deliverable column is now **`n_drugs`**: distinct molecules
+in ANY category of ChEMBL's drug-mechanism table (approved 4, clinical 1-3, unknown -1; parent
+molecule), same mapping rule. It also feeds `ligands_evidence` (a recorded drug = level 3). The
+approved/clinical split and the drug names stay in `evidence/mechanisms_<sp>.tsv`
+(`n_approved_drugs_own`, `n_clinical_drugs_own`, `drugs`). E. coli 76 proteins (75 approved), Kp 50,
+Sa 67; counts quoted below as "approved" are the evidence-file column. Ribosomal proteins now read
+57 and the PBPs 73.
 
 **Why.** The potency columns need a measured pChEMBL, so they are blind to a target whose drugs were
 characterised another way. In the E. coli table the ribosome (0 of 53 ribosomal proteins), the
@@ -1000,13 +1012,12 @@ have a potent ChEMBL ligand**; 63 are proteins the potency counts call empty.
 - **Unmappable mechanisms.** 22 of the 164 antibacterial drugs act on a target with no component
   sequence (non-protein targets such as D-Ala-D-Ala or LPS, or a family stored without components);
   the full breakdown by target type is `evidence/mechanisms_audit.tsv`.
-- **Clinical candidates (phase 1-3) were measured and NOT shipped as a column** (2026-11-05). The
-  same ChEMBL mechanism table holds 3,520 candidate rows (2,702 molecules, none approved);
+- **Non-approved drugs add almost nothing, which is why `n_drugs` is nearly the approved count.** The
+  same ChEMBL mechanism table holds 3,520 non-approved rows (2,702 molecules);
   mapped at the same 95% rule they add **ONE protein per Gram-negative** (`leuS`, epetraborole, on
   E. coli and Kp) and 3 on S. aureus (`fabI`, `clfA`, `hly`). Candidates mostly pile onto targets
   that already carry an approved drug (73 of E. coli's 74 candidate-bearing proteins). `lpxC`,
   `lptD` and E. coli `fabI` get none: ChEMBL records no mechanism for those candidates, or records
-  the S. aureus enzyme below the floor. Kept as `n_clinical_drugs_own` / `clinical_drugs` in
-  `evidence/mechanisms_<sp>.tsv` only.
+  the S. aureus enzyme below the floor. The split is in `evidence/mechanisms_<sp>.tsv`.
 - **Not independent evidence of binding to *this* protein.** It is a database annotation of
   mechanism, not a measurement on the sequence.
