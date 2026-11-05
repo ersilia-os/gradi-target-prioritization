@@ -258,14 +258,17 @@ and `plotting/shortlist_ecoli.py` builds the table. Four gates, each a stated pr
   function (first letter) and on four length bands (<=100, 100-150, 150-300, >300 aa) whose **target is the equal-weight mean of three
   distributions**: the E. coli cytosolic proteome, its measured-essential proteins and the *S. aureus* proteome
   (`..._length_targets.tsv`; 13 / 14 / 36 / 37%). **Eligible** = degradability consensus in the top 30% of the protein's own length decile
-  (796 proteins). **Order inside a cell**: essential rule (measured any OR `essentiality_consensus` >= 0.7), ligand evidence (never for
-  ribosomal proteins, whose drug records belong to the whole ribosome), then within-decile degradability. Result: function within 0.3
-  points of the proteome, length bands 26 / 27 / 72 / 75, median 251 aa (proteome 266); 154 meet the essential rule, 88 are measured
-  essential, 66 meet the strict rule (measured AND consensus >= 0.7682); 55 have ligand evidence, 66 a human ortholog, 4 are ribosomal;
-  55 fail the full degradability gate (flagged); **23 of the absolute top 50 are in it** (their median length is 75 aa).
-- **Chosen, not derived:** the eligibility cut (0.7) and the essentiality-consensus cut (0.7; the derived one is 0.7682 and moves 8
-  proteins). Moving the eligibility cut by 0.1 changes 37-54 of the 200 proteins; at 0.8 no list protein falls below the proteome
-  median and 42 fail the full gate.
+  (796 proteins). **Order inside a cell**: measured essential first (a measured call is better evidence than a prediction), then the essential rule
+  (measured any OR `essentiality_consensus` >= 0.7), ligand evidence (never for ribosomal proteins, whose drug records belong to the
+  whole ribosome), then within-decile degradability. Result: function within 0.3
+  points of the proteome, length bands 26 / 27 / 72 / 75, median 249 aa (proteome 266); 153 meet the essential rule, 108 are measured
+  essential (36 in all screens), 76 meet the strict rule (measured AND consensus >= 0.7682), 81 are measured essential AND pass the full
+  degradability gate; 48 have ligand evidence, 67 a human ortholog, 3 are ribosomal; 55 fail the full degradability gate (flagged; 65
+  are below the consensus cut, 10 of those pass through the ortholog route); **22 of the absolute top 50 are in it** (median 75 aa).
+  Expected degraders (sum of the calibrated probabilities, extrapolated): ADEP4 63, ONC212 80, against 79 / 110 for the earlier list.
+- **Chosen, not derived:** the eligibility cut (0.7) and the essentiality-consensus cut (0.7; the derived one is 0.7682 and moves 5
+  proteins). Moving the eligibility cut by 0.1 changes 45-64 of the 200 proteins (20 or 40 length bins: 39-45); at 0.8 no list
+  protein falls below the proteome median and 42 fail the full gate.
 - **Why length is handled at all.** The *S. aureus* labels carry it (measured ADEP4 hit rate 57% up to 100 aa, 4% above 400; ONC212 70% vs
   14%; length alone AUROC 0.778 / 0.687) and the model is calibrated per band, so the E. coli list would otherwise be short (the earlier
   list: median 126 aa, 5% above 300). But the direct cleavage readouts barely show it (Conlon partially tryptic peptides: rho 0.06 with
@@ -273,11 +276,15 @@ and `plotting/shortlist_ecoli.py` builds the table. Four gates, each a stated pr
   paper comments on size (Jacques 2020 read in full; Conlon 2013 full text not accessible). The model is least informative for the longest
   proteins (within-band AUROC 0.75 / 0.66 above 400 aa), exactly where a length-representative list must draw.
 - **Random control** (`shortlist_ecoli_aska_balanced_control50.tsv`, seed 0): 50 of the 1,065 cytosolic ASKA proteins with RAW consensus
-  below the proteome median (0.4951), not on the list, with the list's function mix and measured-essential share (22 of 50). **It cannot
+  below the proteome median (0.4951), not on the list, with the list's function mix and measured-essential share (27 of 50). **It cannot
   match the list on length**: no protein up to 100 aa and one of 286 at 100-150 aa scores below the median (median 303 vs 251 aa), so
   compare within a length band. A control below the median of its own length decile fills the short bands but holds scores above the
   proteome median (21 of 50), so it was rejected. 7 list proteins are also below the proteome median, so the two groups overlap slightly
   at the raw-score level.
+- **Scoring against the goals** (degradable > essential > ligandable): the list has 2x the proteome's expected ADEP4 degraders and 4x its
+  proteins that are essential AND pass the gate (81 vs 20 scaled), but far fewer than the earlier short list (160 essential-and-gate,
+  expected ADEP4 79): the length and function targets cost about half the essential-and-degradable proteins. Each 10 slots moved from
+  over 300 aa to 150 aa or shorter would add about 4-5 expected ADEP4 degraders.
 - **Caveats:** E. coli degradability is extrapolated from *S. aureus* labels (ranking hypotheses), and the E. coli essentiality consensus
   is built from the same screens as the measured calls. Ligand evidence is not matched in the control (the list prefers it by design).
 

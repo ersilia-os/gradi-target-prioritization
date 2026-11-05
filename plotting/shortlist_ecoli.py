@@ -28,7 +28,7 @@ THE LIST THAT IS DELIVERED is the FUNCTION- AND LENGTH-REPRESENTATIVE list of 20
 as the cost analysis (funnel, leave-one-out, `shortlist_ecoli_aska*.tsv`). Slots follow the cytosolic ASKA proteome on COG function and on
 four length bands whose target is the equal-weight mean of three distributions (`length_targets`). Eligible = degradability consensus in
 the top 30% of the protein's own length decile (`--len-adj-min`, CHOSEN: the consensus is length-driven, rho -0.73); inside a cell the
-order is the essential rule (measured any OR `essentiality_consensus` >= `--ess-or-cut`, CHOSEN), then ligand evidence (never for
+order is measured essential, then the essential rule (measured any OR `essentiality_consensus` >= `--ess-or-cut`, CHOSEN), then ligand evidence (never for
 ribosomal proteins), then within-decile degradability. One control of 50, raw consensus below the proteome median, matched on function and
 measured-essential share but not on length. The raw degradability gate and essentiality are FLAGS here.
 
@@ -210,28 +210,29 @@ def margin_greedy(cells: dict, n: int, target_f: pd.Series, target_b: pd.Series,
 
 def balanced_list(d: pd.DataFrame, n: int, or_cut: float, len_adj_min: float, n_control: int, seed: int,
                   band_edges: list | None = None, band_shares: dict | None = None,
-                  order: list | None = None, lig_len_adj_min: float | None = None):
+                  order: list | None = None, lig_len_adj_min: float | None = None, n_len_bins: int = 10):
     """Function- AND length-representative list by degradability. Returns (list, control, notes).
 
     Slots follow the cytosolic ASKA proteome on two margins: COG function letter and length band. A
     protein is ELIGIBLE if its degradability consensus is in the top `1 - len_adj_min` of its own length decile
     (the raw gate cannot be met by long proteins: the consensus is strongly length-driven). Inside a cell the
-    order is, as stated predicates and never a score: (1) meets the essential rule (measured essential in
-    any screen OR `essentiality_consensus` >= `or_cut`, a CHOSEN cut), (2) has ligand evidence, then (3) the
+    order is, as stated predicates and never a score: (1) measured essential in any screen, (2) meets the
+    essential rule (measured OR `essentiality_consensus` >= `or_cut`, a CHOSEN cut), (3) has ligand evidence, then (4) the
     percentile within its length decile. Ribosomal proteins never get the ligand preference: their drug
     records belong to the whole ribosome.
-    The control matches the list's two margins and its measured-essential share, drawn at random from
-    proteins below the median degradability of their own length decile that are not on the list.
+    The control matches the list's function mix and measured-essential share, and its length bands as far as the pool
+    allows, drawn at random from proteins with RAW degradability below the proteome median that are not on the list.
     """
     pool = d[d.in_aska & d.cytosolic].copy()
     edges = band_edges or LENGTH_EDGES
     labels = band_labels(edges)
     pool["lband"] = pd.cut(pool.length, edges, labels=labels).astype(str)
-    pool["len_decile"] = pd.qcut(pool.length, 10, labels=False)
+    pool["len_decile"] = pd.qcut(pool.length, n_len_bins, labels=False)
     pool["deg_pct_in_len"] = pool.groupby("len_decile").degradability_consensus.rank(pct=True)
     pool["ligand_evidence"] = ((pool.n_ligands_own.fillna(0) > 0) | (pool.n_ligands_bacterial.fillna(0) > 0)
                                | (pool.n_ligands_pdb.fillna(0) > 0) | (pool.n_drugs.fillna(0) > 0))
-    pool["ess_rule"] = (pool.deg_essential_any == 1) | (pool.essentiality_consensus >= or_cut)
+    pool["meas_ess"] = pool.deg_essential_any == 1  # measured is better evidence than a prediction; a missing DEG call is not a measured negative
+    pool["ess_rule"] = pool.meas_ess | (pool.essentiality_consensus >= or_cut)
     pool["lig_rank"] = pool.ligand_evidence & ~pool.ribosomal
     share_f = pool.cog.value_counts(normalize=True)
     share_b = pd.Series(band_shares) if band_shares else pool.lband.value_counts(normalize=True)
@@ -240,7 +241,7 @@ def balanced_list(d: pd.DataFrame, n: int, or_cut: float, len_adj_min: float, n_
     ok = pool.deg_pct_in_len >= len_adj_min
     if lig_len_adj_min is not None:  # ligand evidence may lower the degradability bar (still never ribosomal)
         ok = ok | (pool.lig_rank & (pool.deg_pct_in_len >= lig_len_adj_min))
-    elig = pool[ok].sort_values(order or ["ess_rule", "lig_rank", "deg_pct_in_len"], ascending=False)
+    elig = pool[ok].sort_values(order or ["meas_ess", "ess_rule", "lig_rank", "deg_pct_in_len"], ascending=False)
     pos = {u: i for i, u in enumerate(elig.uniprot_ac)}
     cells = {k: g.uniprot_ac.tolist() for k, g in elig.groupby(["cog", "lband"])}
     chosen = margin_greedy(cells, n, share_f * n, share_b * n, pos)
@@ -386,7 +387,7 @@ def main() -> int:
     cyto = d[d.in_aska & d.cytosolic]
     sf, lf = cyto.cog.value_counts(normalize=True), bal.cog.value_counts(normalize=True).reindex(cyto.cog.value_counts().index).fillna(0)
     say(f"\n  BALANCED LIST {len(bal)}: slots on function AND length band (cytosolic ASKA proteome), eligible = top {100 * (1 - a.len_adj_min):.0f}% of "
-        f"degradability inside its own length decile ({bn['eligible']:,} proteins); order inside a cell: essential rule (measured any OR consensus >= "
+        f"degradability inside its own length decile ({bn['eligible']:,} proteins); order inside a cell: measured essential, essential rule (measured any OR consensus >= "
         f"{a.ess_or_cut}, chosen), ligand evidence, within-decile degradability")
     say("    length bands (target % = mean of E. coli cytosolic, E. coli measured essential, S. aureus proteome -> list n): "
         + " | ".join(f"{k} {100 * bn['share_b'][k]:.0f}% -> {bn['list_b'][k]}" for k in LENGTH_LABELS))

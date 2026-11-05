@@ -1790,8 +1790,8 @@ hard-coded; selectivity, ligands, pockets and studiedness are decorators. `filte
 the cytosolic ASKA proteome on COG function and on four length bands (<=100, 100-150, 150-300, >300 aa), the length target being the
 equal-weight mean of the E. coli cytosolic proteome, its measured-essential proteins and the *S. aureus* proteome
 (`shortlist_ecoli_aska_length_targets.tsv`). Eligible = degradability in the top 30% of the protein's own length decile (CHOSEN; the raw
-consensus is length-driven, rho -0.73); inside a cell the order is essential rule (measured any OR `essentiality_consensus` >= 0.7, CHOSEN),
-ligand evidence (never for ribosomal proteins), then within-decile degradability. Essentiality and the raw degradability gate are flags, not
+consensus is length-driven, rho -0.73); inside a cell the order is measured essential, then the essential rule (measured any OR
+`essentiality_consensus` >= 0.7, CHOSEN), ligand evidence (never for ribosomal proteins), then within-decile degradability. Essentiality and the raw degradability gate are flags, not
 gates. ONE control of 50, raw degradability below the proteome median, matched on function and measured-essential share but NOT on length
 (no protein up to 100 aa scores that low). The *S. aureus* labels themselves carry the length effect (ADEP4 hit rate 57% up to 100 aa, 4% above
 400), but the direct cleavage readouts barely do (Conlon rho 0.06, Jacques -0.18), so treat it as a property of the abundance readout.

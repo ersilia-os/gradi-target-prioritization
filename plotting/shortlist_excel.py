@@ -242,8 +242,9 @@ def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, lmix: pd.DataFrame
                            "The consensus is strongly length-driven, so a raw cut would only admit short proteins; this asks whether a protein is unusually "
                            f"degradable for its size. The {p['elig_pct']:.0f}% is a CHOSEN value. The raw degradability gate is NOT applied: {p['below_gate']} of the "
                            "200 fall below it and are flagged."),
-        ("3. Order inside a cell", f"(a) meets the essential rule: measured essential in any DEG/Keio screen OR essentiality consensus >= {p['or_cut']} (a CHOSEN cut; the "
-                                   f"derived base-rate cut is {p['ess_cut']:.4f}); (b) has ligand evidence; (c) degradability percentile within its length decile. "
+        ("3. Order inside a cell", f"(a) measured essential in any DEG/Keio screen; (b) meets the essential rule: measured OR essentiality consensus >= {p['or_cut']} (a CHOSEN "
+                                   f"cut; the derived base-rate cut is {p['ess_cut']:.4f}); (c) has ligand evidence; (d) degradability percentile within its length decile. "
+                                   "Measured calls go first because they are better evidence than a prediction. "
                                    "Ribosomal proteins never get the ligand preference: a recorded drug on the ribosome belongs to the whole complex."),
         ("Result", f"{p['n']} proteins; {p['ess_rule']} meet the essential rule, {p['ess_any']} are measured essential in any screen, {p['ess_strict']} under the strict rule "
                    f"(measured AND consensus >= {p['ess_cut']:.4f}); {p['ligand']} have ligand evidence; {p['top50']} of the absolute top 50 by raw degradability are "
@@ -261,9 +262,10 @@ def write(sheets: dict[str, pd.DataFrame], mix: pd.DataFrame, lmix: pd.DataFrame
                     "4% above 400) but the direct cleavage readouts barely show it, so it may reflect indirect depletion; the list therefore ranks degradability "
                     "relative to length. (3) The model is least informative for the longest proteins (within-band AUROC 0.75 ADEP4 / 0.66 ONC212 above 400 aa), "
                     "which is where a length-representative list must draw. (4) The eligibility cut (top 30% in a length decile) and the essentiality consensus "
-                    "cut (0.7) are chosen, not derived; membership changes by about a quarter if the eligibility cut moves by 10 points. (5) E. coli essentiality "
-                    "consensus is built from the same screens as the measured calls. (6) The control cannot match the list on length. (7) The earlier plan to keep "
-                    "the absolute top 50 by raw degradability no longer holds: 23 of those 50 (median 75 aa) are in the list."),
+                    "cut (0.7) are chosen, not derived: membership changes by 22 to 32% if the eligibility cut moves by 10 points and by 3% if the essentiality cut is "
+                    "the derived 0.7682. (5) E. coli essentiality consensus is built from the same screens as the measured calls. (6) The control cannot match the "
+                    "list on length. (7) The earlier plan to keep the absolute top 50 by raw degradability no longer holds: "
+                    f"{p['top50']} of those 50 (median {p['top50_len']:.0f} aa) are in the list."),
         ("ORDER", "Each sheet is ordered by degradability consensus, descending. A tiebreak, not a score."),
         ("", ""),
         ("COLUMN GUIDE", ""),
@@ -350,7 +352,8 @@ def main() -> int:
               "n_control": len(ctrl), "control_ess": int(ctrl.essential_any.sum()),
               "control_pool": int(((pool.degradability_consensus < d.attrs["orth_floor"]) & ~pool.uniprot_ac.isin(lst.uniprot_ac)).sum()),
               "control_len": float(ctrl.length.median()),  "control_raw_med": float(ctrl.degradability_consensus.median()), "control_raw_max": float(ctrl.degradability_consensus.max()),
-              "list_len": float(lst.length.median()), "pool_len": float(pool.length.median())}
+              "list_len": float(lst.length.median()), "pool_len": float(pool.length.median()),
+              "top50_len": float(pool.nlargest(50, "degradability_consensus").length.median())}
 
     path = OUT / "shortlist_ecoli_aska.xlsx"
     write({f"Shortlist ({len(lst)})": lst, f"Random control ({len(ctrl)})": ctrl}, mix, lmix, params, path)
