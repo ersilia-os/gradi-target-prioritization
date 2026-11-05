@@ -77,7 +77,13 @@ N_SEEDS = 5          # the axis-wide convention; a single seed carries ~+/-0.004
 # `proteomelm_orthodb` is the SAME model with the functional encoding the paper trained with (the
 # mean ESM-C vector of each protein's OrthoDB group) instead of the released inference fallback
 # (each protein's own vector). Two entries, never merged: the whole point is to compare them.
-FEATURES = ("esmc", "prott5", "proteomelm", "proteomelm_orthodb")
+FEATURES = ("esmc", "prott5", "proteomelm", "proteomelm_orthodb", "fused")
+# `fused` is LATE FUSION, as in degradability: one model per embedding, probabilities averaged.
+# Concatenation is not an option for TabPFN (2,000-feature limit) and the forest is kept on the same
+# footing. Measured (forest, 5 seeds, grouped CV, 9 endpoints): fused - ProtT5 is +0.0049 AUROC
+# [5/5 seeds] and -0.0001 PR-AUC [2/5], i.e. a ranking gain on Kp/O157 and a PR loss on Keio-lineage
+# E. coli -- adopted by the project owner's call (2026-11-04), not because it won everywhere.
+FUSED_KINDS = ("esmc", "prott5")
 
 # THE ENDPOINT LIST IS screens.py's REGISTRY, not a second copy of it. Every column, the proteome
 # its rows live in and its one-line description come from there, so renaming a screen cannot leave
@@ -146,6 +152,25 @@ def features_for(species: str, accessions: list[str], kind: str) -> tuple[list[s
         # about a matrix's appearance says which it is.
         return PLM.vectors_for(species, accessions, mode=mode)
     sys.exit(f"FATAL unknown feature set {kind!r}")
+
+
+def blocks_for(species: str, accessions: list[str], kind: str) -> tuple[list[str], list[np.ndarray]]:
+    """Feature blocks for `kind`; `fused` returns one block per embedding over COMMON proteins.
+
+    Every block is row-aligned on the same accessions, so per-block models see identical folds.
+    A protein missing from either embedding is dropped from both, never zero-filled.
+    """
+    if kind != "fused":
+        f, X = features_for(species, accessions, kind)
+        return f, [X]
+    parts = [features_for(species, accessions, k) for k in FUSED_KINDS]
+    common = set(parts[0][0]).intersection(*(set(f) for f, _ in parts[1:]))
+    keep = [a for a in accessions if a in common]
+    blocks = []
+    for f, X in parts:
+        idx = {a: i for i, a in enumerate(f)}
+        blocks.append(X[[idx[a] for a in keep]])
+    return keep, blocks
 
 
 def groups_for(species: str, accessions: list[str]) -> np.ndarray:
@@ -226,12 +251,27 @@ def oof_predict(X, y, splits, *, estimator: str, seed: int, tag: str) -> np.ndar
     return prob
 
 
+def fused_oof(Xs, y, splits, *, estimator: str, seed: int, tag: str) -> np.ndarray:
+    """Mean of the per-block out-of-fold probabilities (a single block is just that block)."""
+    names = FUSED_KINDS if len(Xs) > 1 else ("",)
+    return np.mean([oof_predict(X, y, splits, estimator=estimator, seed=seed, tag=f"{tag}/{n}")
+                    for X, n in zip(Xs, names)], axis=0)
+
+
+def fused_predict(Xs_tr, y_tr, Xs_te, *, estimator: str, seed: int, tag: str) -> np.ndarray:
+    names = FUSED_KINDS if len(Xs_tr) > 1 else ("",)
+    return np.mean([predict_fold(a, y_tr, b, estimator=estimator, seed=seed, tag=f"{tag}/{n}")
+                    for a, b, n in zip(Xs_tr, Xs_te, names)], axis=0)
+
+
 def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[str, ...],
                  dry: bool, estimator: str = DEFAULT_ESTIMATOR) -> dict | None:
     species = ENDPOINT_SPECIES[name]
     d = load_endpoint(name)
     accs = d["uniprot_ac"].astype(str).tolist()
-    found, X = features_for(species, accs, kind)
+    found, Xs = blocks_for(species, accs, kind)
+    X = Xs[0]   # shape reporting only; fused blocks are never concatenated
+    n_feat = [b.shape[1] for b in Xs]
     sub = d.set_index("uniprot_ac").loc[found]
     y = sub["label"].to_numpy(dtype=int)
     groups = groups_for(species, found)
@@ -242,10 +282,10 @@ def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[st
         say(f"    {len(accs) - len(found)} of {len(accs)} proteins have no {kind} embedding "
             "-- dropped, never zero-filled")
 
-    n_fits = len(schemes) * seeds * folds
+    n_fits = len(schemes) * seeds * folds * len(Xs)
     if estimator == "tabpfn":
-        calls = [(X[tr], y[tr], X[te]) for scheme in schemes for seed in range(seeds)
-                 for tr, te in splits_for(y, groups, folds, seed, scheme)]
+        calls = [(Xb[tr], y[tr], Xb[te]) for Xb in Xs for scheme in schemes
+                 for seed in range(seeds) for tr, te in splits_for(y, groups, folds, seed, scheme)]
         n_un, credits = T.would_cost(calls)
         say(f"    {len(calls)} calls, {n_un} uncached -> {credits:,} credits")
     else:
@@ -258,8 +298,8 @@ def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[st
         aucs, prs, oofs = [], [], []
         for seed in range(seeds):
             sp = splits_for(y, groups, folds, seed, scheme)
-            p = oof_predict(X, y, sp, estimator=estimator, seed=seed,
-                            tag=f"ess/{name}/{kind}/{scheme}/s{seed}")
+            p = fused_oof(Xs, y, sp, estimator=estimator, seed=seed,
+                          tag=f"ess/{name}/{kind}/{scheme}/s{seed}")
             a, pr = score(y, p)
             aucs.append(a); prs.append(pr); oofs.append(p)
             say(f"      {scheme:8s} seed {seed}: AUROC {a:.4f}  PR {pr:.4f}")
@@ -270,7 +310,7 @@ def run_endpoint(name: str, kind: str, folds: int, seeds: int, schemes: tuple[st
     pl = out.get("plain")
     rec = {"endpoint": name, "features": kind, "estimator": estimator,
            "n": len(y), "n_pos": int(y.sum()),
-           "base_rate": round(float(y.mean()), 4), "n_features": X.shape[1],
+           "base_rate": round(float(y.mean()), 4), "n_features": "+".join(map(str, n_feat)),
            "n_folds": folds, "n_seeds": seeds,
            "roc_auc_grouped": round(g[0], 4), "roc_auc_grouped_sd": round(g[1], 4),
            "pr_auc_grouped": round(g[2], 4),
@@ -298,25 +338,26 @@ def cross_species(train: str, test: str, kind: str, dry: bool,
     """
     tr_sp, te_sp = ENDPOINT_SPECIES[train], ENDPOINT_SPECIES[test]
     dtr, dte = load_endpoint(train), load_endpoint(test)
-    f_tr, X_tr = features_for(tr_sp, dtr["uniprot_ac"].astype(str).tolist(), kind)
-    f_te, X_te = features_for(te_sp, dte["uniprot_ac"].astype(str).tolist(), kind)
+    f_tr, Xs_tr = blocks_for(tr_sp, dtr["uniprot_ac"].astype(str).tolist(), kind)
+    f_te, Xs_te = blocks_for(te_sp, dte["uniprot_ac"].astype(str).tolist(), kind)
+    X_tr, X_te = Xs_tr[0], Xs_te[0]
     y_tr = dtr.set_index("uniprot_ac").loc[f_tr, "label"].to_numpy(dtype=int)
     y_te = dte.set_index("uniprot_ac").loc[f_te, "label"].to_numpy(dtype=int)
 
     say(f"  {train} ({tr_sp}) -> {test} ({te_sp})   features={kind}")
     say(f"    train {X_tr.shape[0]:5d} x {X_tr.shape[1]}  base {y_tr.mean():.4f}")
     say(f"    test  {X_te.shape[0]:5d} x {X_te.shape[1]}  base {y_te.mean():.4f}")
-    if X_tr.shape[1] != X_te.shape[1]:
-        sys.exit(f"FATAL feature dims differ ({X_tr.shape[1]} vs {X_te.shape[1]}) -- the two sides "
+    if [b.shape[1] for b in Xs_tr] != [b.shape[1] for b in Xs_te]:
+        sys.exit("FATAL feature dims differ between train and test -- the two sides "
                  "must use the same embedding model or the comparison is meaningless")
     if estimator == "tabpfn":
-        n_un, credits = T.would_cost([(X_tr, y_tr, X_te)])
+        n_un, credits = T.would_cost([(a, y_tr, b) for a, b in zip(Xs_tr, Xs_te)])
         say(f"    {n_un} uncached call -> {credits:,} credits")
     if dry:
         return None
 
-    p = predict_fold(X_tr, y_tr, X_te, estimator=estimator, seed=0,
-                     tag=f"ess/cross/{train}->{test}/{kind}")
+    p = fused_predict(Xs_tr, y_tr, Xs_te, estimator=estimator, seed=0,
+                      tag=f"ess/cross/{train}->{test}/{kind}")
     auc, pr = score(y_te, p)
     lift = pr / y_te.mean()
     say(f"    AUROC {auc:.4f}   PR {pr:.4f}   base {y_te.mean():.4f}   lift {lift:.2f}x")
@@ -327,7 +368,7 @@ def cross_species(train: str, test: str, kind: str, dry: bool,
 
 
 def score_proteome(species: str, kind: str, estimator: str, seeds: int,
-                   folds: int) -> pd.DataFrame:
+                   folds: int, in_sample: bool = False) -> pd.DataFrame:
     """Every screen's model applied to one ANCHOR proteome -> `screens_<species>.tsv`.
 
     THESE ARE PREDICTIONS IN EVERY COLUMN AND EVERY ROW, and the file is named and documented so
@@ -343,12 +384,20 @@ def score_proteome(species: str, kind: str, estimator: str, seeds: int,
     `evidence/oof_<endpoint>_<features>_<estimator>.tsv` values are substituted in for those rows,
     which is what keeps the column on one scale.
 
+    `in_sample=True` (`--in-sample`) SKIPS that substitution, on the project owner's call
+    (2026-11-05, for E. coli): a protein that was in a screen's training set keeps the full-fit
+    prediction, which is close to a copy of its own measured label. **That column is then NOT a
+    validated prediction for those proteins** -- the honest generalisation numbers are the grouped-CV
+    and cross-species ones in `evidence/cv_endpoints.tsv`. It changes nothing for Kp or Sa, whose
+    anchor proteins are in no screen's training set. The audit records how many rows were affected.
+
     The output is COMPLETE and CANONICAL: one row per anchor protein, in proteome order.
     """
     import numpy as np
 
     accs = list(M.canonical(species))
-    found, X_target = features_for(species, accs, kind)
+    found, Xs_target = blocks_for(species, accs, kind)
+    X_target = Xs_target[0]
     if len(found) != len(accs):
         sys.exit(f"FATAL {species}: {len(accs) - len(found)} proteins have no {kind} embedding, so "
                  "the column could not be complete. Fill them where the embedding is built.")
@@ -358,31 +407,34 @@ def score_proteome(species: str, kind: str, estimator: str, seeds: int,
     for s in SCREENS:
         d = load_endpoint(s.column)
         tr_accs = d["uniprot_ac"].astype(str).tolist()
-        f_tr, X_tr = features_for(s.features, tr_accs, kind)
+        f_tr, Xs_tr = blocks_for(s.features, tr_accs, kind)
+        X_tr = Xs_tr[0]
         y_tr = d.set_index("uniprot_ac").loc[f_tr, "label"].to_numpy(dtype=int)
-        if X_tr.shape[1] != X_target.shape[1]:
-            sys.exit(f"FATAL {s.column}: feature dims differ ({X_tr.shape[1]} vs "
-                     f"{X_target.shape[1]}) -- both sides must use the same embedding model")
+        if [b.shape[1] for b in Xs_tr] != [b.shape[1] for b in Xs_target]:
+            sys.exit(f"FATAL {s.column}: feature dims differ -- both sides must use the same "
+                     "embedding model")
 
         probs = np.zeros((seeds, len(found)), dtype=float)
         for seed in range(seeds):
-            probs[seed] = predict_fold(X_tr, y_tr, X_target, estimator=estimator, seed=seed,
-                                       tag=f"ess/proteome/{s.column}->{species}/{kind}/s{seed}")
+            probs[seed] = fused_predict(Xs_tr, y_tr, Xs_target, estimator=estimator, seed=seed,
+                                        tag=f"ess/proteome/{s.column}->{species}/{kind}/s{seed}")
         col = probs.mean(axis=0)
 
         # substitute out-of-fold values wherever this anchor protein WAS in the training set
         oof_p = EVIDENCE_DIR / f"oof_{s.column}_{kind}_{estimator}.tsv"
-        n_oof = 0
+        n_oof = n_in_sample = 0
         if oof_p.exists():
             o = pd.read_csv(oof_p, sep="\t")
             lut = dict(zip(o["uniprot_ac"].astype(str), o["oof_prob"]))
             hit = np.array([a in lut for a in found])
-            if hit.any():
+            if hit.any() and in_sample:
+                n_in_sample = int(hit.sum())      # left as the full-fit prediction, on purpose
+            elif hit.any():
                 col[hit] = [lut[a] for a, h in zip(found, hit) if h]
                 n_oof = int(hit.sum())
-        overlap = n_oof / len(found)
+        overlap = (n_oof + n_in_sample) / len(found)
         say(f"  {s.column:42s} -> {species:12s} mean {col.mean():.4f}  "
-            f"oof-substituted {n_oof:5d} ({overlap:.1%})")
+            f"oof-substituted {n_oof:5d}  in-sample {n_in_sample:5d} ({overlap:.1%})")
 
         out[s.column] = col.round(4)
         cv = EVIDENCE_DIR / "cv_endpoints.tsv"
@@ -400,6 +452,7 @@ def score_proteome(species: str, kind: str, estimator: str, seeds: int,
                       "own_organism_roc_auc": own.get("roc_auc_grouped"),
                       "own_organism_pr_auc": own.get("pr_auc_grouped"),
                       "oof_substituted": n_oof,
+                      "in_sample_rows": n_in_sample,
                       "train_target_overlap": round(overlap, 4),
                       "is_same_species": s.features == species
                       or s.features.startswith(species[:2]) and species in s.features})
@@ -430,6 +483,10 @@ def main() -> None:
                          "screens_<species>.tsv -- one predicted probability column per screen, "
                          "complete and in canonical row order. Predictions throughout; see the "
                          "transfer audit before reading any column as evidence.")
+    ap.add_argument("--in-sample", action="store_true",
+                    help="with --score-proteome: do NOT substitute out-of-fold values for proteins "
+                         "that were in a screen's training set (their prediction is then close to "
+                         "their own label). The owner's call for E. coli, 2026-11-05")
     ap.add_argument("--dry-run", action="store_true", help="price the run; spend nothing")
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args()
@@ -457,7 +514,8 @@ def main() -> None:
                 rule()
                 say(f"SCORE PROTEOME  {sp}  ({kind}, {a.estimator})")
                 rule()
-                tbl, aud = score_proteome(sp, kind, a.estimator, a.seeds, a.folds)
+                tbl, aud = score_proteome(sp, kind, a.estimator, a.seeds, a.folds,
+                                          in_sample=a.in_sample)
                 if a.dry_run:
                     continue
                 tbl = M.reindex(tbl, sp)

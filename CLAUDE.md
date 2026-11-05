@@ -1325,6 +1325,14 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   ProteomeLM is **+0.0330 PR [5/5 seeds] but −0.0002 AUROC [2/5, a tie]**: AUROC alone would have
   called the winner a coin flip.
 
+  **THE SHIPPED FEATURES ARE NOW `fused` (owner's call, 2026-11-05): ESM-C and ProtT5, one forest
+  per embedding, probabilities averaged** — `predict.py --features fused`. Measured over all nine
+  endpoints (forest, 5 seeds, cluster-grouped CV, paired per seed): **ProtT5 − ESM-C is +0.0103 AUROC
+  [5/5] and +0.0444 PR [5/5]**, and **fused − ProtT5 is +0.0049 AUROC [5/5] but −0.0001 PR [2/5]** —
+  a ranking gain on Kp and O157, a PR loss on Keio (−0.019), core (−0.012), Goodall and ST131. Fusion
+  was adopted for symmetry with degradability, **not because it won everywhere**. The Ec→Kp 0.8597
+  and Kp→Ec 0.9338 below were measured with ProtT5 + forest and are **not re-measured** for fused.
+
   **MMSEQS2 REWRITES FASTA HEADERS CONTAINING `|`** — DEG's `>lcl|…` comes back with `lcl|` silently
   gone, which is exactly the key the screen table and the embedding share. The clustering then mapped
   to **0 of 4,981** proteins, indistinguishable from a proteome with no paralogs;
@@ -1446,7 +1454,16 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   so it would silently mislabel ~1,700 measured essentials as non-essential. Where an anchor protein
   WAS in a screen's training set the **out-of-fold** value is substituted, so the column is not part
   in-sample and part honest; `evidence/screens_transfer_audit.tsv` must be read before any `_prob` is
-  treated as evidence.
+  treated as evidence. **EXCEPTION, owner's call 2026-11-05, E. COLI ONLY: `--score-proteome ecoli
+  --in-sample`** skips that substitution, so the Keio, Goodall and Choe columns keep the full-fit
+  prediction (AUROC **1.000** against their own labels, against 0.88–0.92 out-of-fold) and
+  `screens_ess_mean` on *E. coli* is NOT a validated prediction — the grouped-CV numbers are the
+  honest ones. It changes nothing for Kp or Sa. The audit records it as `in_sample_rows`.
+  **`essentiality_consensus` stays the plain mean of the three inputs, on every species** (owner's
+  call, 2026-11-05): a weighted mean is a hidden weighting this project has rejected, and the weights
+  could not be validated on *E. coli*, where two of the three columns are near-copies of the
+  measurements. Against the Keio label the *E. coli* consensus reads **AUROC 0.995 / PR 0.948**
+  (circular by construction), against `deg_essential_any` only **0.785 / 0.637** — see below.
 
   **`essentiality/fetch_screens.py`** downloads published screens and **writes down what a human must
   fetch by hand** — the real output is `evidence/screen_fetch_status.tsv` plus a `PLACEHOLDER.md`

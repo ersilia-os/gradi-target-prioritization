@@ -379,9 +379,54 @@ so a whole cross-species evaluation is **one call** while a 5-seed 5-fold CV is 
 
 | script | flags |
 |---|---|
-| `predict.py` | `--endpoint` · `--features {esmc,prott5,proteomelm}` · `--estimator {forest,tabpfn}` · `--score-on` · `--seeds` · `--folds` · `--schemes {grouped,plain}` · `--dry-run` · `-q` |
+| `predict.py` | `--endpoint` · `--features {esmc,prott5,proteomelm,proteomelm_orthodb,fused}` · `--estimator {forest,tabpfn}` · `--score-on` · `--score-proteome` · `--in-sample` · `--seeds` · `--folds` · `--schemes {grouped,plain}` · `--dry-run` · `-q` |
 | `summary.py` | `--features` |
 | `screens.py` | `--screen` · `--list` · `--dry-run` · `-q` |
+
+### 7.8 Late fusion of ESM-C and ProtT5, and the E. coli in-sample call (2026-11-05)
+
+**Fused forests.** `--features fused` fits one forest per embedding (`D.RF_PARAMS`, identical folds
+and seeds) and averages the probabilities. Every strain had both matrices once the three missing
+ESM-C strain matrices (`DEG1048`, `DEG1056`, `rh201207_bruchmann`; 42 min) were generated. Forest, 5
+seeds, cluster-grouped CV; AUROC / PR-AUC means:
+
+| endpoint | base | ESM-C | ProtT5 | fused |
+|---|---|---|---|---|
+| core γ-proteobacteria | 0.048 | 0.936 / 0.507 | 0.946 / 0.585 | 0.948 / 0.573 |
+| Ec Choe | 0.103 | 0.858 / 0.483 | 0.871 / 0.523 | 0.876 / 0.525 |
+| Ec Goodall | 0.087 | 0.875 / 0.484 | 0.895 / 0.552 | 0.896 / 0.543 |
+| Ec Keio | 0.068 | 0.896 / 0.428 | 0.914 / 0.513 | 0.914 / 0.493 |
+| Ec O157 | 0.194 | 0.822 / 0.617 | 0.814 / 0.608 | 0.832 / 0.635 |
+| Ec ST131 | 0.060 | 0.877 / 0.369 | 0.888 / 0.428 | 0.892 / 0.419 |
+| Kp ATCC43816 | 0.075 | 0.908 / 0.500 | 0.917 / 0.525 | 0.923 / 0.533 |
+| Kp ECL8 | 0.106 | 0.844 / 0.461 | 0.860 / 0.491 | 0.861 / 0.493 |
+| Kp RH201207 | 0.095 | 0.886 / 0.470 | 0.891 / 0.495 | 0.900 / 0.504 |
+
+Paired per seed over the nine endpoints: **ProtT5 − ESM-C +0.0103 AUROC [5/5], +0.0444 PR [5/5]**
+(8 of 9 endpoints; O157 is the exception); **fused − ProtT5 +0.0049 AUROC [5/5], −0.0001 PR [2/5]**.
+Fusion helps the Kp screens and O157 and loses PR on Keio, core, Goodall and ST131. **It was adopted on
+the owner's call for symmetry with degradability, not because it won everywhere.**
+
+**E. coli is scored in-sample** (`--score-proteome ecoli --in-sample`), the owner's call. For a
+protein that was in a screen's own training set the out-of-fold substitution is skipped: Keio,
+Goodall and Choe then score **AUROC 1.000 / PR 1.000** against their own labels (out-of-fold 0.915 /
+0.497, 0.898 / 0.547, 0.878 / 0.529), which is the trivial result accepted knowingly. Kp and Sa are
+unchanged because no anchor protein is in any screen's training set. `screens_transfer_audit.tsv`
+carries `in_sample_rows`.
+
+**The consensus stays the plain mean of the three inputs.** Measured on *E. coli*, Spearman between
+the inputs is geptop–proteomelm 0.514, geptop–screens 0.425, proteomelm–screens 0.297, so they are
+not one opinion counted twice. Old (ProtT5, out-of-fold) vs new (fused, in-sample) consensus on
+*E. coli*: rho 0.984; Kp 0.986, Sa 0.988.
+
+**What the rebuilt *E. coli* table agrees with, and what it does not.** Against the Keio label the
+consensus reads AUROC 0.995 / PR 0.948 (geptop 0.998 / 0.977, screens_ess_mean 0.994 / 0.932,
+proteomelm_ess 0.973 / 0.767 — the last is the only non-circular one). Against `deg_essential_any`
+(4,253 measured; DEG1018 genetic footprinting + DEG1019 knockout) it reads only AUROC 0.785 / PR 0.637,
+because the union carries **410 genes called essential by DEG that Keio calls non-essential** (the
+footprinting set over-calls) and misses **6 Keio essentials** (including rho, prfB and glmM), which
+the evidence tier therefore reads as measured non-essential. Polarity holds: ribosome median
+consensus 0.980, textbook dispensables 0.454.
 
 ---
 
