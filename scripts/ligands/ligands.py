@@ -71,7 +71,13 @@ SPECIES = ("kpneumoniae", "ecoli", "saureus")
 # The two standard columns are appended here rather than in `src/precedents.py`: that module is a
 # per-sequence query tool with no species, and a within-species percentile rank is meaningless for
 # one protein. They exist only in the batch deliverable.
-DELIVERABLE_COLUMNS = ("uniprot_ac", *PR.DELIVERABLE,
+#
+# `n_approved_drugs_own` (added 2026-11-05) is CLINICAL VALIDATION, read from
+# `evidence/mechanisms_<sp>.tsv` (written by `ligands/mechanisms.py`, ChEMBL's drug-mechanism
+# records): how many approved drugs are recorded against this protein, whatever the assay. It exists
+# because the potency counts above cannot see a target whose drugs were characterised by MIC,
+# covalent acylation or as a ribosome complex. It is NOT an input to `ligands_consensus`.
+DELIVERABLE_COLUMNS = ("uniprot_ac", *PR.DELIVERABLE, "n_approved_drugs_own",
                        "ligands_consensus", "ligands_evidence")
 
 VERBOSE = True
@@ -197,6 +203,16 @@ def main() -> None:
             ev = OUT_DIR / "evidence"
             ev.mkdir(parents=True, exist_ok=True)
             out.to_csv(ev / f"precedents_full_{sp}.tsv", sep="\t", index=False)
+            # Read from its OWN file, never assumed: a missing source must be loud (house rule).
+            mp = ev / f"mechanisms_{sp}.tsv"
+            if not mp.exists():
+                sys.exit(f"FATAL {mp.relative_to(REPO_ROOT)} missing -- run "
+                         "scripts/ligands/mechanisms.py first")
+            mech = pd.read_csv(mp, sep="\t").set_index("uniprot_ac")["n_approved_drugs_own"]
+            out["n_approved_drugs_own"] = out["uniprot_ac"].map(mech).astype("Int64")
+            if out["n_approved_drugs_own"].isna().any():
+                sys.exit(f"FATAL {sp}: {int(out['n_approved_drugs_own'].isna().sum())} proteins "
+                         "have no mechanism row -- the column would be incomplete")
             # Computed through `src/ligandability.py` so the file and the loader cannot drift.
             # The consensus ranks WITHIN this species, which is why it belongs here and not in
             # `precedents.count()`.

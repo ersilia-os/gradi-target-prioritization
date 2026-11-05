@@ -297,7 +297,7 @@ scripts/
                   head_comparison.py  workers/lazyqsar_cv.py      -> degradability_<sp>.tsv
   essentiality/   labels.py  deg_proteomes.py  geptop.py  ogee.py
                   screens.py  predict.py  merge.py  registry.py   -> essentiality_<sp>.tsv
-  ligands/        chembl.py  bindingdb.py  effort.py
+  ligands/        chembl.py  bindingdb.py  effort.py  mechanisms.py
                   ligands.py  transfer_calibration.py             -> ligands_<sp>.tsv
   studiedness/    fetch.py  gene2pubmed.py  unknome.py
                   transfer.py  merge.py                           -> studiedness_<sp>.tsv
@@ -983,8 +983,25 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   which ChEMBL by construction does not contain.
 
 - **`ligands/ligands.py`** + **`src/precedents.py`** — **THE AXIS DELIVERABLE**,
-  `ligands_<species>.tsv`, **10 columns**; also a query tool for ANY sequence, needing no database
+  `ligands_<species>.tsv`, **11 columns**; also a query tool for ANY sequence, needing no database
   (three cached extracts, 82 MB, ~1 s).
+
+  **`n_approved_drugs_own` (added 2026-11-05, owner's call) is CLINICAL VALIDATION, from
+  `ligands/mechanisms.py`**: distinct approved drugs (ChEMBL `max_phase` 4, parent molecule) whose
+  recorded mechanism targets a protein this one is **>= 95% identical to** (coverages >= 50%), read
+  from ChEMBL's drug-mechanism records over the REST API (network, no dump). It exists because the
+  potency counts cannot see a target characterised by MIC, covalent acylation or as a ribosome
+  complex — **ChEMBL stores the bacterial ribosome as a PROTEIN NUCLEIC-ACID COMPLEX with 141
+  pChEMBL activities and 67 approved drugs, a target type `chembl.py` never read**. E. coli: **75
+  proteins** carry an approved drug (52 of 53 ribosomal proteins at 41, the PBPs `ftsI`/`mrcA`/`mrcB`/
+  `mrdA` at 57–59, gyrA/gyrB 14, `rpoB` 5, `parC`/`parE` 9, `folA` 1, `murA` 1, `fabI` 2); Kp 49, Sa 64.
+  **It is TARGET-LEVEL, not subunit-level**: a drug recorded against a complex or family is
+  credited to EVERY member. **Only 12 of E. coli's 75 also have a potent ChEMBL ligand**, so it adds
+  63 proteins the potency counts call empty. **A 0 is "no approved drug recorded", not "undruggable"**
+  (`lpxC`, `dxr`, `ileS`, `acrB`, `bamA` read 0); mechanisms stored against a PROTEIN FAMILY/GROUP
+  with no sequence, or a non-protein target, cannot map and are counted in
+  `evidence/mechanisms_audit.tsv` (14 of 147 antibacterial drugs). **NOT an input to
+  `ligands_consensus`**; `ligands.py` exits if `evidence/mechanisms_<sp>.tsv` is missing.
 
   **`chembl_<species>.tsv` was DEMOTED to `evidence/` on 2026-10-03** (owner's call), because
   measured against `ligands_<species>.tsv` it is largely a duplicate: `n_ligands_bacterial` ==

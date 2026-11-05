@@ -332,7 +332,8 @@ def _coerce_precedents(d: pd.DataFrame) -> pd.DataFrame:
     file already on disk load correctly too.
     """
     for c in d.columns:
-        if c.startswith(("n_ligands_own", "n_assayed_own", "n_measured_own", "n_targets", "n_compounds")):
+        if c.startswith(("n_ligands_own", "n_assayed_own", "n_measured_own", "n_targets", "n_compounds",
+                         "n_approved_drugs_own")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
         elif c.startswith(("best_pactivity", "best_pident", "best_pchembl", "hit_rate")):
             d[c] = pd.to_numeric(d[c], errors="coerce").astype("Float64")
@@ -389,6 +390,7 @@ CONSENSUS_COLUMNS = ("n_ligands_own", "n_ligands_bacterial", "best_pactivity_bac
 # '10.1'. The two standard columns match NO rule in `_read()` and are registered by explicit name
 # in `_coerce_precedents()` above, for exactly that reason.
 DELIVERABLE_DTYPES = {"uniprot_ac": "object", "n_ligands_own": "Int64",
+                      "n_approved_drugs_own": "Int64",
                       "best_pactivity_bacterial": "Float64",
                       "ligands_consensus": "Float64", "ligands_evidence": "Int64"}
 
@@ -492,7 +494,8 @@ def load(species: str) -> pd.DataFrame:
     """`ligands_<species>.tsv` -- THE AXIS DELIVERABLE. Potent counts and assayed counts, three
     scopes each.
 
-    Written by `scripts/ligands/ligands.py --species`. Eight columns:
+    Written by `scripts/ligands/ligands.py --species`. Seven count columns, `n_approved_drugs_own`
+    and the standard pair (ten in all, eleven with the key):
 
         n_ligands_own              POTENT (pChEMBL >= 6, i.e. sub-micromolar) on THIS protein
         n_ligands_bacterial    potent over the bacterial pool
@@ -534,8 +537,16 @@ def load(species: str) -> pd.DataFrame:
     `precedent_evidence` category that used to encode this was dropped as redundant -- `no_homolog`
     is `n_targets_bacterial == 0` in the evidence table.
 
-    **MIC and %-inhibition are absent by construction**, so this does not say "has an antibiotic";
-    a ribosomal protein reading empty is a fact about assay type, not biology.
+    **MIC and %-inhibition are absent by construction**, so the potency counts do not say "has an
+    antibiotic"; a ribosomal protein reading empty there is a fact about assay type, not biology.
+
+    **`n_approved_drugs_own` is what fills that gap** (added 2026-11-05): the number of DISTINCT
+    approved drugs (ChEMBL `max_phase` 4, parent molecule) whose recorded mechanism of action targets
+    a protein this one is >= 95% identical to (coverages >= 50%), from `scripts/ligands/mechanisms.py`.
+    **It is target-level, not subunit-level**: a drug recorded against a complex or a family (the
+    70S ribosome, the penicillin-binding proteins) is credited to EVERY member, so `ftsI`, `mrcA` and
+    `mrdA` all read 57-59, and 52 of 53 E. coli ribosomal proteins read 41. A 0 means no approved drug
+    is recorded against this protein, NOT that it is undruggable. It is not an input to the consensus.
     """
     _check(species)
     return _coerce_precedents(_read(_path(LIGAND_DIR, f"ligands_{species}.tsv")))

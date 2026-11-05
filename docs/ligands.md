@@ -391,7 +391,8 @@ the change.
 
 ## The two standard columns
 
-Added **2026-10-04**. The deliverable is now **10 columns**, and the pair divides this axis's own
+Added **2026-10-04**. The deliverable was **10 columns** then (11 since 2026-11-05, see *Clinical
+validation* below), and the pair divides this axis's own
 *"TWO QUESTIONS, NOT ONE"* cleanly: `ligands_consensus` carries the **outcome** (how much potent
 precedent), `ligands_evidence` carries the **provenance** (how directly it was measured).
 
@@ -960,3 +961,44 @@ marginal across kingdoms. Measured on Kp: bacterial hits sit at a median **84.1%
 hits at **45.3%**, with **53 of 114 in the 40–45% band** and none above 80%. So (c) is
 systematically weaker evidence than (b). `clpP` at 56.3% is a real ortholog; a 40.1% human hit is
 not the same claim. Filter on `best_pident_human` in `precedents_full_<sp>.tsv` before relying on it.
+
+
+## Clinical validation: `n_approved_drugs_own` (2026-11-05)
+
+**Why.** The potency columns need a measured pChEMBL, so they are blind to a target whose drugs were
+characterised another way. In the E. coli table the ribosome (0 of 53 ribosomal proteins), the
+penicillin-binding proteins and RNA polymerase read empty or near-empty — while being the
+best-validated antibacterial targets there are. Measured against the live ChEMBL API: the
+bacterial 70S ribosome is stored as a PROTEIN NUCLEIC-ACID COMPLEX (58 components, 141 pChEMBL
+activities, **67 approved drugs** with the mechanism "Bacterial 70S ribosome inhibitor"), a target type
+`chembl.py` has never read (it keeps SINGLE PROTEIN and PROTEIN COMPLEX only). Most ribosome-binding
+antibiotics are recorded as MIC at the organism level, which `pchembl_value` excludes by design.
+
+**What the column is.** `scripts/ligands/mechanisms.py` fetches every ChEMBL mechanism row (7,561;
+3,814 approved, 2,684 distinct drugs), fetches each target's component sequences, DIAMONDs the three
+proteomes against them, and counts distinct approved drugs (`max_phase` 4, parent molecule) whose
+target a protein matches at >= 95% identity with both coverages >= 50% (`L.DIRECT_PIDENT`,
+`L.MIN_QCOV`, `L.MIN_SCOV`). Same species is NOT required: a drug recorded against a generic
+"Bacterial 70S ribosome" built from E. coli subunits is a drug for a Kp ribosomal protein at 99%.
+`evidence/mechanisms_<sp>.tsv` adds the drug names, an antibacterial count (ATC J01/J04 and the topical
+anti-infective classes) and the best identity. It is **not** in `ligands_consensus`.
+
+**Result.** E. coli 75 proteins (1.7%), Kp 49 (0.9%), Sa 64 (2.2%). E. coli: 52 of 53 ribosomal
+proteins carry 41 drugs, `ftsI`/`mrcA`/`mrcB`/`mrdA`/`dacA-C` 57–59, `gyrA`/`gyrB` 14, `parC`/`parE` 9,
+`rpoB` 5, `folA` 1 (trimethoprim), `murA` 1 (fosfomycin), `fabI` 2, `thyA` 1. **Only 12 of the 75 also
+have a potent ChEMBL ligand**; 63 are proteins the potency counts call empty.
+
+**Read this before using it.**
+- **Target-level, not subunit-level.** A drug recorded against a complex or a protein family is
+  credited to every member, so seven E. coli PBPs read the same 57–59 drugs, and `rpsL` and `rplC`
+  read the same 41. It says "this protein belongs to a drugged target", not "this subunit binds the
+  drug".
+- **A 0 is not "undruggable".** `lpxC`, `dxr`, `ileS`, `acrB`, `bamA`, `lptD` read 0: no approved
+  drug is recorded against them (several have clinical-stage compounds, which this does not count).
+  `ileS` (mupirocin) reads 0 because the recorded target is the S. aureus enzyme at ~40% identity,
+  below the 95% floor.
+- **Unmappable mechanisms.** 14 of the 147 antibacterial drugs act on a target with no component
+  sequence (non-protein targets such as D-Ala-D-Ala or LPS, or a family stored without components);
+  the full breakdown by target type is `evidence/mechanisms_audit.tsv`.
+- **Not independent evidence of binding to *this* protein.** It is a database annotation of
+  mechanism, not a measurement on the sequence.
