@@ -439,6 +439,19 @@ These numbers are stricter than the ones this section carried before 2026-10-03 
 That is the label changing, not the model: the old label was "a drug-like ligand somewhere in the
 family at ≥ 40% identity", the new one is "a drug-like ligand on this protein itself".
 
+### Recorded drugs do NOT validate these scores (audit, 2026-11-05)
+
+Scoring the tables against the ligands axis's `n_drugs` (a drug recorded against the protein) looks
+like an independent test and is not one. **The consensus ranks drug targets BELOW average**
+(AUROC 0.35–0.41; P2Rank alone 0.25–0.28), because most drug-bearing proteins are **ribosomal**
+(62 of E. coli's 76, 41 of Kp's 50, 54 of Sa's 67): short, median P2Rank 0 against 0.28–0.40 for the
+proteome, and the antibiotics bind **rRNA, which a protein-only pocket tool cannot see**. Dropping
+the ribosome flips the result (consensus AUROC 0.86 / 0.80 / 0.91 on the other 14 / 9 / 13 targets),
+but that rise is inflated: drug targets get crystallised, which feeds `n_ligands_pdb`, so it
+measures research attention, not pocket quality. **Length alone matches or beats P2Rank on those
+targets** (Sa 0.905 vs 0.726, Kp 0.716 vs 0.547). Read `pockets_evidence` and `n_ligands_pdb` first,
+and never read a low `p2rank_score` on a ribosomal or other RNA-binding protein as "no site".
+
 ### There is no pocket count — removed 2026-10-03, after measuring it
 
 `p2rank_n_pockets` counted admitted pockets at probability ≥ 0.5. **The P2Rank authors recommend no

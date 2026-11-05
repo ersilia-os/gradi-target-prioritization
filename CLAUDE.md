@@ -1123,6 +1123,11 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   `SOURCE_COLUMNS` (what `build()` assembles) kept apart from `COLUMNS` (what ships), or the slice
   runs before the two derived columns exist.
 
+  **Do not validate the pocket scores against the ligands axis's `n_drugs`**: most drug-bearing
+  proteins are ribosomal, short, and bound by antibiotics through rRNA, so the consensus ranks them
+  BELOW average (AUROC 0.35-0.41) and a low `p2rank_score` on an RNA-binding protein is not "no
+  site" (`docs/pockets.md`, audit of 2026-11-05).
+
   **NEVER SUM THE TWO LIGAND COUNTS** — a co-crystal of this protein (88 Kp / 308 Ec / 90 Sa
   proteins) and a transplant from a ~30%-identity homolog (1,533 / 1,196 / 704) are different
   evidence. Both are **non-redundant = distinct Bemis-Murcko generic scaffolds**, reusing
