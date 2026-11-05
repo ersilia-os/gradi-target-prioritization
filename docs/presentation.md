@@ -226,6 +226,44 @@ Reproducible from the deliverables; recorded here so they are not lost.
 - **`ligands_consensus` is ~97% ties at exactly 0 on Kp** (the zero block is pinned by design), so
   any Spearman involving it is dominated by that tie block and is not an ordinary correlation.
 
+## E. coli x ASKA shortlist (2026-11-05)
+
+E. coli only, restricted to proteins with a clone in the ASKA (-) library (4,076 distinct proteins).
+`plotting/ecoli_aska_analysis.py` measures what each criterion costs (tables `output/results/shortlist/ecoli_aska_*.tsv`),
+`plotting/ecoli_aska_degradability.py` draws the gate's scores against a random sample of the proteins it did NOT select,
+and `plotting/shortlist_ecoli.py` builds the table. Four gates, each a stated predicate, no composite:
+
+| gate | rule | proteins left |
+|---|---|---|
+| ASKA | clone in the library | 4,076 (of 4,403) |
+| cytosolic | DeepLocPro `cytoplasm` OR TMbed `cytoplasmic_fraction == 1` | 2,638 |
+| degradable | consensus >= 0.7096 OR (measured *S. aureus* ortholog degrader AND consensus >= 0.4951) | 940 |
+| essential | measured in any DEG screen AND `essentiality_consensus` >= 0.7682 | **166** |
+
+- **Every cut is derived each run.** 0.7096 is the quantile at which the degradability consensus passes the same
+  share (28.4%) as "either activator above its base-rate cut"; 0.4951 is the proteome median (the ortholog-degrader
+  rate climbs with the consensus: 4% below 0.3, 16-19% at 0.3-0.6, 29% at 0.6-0.7, 79% above 0.9); 0.7682 is the
+  quantile at 1 - the measured base rate (15.8%).
+- **Leave-one-out:** dropping ASKA gives +3, cytosolic +6, degradable +155, essential +774. ASKA and the cytosolic
+  gate are nearly free; essentiality and degradability do the work.
+- **Cost of the essential rule:** only 55% of measured-any essentials clear the consensus cut (AUROC of consensus vs
+  `deg_essential_any` is 0.785). The 103 that pass the other gates but not the cut are in
+  `shortlist_ecoli_aska_measured_below_cut.tsv`.
+- **Decorators, never gated:** `has_human_ortholog` (98 of the 166 have one), ligandability, `n_drugs` (45 have a
+  recorded drug), pockets, studiedness, route, ASKA clone ids. 43 of the 166 are ribosomal; median length 180 aa
+  against 282 for the ASKA pool.
+- **The list of 200** (`shortlist_ecoli_aska_top200.tsv`, a two-part rule, not a score): the absolute top 50 by
+  `degradability_consensus` among the 940 that pass the first three gates, topped up with the 166 essential-gate
+  survivors in degradability order to 200. `list_source` says why each row is there (43 `top_degradability`, 150
+  `essential_gate`, 7 `both`); the 9 lowest-degradability essential-gate proteins are in `..._top200_overflow.tsv`.
+- **Random control** (`shortlist_ecoli_aska_control50.tsv`, seed 0): 50 of the 1,072 cytosolic ASKA proteins below the
+  proteome-median consensus (0.4951) and not on the list, 40 measured essential / 10 not (the list's 80% share; the
+  pool's own is 12%). It is much longer than the list (median 382 vs 156 aa), so a comparison mixes degradability
+  with protein size.
+- **Caveats:** E. coli degradability is extrapolated from *S. aureus* labels (ranking hypotheses), and the E. coli
+  essentiality consensus is built from the same screens as the measured calls, so the AND reads "the screens agree
+  and nothing contradicts them".
+
 ## Caveats that must travel with the deck
 
 1. **Kp degradability rows are ranking hypotheses**, extrapolated from S. aureus labels. The premise

@@ -1779,6 +1779,15 @@ their best-scoring P2Rank pocket, which needs `from pymol import cmd` — availa
 `scripts/pockets/workers/pymol_render.py` and the orchestrator only selects, tiles and captions.
 Renders cache in `data/processed/pockets/scratch/renders/`; `--refresh` re-runs pymol.
 
+**The E. coli shortlist is a separate, ASKA-restricted cascade** (2026-11-05): `plotting/ecoli_aska_analysis.py`
+(what each criterion costs; `load_ecoli()` is the shared frame), `plotting/ecoli_aska_degradability.py` (gate scores vs
+a random sample of the proteins NOT selected) and `plotting/shortlist_ecoli.py` (the table, `gradi` env). Four gates —
+ASKA, cytosolic (DeepLocPro `cytoplasm` OR TMbed fraction 1), degradable (consensus >= derived cut OR measured
+*S. aureus* ortholog degrader above the proteome-median floor), essential (measured any AND consensus >= base-rate
+cut, `--essential` swaps it) — 4,403 → 4,076 → 2,638 → 940 → **166**. Every cut is computed each run, never
+hard-coded; selectivity, ligands, pockets and studiedness are decorators. `filters.py` is still the Kp cascade.
+Record: `docs/presentation.md`.
+
 **Four more traps, from rendering STRUCTURES rather than plotting values. Each fix caused the
 next, and every one is invisible once correct:**
 
