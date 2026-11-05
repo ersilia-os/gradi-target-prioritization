@@ -884,3 +884,36 @@ in-set species, where the correct weight is 89–121 instead of 2.86. Kp was una
 The key is now a hash of the resolved path, and the pre-check in `main()` shares one
 `_cv_cache_path()` function with `_cv_cached()` — they had already drifted once, with the pre-check
 reporting "37 cached" while the real key recomputed all of them.
+
+### 2026-11-05 — the evidence ladder reads different sources
+
+**`essentiality_evidence` now counts, per species** (`EVIDENCE_USES_DEG` / `EVIDENCE_SCREENS` in
+`scripts/essentiality/merge.py`; the ladder itself — count, unanimity, concordance with the consensus
+at a base-rate cut — is unchanged):
+
+| species | sources | before |
+|---|---|---|
+| *E. coli* | Keio, Goodall, Choe (the three K-12 screens on the exact anchor, keyed by b-number) | DEG1018 + DEG1019 + OGEE |
+| *S. aureus* | DEG1017 + DEG1061 | DEG + OGEE |
+| *K. pneumoniae* | `strain_homologs` (3 screened strains) — unchanged | same |
+
+**Why.** On *E. coli* the old sources were not the best measurements: **OGEE and DEG agree on 99.1% of
+proteins (Jaccard of essentials 0.948)**, so OGEE counted one experiment twice; **DEG1018 (genetic
+footprinting) calls 410 genes essential that Keio calls non-essential** and misses 6 Keio essentials
+(rho, prfB, glmM among them), and DEG1019 is the Keio experiment again; and the three screens we
+actually train on never reached the ladder. Keio and Goodall agree on 97.5% of proteins (Jaccard
+0.73), Keio–Choe 93.4% (0.44). The old level did not track agreement among the screens: of 214
+proteins essential in all three K-12 screens, 64 sat at level 2; of 3,468 non-essential in all three,
+625 did.
+
+**Result.** *E. coli* 110 / 923 / 3,370 → **110 / 593 / 3,700**; *S. aureus* 65 / 517 / 2,307 →
+**211 / 309 / 2,369** (146 *S. aureus* proteins had OGEE as their only measurement); *K. pneumoniae*
+unchanged at 1,003 / 751 / 3,974. No other column moved. On *E. coli* level 2 is now 31 proteins with
+one screen, 338 where the screens conflict, and 224 where the screens agree but the consensus does
+not. **`consensus_audit.tsv` gains a `sources` column.**
+
+**Caveats.** Keio, Goodall and Choe are all BW25113-lineage, so three agreeing screens is closer to
+one strain and three assays. Concordance with the consensus is partly circular on *E. coli*, because
+the consensus is built from those same screens (screens scored in-sample, Geptop self-derived): read a
+3 as "the screens agree and nothing contradicts them", not as extra corroboration. `deg_<species>.tsv`
+and `ogee_<species>.tsv` are unchanged. A merged `--rule any` still drives `deg_essential_any`.

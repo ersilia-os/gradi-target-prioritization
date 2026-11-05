@@ -143,9 +143,12 @@ def load(species: str) -> pd.DataFrame:
     you making. The three inputs agree only loosely (Spearman 0.13–0.57), so this is a consensus of
     differing opinions, not three views of one.
 
-    **The evidence level is COUNT + CONCORDANCE**, over three independent experimental sources —
-    DEG screens on this exact strain, the OGEE measured label, and a ≥95% counterpart in a screened
-    strain of the same species (`evidence/strain_homologs_<species>.tsv`):
+    **The evidence level is COUNT + CONCORDANCE**, over the experimental sources of
+    `scripts/essentiality/merge.py` (`EVIDENCE_USES_DEG`, `EVIDENCE_SCREENS`), changed 2026-11-05:
+    *E. coli* reads its three K-12 screens (Keio, Goodall, Choe), *S. aureus* reads DEG on the exact
+    strain, and *K. pneumoniae* reads a ≥95% counterpart in a screened strain
+    (`evidence/strain_homologs_<species>.tsv`). **The OGEE label is no longer a source** — it agrees
+    with DEG on 99.1% of E. coli proteins, so it counted one experiment twice:
 
         3  two or more sources, unanimous, AND agreeing with the consensus
         2  exactly one source, or several that conflict — with each other or with the consensus

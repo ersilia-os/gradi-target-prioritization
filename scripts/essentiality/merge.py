@@ -108,6 +108,20 @@ ANCHOR_DATASETS = {
 }
 SPECIES = ("kpneumoniae", "ecoli", "saureus")
 
+# THE EVIDENCE SOURCES, per species (owner's call, 2026-11-05). `ogee_evidence` is NOT one: on
+# E. coli it agrees with DEG on 99.1% of proteins (Jaccard of essentials 0.95), i.e. one experiment
+# counted twice, so it left the ladder everywhere. E. coli reads the three screens that measure the
+# exact anchor (Keio, Goodall, Choe -- BW25113 lineage, three different assays) INSTEAD of DEG, whose
+# DEG1018 genetic-footprinting set calls 410 genes essential that Keio calls non-essential and whose
+# DEG1019 is the Keio experiment again. S. aureus has no screen of ours on the anchor, so it keeps
+# DEG. K. pneumoniae reads its three screened strains through strain_homologs.
+EVIDENCE_USES_DEG = {"kpneumoniae": False, "ecoli": False, "saureus": True}
+EVIDENCE_SCREENS = {
+    "ecoli": ["essential_ecoli_k12_knockout", "essential_ecoli_bw25113_tradis_goodall",
+              "essential_ecoli_bw25113_tnseq_choe"],
+}
+MIN_SCREEN_KEY_RATE = 0.90   # a screen whose key misses the anchor would silently drop out
+
 VERBOSE = True
 
 
@@ -168,10 +182,11 @@ def consensus_and_evidence(sp: str, df: pd.DataFrame):
     shipped columns. No measurement enters it, so it stays comparable across all three species and
     every protein, and it is NOT the old `essentiality` column that was dropped for mixing units.
 
-    THE EVIDENCE IS COUNT + CONCORDANCE, over three independent experimental sources:
+    THE EVIDENCE IS COUNT + CONCORDANCE, over the experimental sources of `EVIDENCE_USES_DEG` and
+    `EVIDENCE_SCREENS` (the OGEE label is NOT one -- it duplicates DEG, 99.1% agreement on E. coli):
 
-        DEG screens on this exact strain        deg_n_datasets / deg_n_essential
-        the OGEE measured label                 ogee_evidence (1.0 / 0.0 / null)
+        DEG screens on this exact strain        deg_n_datasets / deg_n_essential   (S. aureus only)
+        our screens on this exact anchor        training_sets/<screen>.tsv         (E. coli only)
         a >=95% counterpart in a screened        strain_homologs_<sp>.tsv
           strain of the same species
 
@@ -187,23 +202,31 @@ def consensus_and_evidence(sp: str, df: pd.DataFrame):
     """
     cons = C.percentile_consensus(df, CONSENSUS_INPUTS)
 
-    # EVERY SOURCE IS READ FROM ITS OWN FILE, never from `df`. The first version trusted `df` to
-    # carry `ogee_evidence` behind an `if ... in df.columns` guard; it does not -- the join loop
-    # above merges `ogee_ess` only -- so OGEE was silently omitted from every evidence level and
-    # 25 E. coli proteins whose screens and OGEE disagree were promoted to 3. A missing source
-    # must be loud, so an absent file raises here rather than quietly lowering the count.
+    # EVERY SOURCE IS READ FROM ITS OWN FILE, never from `df`. A missing source must be loud, so an
+    # absent file raises here rather than quietly lowering the count (the first version of this
+    # function silently omitted OGEE and promoted 25 E. coli proteins to level 3).
     key = df["uniprot_ac"]
     n_calls = pd.Series(0, index=df.index, dtype=int)
     n_pos = pd.Series(0, index=df.index, dtype=int)
+    used = []
 
-    deg = Es.load_deg(sp).set_index("uniprot_ac").reindex(key)
-    n_calls += deg["deg_n_datasets"].fillna(0).astype(int).to_numpy()
-    n_pos += deg["deg_n_essential"].fillna(0).astype(int).to_numpy()
+    if EVIDENCE_USES_DEG[sp]:
+        deg = Es.load_deg(sp).set_index("uniprot_ac").reindex(key)
+        n_calls += deg["deg_n_datasets"].fillna(0).astype(int).to_numpy()
+        n_pos += deg["deg_n_essential"].fillna(0).astype(int).to_numpy()
+        used.append("DEG")
 
-    og = pd.to_numeric(Es.load_ogee(sp).set_index("uniprot_ac").reindex(key)["ogee_evidence"],
-                       errors="coerce")
-    n_calls += og.notna().astype(int).to_numpy()
-    n_pos += (og == 1).astype(int).to_numpy()
+    for screen in EVIDENCE_SCREENS.get(sp, []):
+        t = pd.read_csv(OUT_DIR / "training_sets" / f"{screen}.tsv", sep="\t").set_index("key")["label"]
+        lab = t.reindex(key)
+        rate = float(lab.notna().mean())
+        if rate < MIN_SCREEN_KEY_RATE:
+            sys.exit(f"FATAL {screen} keys onto only {rate:.1%} of the {sp} anchor (floor "
+                     f"{MIN_SCREEN_KEY_RATE:.0%}) -- its key is not the anchor accession, so it "
+                     "would silently drop out of the evidence level")
+        n_calls += lab.notna().astype(int).to_numpy()
+        n_pos += (lab == 1).astype(int).to_numpy()
+        used.append(screen)
 
     sh_path = OUT_DIR / "evidence" / f"strain_homologs_{sp}.tsv"
     if not sh_path.exists():
@@ -225,7 +248,8 @@ def consensus_and_evidence(sp: str, df: pd.DataFrame):
     concordant = called_pos.eq(predicted_pos)
 
     level = C.evidence_level(n_calls, unanimous, concordant)
-    info = {"n_covered": int(covered.sum()), "n_proxy_only": n_strains,
+    info = {"sources": ";".join(used + (["strain_homologs"] if n_strains else [])),
+            "n_covered": int(covered.sum()), "n_proxy_only": n_strains,
             "base_rate": round(base, 4) if base == base else None,
             "consensus_cut": round(cut, 4) if cut == cut else None,
             "level_1": int((level == 1).sum()), "level_2": int((level == 2).sum()),

@@ -1366,6 +1366,17 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   experiment was weak". Concordance uses a **base-rate cut, never 0.5** — essentials are 11–17% of
   a proteome — recorded per run in `evidence/consensus_audit.tsv`.
 
+  **THE EVIDENCE SOURCES CHANGED 2026-11-05 (owner's call), per species**: *E. coli* counts its three
+  K-12 screens (Keio, Goodall, Choe — **BW25113 lineage, so closer to one strain and three assays**),
+  *S. aureus* counts DEG1017 + DEG1061, *K. pneumoniae* counts `strain_homologs`. **OGEE is no longer
+  a source anywhere**: it agrees with DEG on 99.1% of E. coli proteins (Jaccard 0.95), so it counted
+  one experiment twice. Levels: Ec 110/923/3,370 → **110/593/3,700**, Sa 65/517/2,307 →
+  **211/309/2,369**, Kp unchanged. The old Ec sources were poor: DEG1018 calls 410 genes essential
+  that Keio calls non-essential and misses 6 Keio essentials (rho, prfB, glmM), and DEG1019 is Keio
+  again. **On E. coli concordance is partly circular** (the consensus is built from the same screens),
+  so read a 3 as "the screens agree and nothing contradicts them". `merge.py` exits non-zero if a
+  screen's key misses the anchor below 90%. Details: `docs/essentiality.md`.
+
   **`strain_homologs.py` is why Kp has any evidence at all.** DEG has **no Klebsiella** and exact
   sequence matching against ALL of DEG reaches **29 of 5,728 Kp proteins (0.5%)**. A DIAMOND join
   at **≥95% identity / ≥50% subject coverage** to the three screened Kp strains reaches **4,725
