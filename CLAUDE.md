@@ -641,7 +641,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   **Fusion, measured** (5 seeds, cluster-grouped CV, identical folds): ADEP4 **0.882 / PR
   0.635**, ONC212 **0.769 / 0.587** vs the ESM-C-only 0.874 / 0.610 and 0.767 / 0.580. The 0.8738 /
   0.7671 figures further down are the ESM-C arm, which still reproduces under
-  `GRADI_TABPFN_CACHE_ONLY=1`. `BASE_RATE_THRESHOLD` is **not yet re-derived** for fused scores.
+  `GRADI_TABPFN_CACHE_ONLY=1`. `BASE_RATE_THRESHOLD` was **re-derived for the fused scores on 2026-11-05**: 0.319 / 0.308.
 
   **`<act>_ortholog_hit` (nullable 1/0/NA)**: a measured *S. aureus* ortholog (OrthoFinder or RBH, any
   measured one) is a degrader (1) or all are not (0). **NA means nothing to say, NEVER 0** — no
@@ -649,6 +649,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   label separating the NAs is `evidence/ortholog_support_<sp>.tsv`. **Not independent of the model**:
   the ortholog's label was training data, so agreement is consistency, not validation. Defined once
   in `D.saureus_ortholog_support()`; `scripts/degradability/orthology_check.py` reports it.
+  `cosine_calibration.py` is the cosine-vs-orthology calibration behind dropping the ladder;
   `fusion_eval.py` and `label_sensitivity.py` are the fusion and binarization checks
   (`output/results/degradability/`); `label_sensitivity.py` spends hosted credits.
 
@@ -723,11 +724,12 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   agree" is closer to one opinion than two.
 
   **0.5 is the wrong threshold and the right one MOVED with the estimator.** Probabilities top out at
-  0.868 on Kp, so `≥0.5` now selects 220 Kp proteins where it selected 20. `src.degradability.hits()`
-  defaults to the re-derived base-rate cuts (**0.328 / 0.313**, replacing the forest's 0.394 / 0.426)
+  0.887 on Kp, so `≥0.5` now selects 240 Kp proteins where the forest selected 20. `src.degradability.hits()`
+  defaults to the re-derived base-rate cuts (**0.319 / 0.308** on the fused out-of-fold scores,
+  replacing 0.328 / 0.313 for ESM-C only and the forest's 0.394 / 0.426)
   — empirical quantiles of the OOF distribution, so **re-derive them on any estimator change**. They
   reproduce the base rate on the LABELED set, not a proteome: whole-proteome the same cut takes
-  14.4–20.9% (adep4) / 31.4–34.6% (onc212). Better still, rank on `_prob`.
+  13.6–20.0% (adep4) / 27.7–34.4% (onc212). Better still, rank on `_prob`.
 
   ***E. coli* and *K. pneumoniae* rows are ranking hypotheses, not measurements.** `nn_similarity` and
   `evidence/domain_bands.tsv` price the extrapolation (ADEP4 Kp 0.814 / Ec 0.817), but **a fifth of
@@ -745,17 +747,18 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   2× in size, so an absolute N makes the odds ratios incomparable. **Judge enrichment against the
   LABELS, not against the previous model — this was got wrong once**: two of the forest's five
   "consistent" categories were artifacts, and using the incumbent's behaviour as the acceptance test
-  silently assumes the incumbent was right. **The clearest case is `extracellular`, which the forest
-  depleted and TabPFN ENRICHES** (OR 2.08–3.80, significant on all three species under ONC212) —
-  tracking the measured 0.346 hit rate above cytoplasm's 0.275, i.e. the same "secreted proteins
-  transit the cytoplasm unfolded" mechanism. Two standing caveats: **B chromatin is the largest OR
+  silently assumes the incumbent was right. **The case to remember is `extracellular`**:
+  the forest depleted it, the ESM-C-only TabPFN enriched it (OR 2.08–3.80 under ONC212), and the
+  **fused scores mostly do not** (ONC212 1.53 Kp / 0.83 Ec n.s. / 1.78 Sa; ADEP4 1.23 / 0.95 / 0.42,
+  refreshed 2026-11-05) — so do not quote `Ext` as confirming the "secreted proteins transit the
+  cytoplasm unfolded" mechanism. Two standing caveats: **B chromatin is the largest OR
   (64) and the weakest evidence — 8 members, quote the count, not the ratio**, and both estimators
   track length far more strongly than the labels do (−0.61 vs −0.33).
 
   Figures (stylia, one at a time) in `scripts/plots/`: `degradability.py`,
   `degradability_predictions.py` (**read `extrapolation.png` panel B before quoting any expected
   AUROC**) and `degradability_top.py`, which shows that **the two activators' top-100 lists share
-  only 24/100 on Kp** despite ρ 0.89 — *global rank correlation is not shortlist agreement*.
+  only 28/100 on Kp** (fused scores) despite ρ 0.88 — *global rank correlation is not shortlist agreement*.
 
   **Load through `src/degradability.py`**; the name collides with the frozen
   `legacy/src/degradability.py`, which v2 never imports. Details: `docs/degradability.md`.

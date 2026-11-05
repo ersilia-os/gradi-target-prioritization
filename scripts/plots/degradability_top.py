@@ -115,7 +115,8 @@ def plot_top(ax, df: pd.DataFrame, species: str, activator: str, n: int, abc: st
     colors = [COG_GROUP_COLOR.get(g, NC.gray) for g in t.cog_group]
     ax.barh(y, t[f"{activator}_prob"], color=colors)
 
-    measured_hit = t["uniprot_ac"].map(D.measured(activator)) == 1
+    # `measured()` is nullable (NA = never tested), and `if NA` raises: untested is not a hit
+    measured_hit = (t["uniprot_ac"].map(D.measured(activator)) == 1).fillna(False).astype(bool)
     labels = [f"{lab} *" if hit else lab for lab, hit in zip(t.label, measured_hit)]
     ax.set_yticks(y)
     ax.set_yticklabels(labels)

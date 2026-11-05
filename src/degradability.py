@@ -432,22 +432,20 @@ def manifest() -> pd.DataFrame:
     return pd.read_csv(_path(EVIDENCE_DIR, "manifest.tsv"), sep="\t")
 
 
-# A balanced forest at a 13.7% / 24.6% base rate stays conservative: `adep4_prob` tops out around
-# 0.61 on K. pneumoniae, so **0.5 is not a meaningful cut** -- it selects only 20 of 5,728 Kp
-# proteins. These are the out-of-fold thresholds that reproduce each activator's own training base
-# rate, which is a defensible default if you must threshold at all. Ranking is usually better.
 # The probability cut that reproduces each activator's training base rate on the LABELED set --
 # an empirical quantile of the out-of-fold distribution, so it is a property of the ESTIMATOR'S
-# CALIBRATION and must be re-derived whenever the estimator changes. Measured on TabPFN-3.5's OOF;
-# the forest's were 0.394 / 0.426 and are wrong for TabPFN, whose probabilities span a much wider
-# range (max 0.87-0.95 on Kp against the forest's ~0.61, so `>= 0.5` now selects 220 Kp proteins
-# where it selected 20).
+# CALIBRATION and must be re-derived whenever the estimator changes. Measured on the FUSED
+# (ESM-C + ProtT5) TabPFN-3.5 out-of-fold probabilities, `oof_fused` in
+# `evidence/oof_<activator>_saureus.tsv`, at base rates 13.71% / 24.59%: 0.3191 / 0.3075.
+# History: the forest's were 0.394 / 0.426 (wrong for TabPFN, whose probabilities span a much wider
+# range: `>= 0.5` selects 220 Kp proteins where the forest selected 20) and the ESM-C-only TabPFN's
+# were 0.328 / 0.313.
 #
 # **It reproduces the base rate on the LABELED set, not on a proteome.** Applied whole-proteome the
-# same cut selects 14-21% (adep4) and 31-35% (onc212), because unlabeled proteins do not share the
+# same cut selects 14-20% (adep4) and 28-34% (onc212), because unlabeled proteins do not share the
 # labeled set's score distribution. That is expected, not a defect -- but do not read the cut as
 # "this many proteins are substrates".
-BASE_RATE_THRESHOLD = {"adep4": 0.328, "onc212": 0.313}
+BASE_RATE_THRESHOLD = {"adep4": 0.319, "onc212": 0.308}
 
 
 def hits(df: pd.DataFrame, activator: str, threshold: float | None = None) -> pd.DataFrame:

@@ -6,6 +6,11 @@ One question per protein: **is it a substrate of activated partnerless ClpP?** A
 **TabPFN-3.5** classifier on stage-01 ESM-C embeddings, trained on the two *S. aureus* activator
 screens and applied to the rest of *S. aureus* and all of *E. coli* and *K. pneumoniae*.
 
+**The shipped scores are now a late fusion** (2026-11-04): one TabPFN-3.5 model per embedding
+(ESM-C and ProtT5), probabilities averaged. Fused, 5 seeds, cluster-grouped CV: **ADEP4 0.882 / PR
+0.635, ONC212 0.769 / PR 0.587**. **The table below is the ESM-C arm**, which still reproduces
+under `GRADI_TABPFN_CACHE_ONLY=1`; the fusion run is in the 2026-11-04 log entry.
+
 | activator | paper | labeled | positives | out-of-fold ROC-AUC | PR-AUC | cross-assay ref |
 |---|---|---|---|---|---|---|
 | `adep4` | Conlon 2013 (ADEP4) | 1,677 | 230 (13.7%) | **0.8738 ± 0.0029** | **0.6103** | 0.877 |
@@ -295,6 +300,8 @@ python scripts/plots/degradability.py
 python scripts/plots/degradability_predictions.py
 python scripts/plots/degradability_top.py
 python scripts/degradability/enrichment.py
+python scripts/degradability/orthology_check.py --species ecoli   # also kpneumoniae, --rbh-only
+python scripts/degradability/cosine_calibration.py                # cosine vs orthology, conserved genes
 ```
 
 The `gradi` env throughout — **never activate `gradi-tabpfn` to run the stage**; it reaches that env
@@ -307,7 +314,7 @@ served from the content-addressed cache — see *Traps*.
 
 ```
 data/processed/degradability/
-    degradability_<species>.tsv               8 columns, keyed on uniprot_ac, every protein present
+    degradability_<species>.tsv               7 columns, keyed on uniprot_ac, every protein present
     evidence/
         labels_saureus.tsv                    measured call + log2FC on uniprot_ac + join evidence
         seqmap_audit.tsv                      every join: source acc, target, pident, cov, verdict
@@ -316,7 +323,10 @@ data/processed/degradability/
         cutoff_sensitivity.tsv                model vs cross-assay vs length, per cutoff
         domain_bands.tsv                      AUROC by similarity band + per-species reweighting
         oof_<activator>_saureus.tsv           out-of-fold probability + fold index per labeled protein
-        model_<activator>.npz                 the training set + config, and its CV metrics
+        model_<activator>[_prott5].npz        the training set + config per embedding, and its CV metrics
+        consensus_audit.tsv                   per protein: measured calls, labels_agree, nn_similarity,
+                                              band_validated, consensus and the 1-3 ladder (dropped column)
+        ortholog_support_<species>.tsv        why each *_ortholog_hit is 1, 0 or NA, plus the log2FC
         manifest.tsv
     scratch/
         smoke_*                               --limit output, safe to purge
@@ -331,15 +341,17 @@ a way a pickled forest does not.
 
 | column | meaning |
 |---|---|
-| `<act>_prob` | the model's probability, for **every** protein — **out-of-fold** where labeled, and **averaged over the 5 CV seeds** |
-| `nn_similarity` | cosine to the nearest *S. aureus* training protein in ESM-C space |
+| `<act>_prob` | the fused model's probability for **every** protein, **averaged over 5 seeds**. **Out-of-fold only for the labeled *S. aureus* proteins**; every other protein (all of *E. coli* and *K. pneumoniae*, and the unlabeled *S. aureus* ones) is unseen, so it gets the full-fit prediction and there is no fold to hold out |
+| `nn_similarity` | raw ESM-C cosine to the nearest *S. aureus* training protein. **Not a relatedness measure**: random pairs have median 0.775 and a median ortholog pair only 0.89–0.91 |
 | `degradability_consensus` | 0–1, the mean within-species percentile rank of the two `_prob` columns |
+| `<act>_ortholog_hit` | nullable 1 / 0 / NA, per activator: a measured *S. aureus* ortholog is a degrader (1) or none is (0). **NA is nothing to say, never 0** |
 
 ### The two standard columns
 
 Added **2026-10-04**, the axis's share of the project-wide pair defined in `src/consensus.py`.
-This is the first axis with both a real magnitude and a real experiment, so unlike function and
-proteomes it ships the consensus as well as the evidence.
+This was the first axis with both a real magnitude and a real experiment, so it shipped the
+consensus as well as the evidence. **The evidence column was dropped on 2026-11-05** (below); the
+consensus stays.
 
 **`degradability_consensus` adds very little, and the docstring says so.** It correlates with
 either activator alone at **rho 0.970–0.973** on all three species, because the two probabilities
@@ -350,7 +362,24 @@ axis's comparable 0–1 scale, **not** as two-source corroboration.
 
 **`nn_similarity` is deliberately not an input to it.** It measures how far the prediction reached
 in ESM-C space, not how degradable the protein is; averaging it in would rank a well-covered
-non-substrate above a poorly-covered substrate. It belongs to the evidence column instead.
+non-substrate above a poorly-covered substrate.
+
+#### `degradability_evidence` — dropped 2026-11-05, kept here as the record
+
+**Why it went (owner's call).** The tier rested on `nn_similarity >= 0.90`, and raw ESM-C cosine
+turned out not to mean "similar protein". Measured against the whole *S. aureus* proteome
+(`scripts/degradability/cosine_calibration.py` → `output/results/degradability/cosine_calibration.tsv`): random *Ec*/*Kp*–*Sa* pairs have **median cosine
+0.775 / 0.761, 95th percentile 0.90 / 0.89, 99th 0.93**, while a true ortholog pair (OrthoFinder or
+RBH) has a **median of 0.906 (Ec) / 0.894 (Kp)** — the 0.90 cut sits at the random-pair 95th
+percentile. A protein's nearest *S. aureus* neighbour is a true ortholog only **1.7% / 2.0%** of the
+time at 0.90–0.93 and **6.8% / 6.9%** at 0.95–0.97 (23.5% / 12.9% above 0.97). Mean-pooled ESM-C
+vectors share a large common component, so every pair scores high. The band AUROCs behind the cut
+were also built excluding only the protein itself, not its paralogs, so they are probably
+optimistic. The ladder is still computed by `D.evidence()` and is **verified equal to the dropped
+column on all 13,020 rows** in `evidence/consensus_audit.tsv`. If a tier returns it should rest on
+sequence identity or the ortholog call (`orthology/neighbors.tsv`), not on cosine.
+
+The ladder as it was:
 
 ```
 3  measured -- the protein was in an activator screen
@@ -436,22 +465,24 @@ legacy degradability TSV).
 ### Thresholding: 0.5 is the wrong cut, and the right cut MOVED with the estimator
 
 TabPFN's probabilities span a much wider range than the balanced forest's did. Measured on the
-shipped tables: `adep4_prob` tops out at **0.8675 on Kp**, 0.8281 on Ec and **0.9459 on Sa**, so
-`>= 0.5` selects **220 Kp**, 210 Ec and 232 Sa (547 / 356 / 376 for `onc212_prob`). *Under the
+shipped (fused) tables: `adep4_prob` tops out at **0.8873 on Kp**, 0.8495 on Ec and **0.9472 on
+Sa**, so `>= 0.5` selects **240 Kp**, 214 Ec and 226 Sa (393 / 290 / 281 for `onc212_prob`). *(The
+ESM-C-only table read 220 / 210 / 232 and 547 / 356 / 376.) Under the
 forest `adep4_prob` topped out near 0.614 on Kp and `>= 0.5` selected 20 of 5,728 — that is the
 superseded number, and it is why a cut inherited from the old outputs now behaves completely
 differently.*
 
-The thresholds that reproduce each activator's own training base rate are **0.328** (adep4) and
-**0.313** (onc212), re-derived for TabPFN; the forest's were 0.394 / 0.426.
+The thresholds that reproduce each activator's own training base rate are **0.319** (adep4) and
+**0.308** (onc212), re-derived 2026-11-05 on the **fused** out-of-fold probabilities (`oof_fused`);
+the ESM-C-only TabPFN's were 0.328 / 0.313 and the forest's 0.394 / 0.426.
 `src.degradability.hits()` defaults to them (`BASE_RATE_THRESHOLD`). Two things about them:
 
 - **They are empirical quantiles of the out-of-fold distribution**, i.e. a property of the
   estimator's *calibration*, not of the biology. **Re-derive them on any estimator change** — the
   retrofit is the worked example of what happens if you do not.
 - **They reproduce the base rate on the LABELED set, not on a proteome.** Applied whole-proteome the
-  same cut takes **adep4 Kp 16.4% · Ec 14.4% · Sa 20.9%** and **onc212 Kp 33.1% · Ec 31.4% ·
-  Sa 34.6%** — far above the 13.7% / 24.6% training base rates, and not an estimate of how many real
+  same cut takes **adep4 Kp 14.1% · Ec 13.6% · Sa 20.0%** and **onc212 Kp 29.5% · Ec 27.7% ·
+  Sa 34.4%** — far above the 13.7% / 24.6% training base rates, and not an estimate of how many real
   substrates each proteome holds.
 
 Better still: rank on `_prob` and take a top-N. The model was validated on ranking, not on any cut.
@@ -525,9 +556,10 @@ measured non-hits**, while **ONC212's two groups (0.349 vs 0.176)** sit much clo
 AUROC difference (0.8738 vs 0.7671) seen as a distribution rather than a curve. *(Forest-era this
 read 0.45 vs 0.20 and 0.44 vs 0.32; TabPFN separates ADEP4 far more sharply at the bottom.)*
 
-At the base-rate cut (0.328 / 0.313) the selected fraction is **16.4% Kp · 14.4% Ec · 20.9% Sa** for
-ADEP4 and **33.1 / 31.4 / 34.6%** for ONC212. *(The forest's cuts of 0.394 / 0.426 gave 13.1 / 14.5 /
-15.4% and 18.7 / 18.7 / 25.5%; those are superseded.)* These are **not** close to the training base
+At the base-rate cut (0.319 / 0.308, fused) the selected fraction is **14.1% Kp · 13.6% Ec · 20.0%
+Sa** for ADEP4 and **29.5 / 27.7 / 34.4%** for ONC212. *(The ESM-C-only cuts of 0.328 / 0.313 gave
+16.4 / 14.4 / 20.9% and 33.1 / 31.4 / 34.6%; the forest's 0.394 / 0.426 gave 13.1 / 14.5 / 15.4%
+and 18.7 / 18.7 / 25.5%. Both are superseded.)* These are **not** close to the training base
 rates — the cut reproduces the base rate on the *labeled* set, not on a whole proteome — and they
 are *not* evidence about how many real substrates each proteome holds.
 
@@ -539,7 +571,8 @@ threshold*, but with the mass at the other end.
 ### `agreement.png`
 
 adep4 vs onc212 predicted probability, one panel per species, hexbinned. A tight near-linear ridge:
-**rho +0.895 Kp · +0.891 Ec · +0.884 Sa** over all rows, measured on the shipped tables. *(The
+**rho +0.883 Kp · +0.878 Ec · +0.891 Sa** over all rows, measured on the shipped (fused) tables
+*(ESM-C-only TabPFN: +0.895 / +0.891 / +0.884)*. *(The
 forest gave +0.835 / +0.833 / +0.835, so **TabPFN made the two columns LESS independent, not
 more**.)* The underlying *labels* agree at only
 rho 0.52 / Jaccard 0.32, so the models agree far more than the experiments do — both read the same
@@ -609,7 +642,8 @@ enrichment reads as bar-vs-tick.
   translation and transcription machinery, which is what both screens found.
 
 Panel C is the one that changes how the ranking should be used. Despite rho 0.835 between the two
-activators' scores, their **top 100 lists share only 24/100 on Kp**, 32 on Ec, 40 on Sa — and at
+activators' scores, their **top 100 lists share only 28/100 on Kp**, 28 on Ec, 32 on Sa (fused, 2026-11-05; ESM-C-only
+was 24 / 32 / 40) — and at
 top-10 the Kp lists share *nothing*. Chance is ~2/100, so the agreement is real and far above
 random; it is simply nowhere near interchangeable. **Global rank correlation is not shortlist
 agreement**, and a shortlist is what gets taken. Read alongside `agreement.png`: the two activators
@@ -718,19 +752,20 @@ that Clp reachability actually turns on. Ten groups per species: the six DeepLoc
 (which partition the proteome exactly, since DeepLocPro always calls), plus `has_signal_peptide`,
 `n_tm_helix > 0`, `n_tm_strand >= 8` (a beta-barrel) and `cytoplasmic_fraction == 1`.
 
-Odds ratios **regenerated from `enrichment_fisher.tsv` (TabPFN run)**; the ranges previously printed
-here — wholly cytoplasmic 11.5–13.1, Cyt 7.9–10.3, Ext 0.10–0.38 — were the forest's.
+Odds ratios **regenerated 2026-11-05 from `enrichment_fisher.tsv` on the FUSED scores**. The previous
+table (ESM-C-only TabPFN, 2026-09-17) read wholly cytoplasmic 9.22–29.82, Cyt 2.44–7.18 and Ext
+0.46–3.80; before that the forest's were wholly cytoplasmic 11.5–13.1, Cyt 7.9–10.3, Ext 0.10–0.38.
 
 | group | ADEP4 (Kp / Ec / Sa) | ONC212 (Kp / Ec / Sa) | reading |
 |---|---|---|---|
-| **wholly cytoplasmic** (`cytoplasmic_fraction == 1`) | **14.35\* / 9.22\* / 13.13\*** | **15.87\* / 11.43\* / 29.82\*** | the single strongest enrichment in the axis |
-| **Cyt** (cytoplasm) | 4.47\* / 7.18\* / 7.16\* | 2.44\* / 4.10\* / 2.88\* | |
-| **Ext** (extracellular) | 2.19\* / 1.01 / 0.46\* | **3.80\* / 2.23\* / 2.08\*** | **enriched, not depleted** — see below |
-| **OM** (outer membrane) | 0.11\* / 0.13\* / — | 0.94 / 0.97 / —, q ≈ 1 | ADEP4 avoids it; ONC212 is *exactly at chance* |
-| **CM** (cytoplasmic membrane) | 0.14\* / 0.12\* / 0.09\* | 0.16\* / 0.08\* / 0.06\* | |
-| **Peri** (periplasm) | 0.02\* / 0.07\* / — | 0.05\* / 0.00\* / — | |
-| **signal peptide** | 0.01\* / 0.04\* / 0.08\* | 0.07\* / 0.01\* / 0.00\* | an export signal is close to disqualifying |
-| **TM helix** | 0.05\* / 0.13\* / 0.05\* | 0.04\* / 0.06\* / 0.01\* | |
+| **wholly cytoplasmic** (`cytoplasmic_fraction == 1`) | **9.94\* / 10.91\* / 18.34\*** | **27.02\* / 34.58\* / 29.82\*** | the single strongest enrichment in the axis |
+| **Cyt** (cytoplasm) | 5.61\* / 9.31\* / 8.65\* | 4.40\* / 7.37\* / 3.62\* | |
+| **Ext** (extracellular) | 1.23 / 0.95 / 0.42\* | 1.53\* / 0.83 / 1.78\* | **mostly at chance under the fused scores** — see below |
+| **OM** (outer membrane) | 0.39\* / 0.17\* / — | 0.99 / 1.02 / —, q ≈ 1 | ADEP4 avoids it; ONC212 is *exactly at chance* |
+| **CM** (cytoplasmic membrane) | 0.10\* / 0.05\* / 0.06\* | 0.10\* / 0.03\* / 0.02\* | |
+| **Peri** (periplasm) | 0.15\* / 0.14\* / — | 0.05\* / 0.00\* / — | |
+| **signal peptide** | 0.16\* / 0.11\* / 0.04\* | 0.03\* / 0.01\* / 0.00\* | an export signal is close to disqualifying |
+| **TM helix** | 0.07\* / 0.07\* / 0.04\* | 0.03\* / 0.02\* / 0.02\* | |
 | **beta-barrel** | **0.00\* / 0.00\* / —** | **0.00\* / 0.00\* / —** | **not one of the 67 Kp / 66 Ec barrels is in the top 10%** |
 | **CW** (cell wall surface) | — / — / 0.50, n.s. | — / — / 0.00, n.s. | Sa only, n=19 — no power |
 
@@ -739,7 +774,7 @@ proteins and little else, and the ranking behaves that way — without localizat
 feature.
 
 **TMbed's residue count beats DeepLocPro's class label at predicting a high score.**
-`cytoplasmic_fraction == 1` gives OR 9.22–29.82 against 2.44–7.18 for the `cytoplasm` compartment
+`cytoplasmic_fraction == 1` gives OR 9.94–34.58 against 3.62–9.31 for the `cytoplasm` compartment
 itself, and it wins in all six arms. The two predictors share no machinery, so this is a genuine
 comparison: *how much of the protein sits in the cytoplasm* separates degradable from not better
 than *which compartment it was assigned to*. Consistent with `docs/localization.md`'s advice to
@@ -749,18 +784,20 @@ prefer the fraction for individual proteins.
 absolute: a 16–26-strand barrel folded into the outer membrane is not something a cytoplasmic
 protease processes.
 
-**`Ext` is the one place the TabPFN table says something the forest's did not, and it agrees with
-the labels.** The forest depleted `extracellular` for ADEP4 (0.10–0.38) and sat at chance for
-ONC212; TabPFN **enriches** it for ONC212 in all three species (2.08–3.80\*) and on Kp for ADEP4
-(2.19\*). That is the direction the measured hit rates already showed — ONC212 hits 34.6% of
-extracellular proteins against 27.5% of cytoplasmic ones, because a secreted protein transits the
-cytoplasm as an unfolded chain — so the model is tracking the labels rather than the intuition.
-Still read it cautiously: `docs/localization.md` records `extracellular` as the least trustworthy
-compartment (TMbed disputes 58% of those calls), and the two screens disagree about it (ADEP4 hit
-rate 0.049 against ONC212's 0.346), so this may be a fact about the label.
+**`Ext` no longer tells a clean story, and an earlier version of this section overstated it.** The
+ESM-C-only TabPFN table enriched `extracellular` for ONC212 in all three species (2.08–3.80\*), which
+looked like the model tracking the measured hit rate (ONC212 hits 34.6% of extracellular proteins
+against 27.5% of cytoplasmic ones, because a secreted protein transits the cytoplasm as an unfolded
+chain). **Under the fused scores it mostly disappears**: ONC212 reads 1.53\* (Kp, q 0.029), 0.83
+(Ec, n.s.) and 1.78\* (Sa); ADEP4 reads 1.23 (n.s.), 0.95 (n.s.) and 0.42\*. So `Ext` is at chance or
+weakly enriched, depending on activator and species, and **it should not be quoted as confirmation of
+the secreted-proteins-transit-the-cytoplasm mechanism.** `docs/localization.md` records `extracellular`
+as the least trustworthy compartment (TMbed disputes 58% of those calls), and the two screens
+disagree about it (ADEP4 hit rate 0.049 against ONC212's 0.346), so the signal may be a fact about
+the label rather than about the model.
 
 **Where the two activators differ is the outer membrane.** For ADEP4 `OM` is strongly depleted
-(0.11–0.13\*); for ONC212 it sits at chance (0.94 / 0.97, q ≈ 1).
+(0.17–0.39\*); for ONC212 it sits at chance (0.99 / 1.02, q ≈ 1).
 
 Compartments absent from a species — `CW` in a Gram-negative, `Peri`/`OM` in a Gram-positive, and
 beta-barrels in Sa — are skipped rather than tested, which is why those points are missing from the
@@ -894,7 +931,7 @@ colliding.
 Same Fisher machinery, third test family: the six stage-03 compartments plus four TMbed-derived
 features. `loc_fisher.png`. **Every odds ratio below is the RandomForest's**; the shipped TabPFN
 values are in the `loc_fisher.png` section above, and the qualitative conclusions survived the swap
-except for `Ext`, which TabPFN *enriches*.
+except for `Ext`, which the ESM-C-only TabPFN enriched and the fused scores mostly do not (2026-11-05).
 
 **The axis's premise, confirmed from outside the model.** `cytoplasmic_fraction == 1` is enriched at
 **OR 11.5–13.1** and the `cytoplasm` compartment at 7.9–10.3, while signal peptides (0.01–0.11), TM
@@ -984,8 +1021,39 @@ top-decile proteins with a measured ortholog have a degradable one 76% (ADEP4) /
 time vs 8% / 19% elsewhere. But 71% of the consensus >= 0.7 set has no *S. aureus* ortholog and is
 dominated by very short proteins (median 104 aa), and the 0.7 floor is permissive (ADEP4 hit rate
 among upranked with a measured ortholog 34% at >= 0.7, 65% at >= 0.9). Discordant: ribosomal
-proteins, rpoZ, ihfA/B, folA. `BASE_RATE_THRESHOLD` (0.328 / 0.313) is NOT yet re-derived for the
-fused scores.
+proteins, rpoZ, ihfA/B, folA. `BASE_RATE_THRESHOLD` was NOT yet re-derived here; it was on 2026-11-05
+(0.319 / 0.308).
+
+### 2026-11-05 — `degradability_evidence` dropped; what a raw ESM-C cosine means
+
+**The table is now 7 columns.** The 1-3 ladder was removed on the owner's call (see *The dropped
+evidence ladder*). It is computed by `D.evidence()` and kept per protein in
+`evidence/consensus_audit.tsv`, verified equal to the dropped column on all 13,020 rows.
+
+**Cosine calibration** (`cosine_calibration.py`): random Ec/Kp-Sa pairs have median 0.775 / 0.761
+(p95 0.90 / 0.89); true ortholog pairs 0.906 / 0.894; a protein's nearest *S. aureus* neighbour is
+a true ortholog 1.7-6.9% of the time below 0.97. Raw cosine is not a relatedness measure.
+
+**Is 27-31% orthology to *S. aureus* too low?** No. 1,344 / 4,403 Ec (31%) and 1,531 / 5,728 Kp
+(27%) proteins have an *S. aureus* ortholog; 1,214 of the 2,889 *S. aureus* proteins (42%) have an
+Ec one. The raw-sequence route agrees: best DIAMOND hit at >= 25% identity with both coverages
+>= 50% reaches 31% / 27%, >= 40% only 10% / 9%, median best-hit identity ~32%. All 30 conserved
+genes tested (`rpoB`, `gyrA`, `ftsZ`, `secA`, ...) have an *S. aureus* ortholog in Ec and 29 in Kp
+(`tufA` has no gene name in the Kp proteome, so the lookup failed, not the call); 28 are RBH, and
+`parC`/`parE` are OrthoFinder-only, as expected for paralogs. Literature points the same way
+(~994 positional orthologous pairs Ec vs *B. subtilis*, BMC Evol Biol 2007, 7:237, Table 4 — read
+from a search snippet, not verified in the paper).
+
+**Ortholog discrimination, Ec** (`orthology_check.py`): among proteins with a measured *S. aureus*
+ortholog, the Ec score predicts the ortholog's call at **AUROC 0.893 / PR 0.686 (base 0.132) for
+ADEP4 (n = 1,084)** and **0.843 / 0.710 (base 0.264) for ONC212 (n = 735)**, against a
+shorter-protein-first baseline of 0.750 / 0.695. **This is consistency, not independent
+validation**: the ortholog's label was training data. The clean test — retrain with every
+*S. aureus* protein that has an Ec ortholog removed, then score those Ec proteins — was priced
+(~40,000 credits for one seed) and **not run**; the owner was convinced without it.
+
+**Out-of-fold wording corrected.** Only the labeled *S. aureus* proteins are out-of-fold. Ec and Kp
+are unseen by construction, so their `_prob` is the full-fit prediction.
 
 ### Superseded: the regression variant (2026-09-01)
 

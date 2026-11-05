@@ -13,7 +13,7 @@ proteins are not: they transit the cytoplasm unfolded and ARE reachable. So the 
 highest measured ONC212 rate.
 
 **0.5 is the wrong threshold.** Probabilities top out at 0.868 on Kp, and the right cut MOVED when
-the estimator became TabPFN-3.5: `BASE_RATE_THRESHOLD` is 0.328/0.313, re-derived as empirical
+the estimator became TabPFN-3.5: `BASE_RATE_THRESHOLD` is 0.319/0.308 (fused), re-derived as empirical
 quantiles of the OOF distribution. Re-derive again on any estimator change.
 
 **The two activator columns are not independent evidence**: they correlate at rho 0.89 while the
