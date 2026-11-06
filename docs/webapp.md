@@ -151,7 +151,7 @@ no counts, tiles with nothing left dimmed; and nothing in the sidebar is collaps
 elements remain in the sidebar; tile selection, badge, filter and reset work; no label is truncated.
 
 **Revision 17 (release and deploy).** v1.0.0 was tagged on main (`dd6e76f`); `legacy/app/` was restored byte-for-byte from it; `webapp/data/*.json` became committed files (gitignore exception);
-`pages.yml` now assembles `_site/` = `webapp/` at the root plus the v1 browser at `/v1/` and fails the deploy if a payload is empty; the header gained a "Previous version" link. A local dry run of the
+`pages.yml` now assembles `_site/` = `webapp/` at the root plus the v1 browser at `/v1/` and fails the deploy if a payload is empty; the header gained a "Previous version" link (removed 2026-11-06 at the owner's request; `/v1/` is still served, just not linked). A local dry run of the
 assembly served both sites with no console errors (new: 100 rows, v1: 100 rows).
 
 **Licence note.** TabPFN-3.5 weights are non-commercial (CLAUDE.md flags this must be settled before outputs ship). Owner's call, 2026-11-06: proceed, treat the use as non-commercial
@@ -178,3 +178,10 @@ was only checked as far as the sidebar stacking.
   classes, Clp/degron features, FBA). The site no longer has a protein-family search.
 - Top of the default degradability sort is dominated by short, uncharacterised proteins: a property of the model (length confound), stated
   in the view note, not a bug.
+
+## Revision 18 (2026-11-06): state hardening, no "Previous version" link
+
+A live link carried a stale hash (v1 weight keys, `map: "localization"`) and the site opened filtered and coloured by things the
+sidebar does not show. `load()` and `applyHash()` now pass saved and shared state through `cleanWeights`, `cleanRanges`,
+`cleanCats`, `cleanBools` and `cleanMapColor`, which keep only keys that exist in `config.js`. The "Previous version" header link
+was removed; `/v1/` is still deployed by `pages.yml`.

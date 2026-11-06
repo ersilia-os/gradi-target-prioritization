@@ -42,6 +42,40 @@ function setKbFocus(idx) {
   rows[_kbIdx].scrollIntoView({ block: "nearest" });
 }
 
+// Saved or shared state is untrusted: an old link or another version of the site can carry keys that no
+// longer exist, and applying them silently filters or colours the table by something that is not on screen.
+function cleanWeights(w) {
+  const out = {};
+  if (!w || typeof w !== "object") return out;
+  for (const c of COMPONENTS) {
+    const v = w[c.key];
+    if (v && typeof v === "object") out[c.key] = { on: !!v.on, weight: isNum(v.weight) ? v.weight : 0 };
+  }
+  return out;
+}
+function cleanRanges(r) {
+  const out = {};
+  if (!r || typeof r !== "object") return out;
+  for (const f of RANGE_FILTERS) {
+    const v = r[f.key];
+    if (Array.isArray(v) && v.length === 2 && v.every(isNum)) out[f.key] = v;
+  }
+  return out;
+}
+function cleanCats(c) {
+  const out = {};
+  if (!c || typeof c !== "object") return out;
+  for (const [k, v] of Object.entries(c)) if (Array.isArray(v) && v.length) out[k] = new Set(v.filter((x) => typeof x === "string" || isNum(x)));
+  return out;
+}
+function cleanBools(b) {
+  const out = {};
+  if (!b || typeof b !== "object") return out;
+  for (const [k, v] of Object.entries(b)) if (v === "any" || v === "yes" || v === "no") out[k] = v;
+  return out;
+}
+const cleanMapColor = (k) => (MAP_COLORS.some((m) => m.key === k) ? k : "degradability_consensus");
+
 // ---------- persistence ----------------------------------------------------
 function save() {
   const s = {
@@ -65,16 +99,16 @@ function load() {
     state.org = ORGANISM_META[s.org] ? s.org : "ec";
     state.view = (s.view === "map" || s.view === "compare") ? s.view : "table";
     state.expanded = Array.isArray(s.expanded) ? s.expanded.filter((g) => GROUP_ORDER.includes(g)).slice(0, 1) : [];
-    state.mapColorBy = s.mapColorBy || "degradability_consensus";
+    state.mapColorBy = cleanMapColor(s.mapColorBy);
     state.mapThr = (s.mapThr && typeof s.mapThr === "object") ? s.mapThr : {};
     if (typeof s.mapLabels === "boolean") state.mapLabels = s.mapLabels;
-    state.weights = s.weights || {};
+    state.weights = cleanWeights(s.weights);
     if (typeof s.orthoTransfer === "boolean") state.orthoTransfer = s.orthoTransfer;
     if (s.filters) {
       state.filters.search = s.filters.search || "";
-      state.filters.ranges = s.filters.ranges || {};
-      state.filters.cats = Object.fromEntries(Object.entries(s.filters.cats || {}).map(([k, v]) => [k, new Set(v)]));
-      state.filters.bools = s.filters.bools || {};
+      state.filters.ranges = cleanRanges(s.filters.ranges);
+      state.filters.cats = cleanCats(s.filters.cats);
+      state.filters.bools = cleanBools(s.filters.bools);
     }
     state.shortlist = Array.isArray(s.shortlist) ? s.shortlist : [];
     state.shortlistOnly = !!s.shortlistOnly;
@@ -112,12 +146,12 @@ function applyHash() {
     if (p.view === "map" || p.view === "compare") state.view = p.view; else state.view = "table";
     if (Array.isArray(p.ex)) state.expanded = p.ex.filter((g) => GROUP_ORDER.includes(g)).slice(0, 1);
     if (typeof p.xfer === "boolean") state.orthoTransfer = p.xfer;
-    if (p.map) state.mapColorBy = p.map;
-    if (p.w) state.weights = p.w;
-    state.filters.ranges = (p.rg && typeof p.rg === "object") ? p.rg : {};
+    if (p.map) state.mapColorBy = cleanMapColor(p.map);
+    if (p.w) state.weights = cleanWeights(p.w);
+    state.filters.ranges = cleanRanges(p.rg);
     state.filters.search = p.q || "";
-    state.filters.cats = Object.fromEntries(Object.entries(p.cats || {}).map(([k, v]) => [k, new Set(v)]));
-    state.filters.bools = p.bools || {};
+    state.filters.cats = cleanCats(p.cats);
+    state.filters.bools = cleanBools(p.bools);
     state.shortlist = p.sl || [];
     state.shortlistOnly = !!p.so;
     if (p.sel) state._sel = p.sel;
