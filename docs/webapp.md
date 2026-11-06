@@ -154,6 +154,9 @@ elements remain in the sidebar; tile selection, badge, filter and reset work; no
 `pages.yml` now assembles `_site/` = `webapp/` at the root plus the v1 browser at `/v1/` and fails the deploy if a payload is empty; the header gained a "Previous version" link. A local dry run of the
 assembly served both sites with no console errors (new: 100 rows, v1: 100 rows).
 
+**Licence note.** TabPFN-3.5 weights are non-commercial (CLAUDE.md flags this must be settled before outputs ship). Owner's call, 2026-11-06: proceed, treat the use as non-commercial
+(Ersilia is a non-profit; the browser is free), and say so in the Methods dialog and in the pull request.
+
 ## Verified in a browser (Chrome, local server, 2026-11-06)
 
 All nine views render for both species with no console errors; the quick selections give 63 / 53 / 193 E. coli proteins, equal to an independent

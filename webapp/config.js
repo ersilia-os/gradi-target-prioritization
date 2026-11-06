@@ -240,7 +240,7 @@ const METHODS = [
     "Each axis gives a <b>rank</b> (0-1, a percentile within that species) and an <b>evidence</b> level (1-3: how well the call is backed; provenance, not outcome). Ranks cannot be compared between species. A dash means not annotated or not measured, never zero. The optional weighted score is yours: it mixes ranks in your browser only.",
     refs: [] },
   { title: "Degradability", color: "var(--amber)", body:
-    "TabPFN-3.5 models on ESM-C and ProtT5 embeddings, trained on two <i>S. aureus</i> ClpP-activator screens (ADEP4, ONC212) and applied to every protein here. <b>These are predictions, not measurements</b>: no Gram-negative labels exist. Scores fall with protein length, and membrane proteins are protected from cytoplasmic ClpP.",
+    "TabPFN-3.5 models on ESM-C and ProtT5 embeddings, trained on two <i>S. aureus</i> ClpP-activator screens (ADEP4, ONC212) and applied to every protein here. <b>These are predictions, not measurements</b>: no Gram-negative labels exist. Scores fall with protein length, and membrane proteins are protected from cytoplasmic ClpP. TabPFN is used under its non-commercial licence; this browser is a free, non-profit research resource.",
     refs: [
       ["TabPFN (Prior Labs)", "https://priorlabs.ai/"],
       ["ESM-C (EvolutionaryScale)", "https://www.evolutionaryscale.ai/"],
