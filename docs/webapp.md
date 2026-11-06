@@ -185,3 +185,7 @@ A live link carried a stale hash (v1 weight keys, `map: "localization"`) and the
 sidebar does not show. `load()` and `applyHash()` now pass saved and shared state through `cleanWeights`, `cleanRanges`,
 `cleanCats`, `cleanBools` and `cleanMapColor`, which keep only keys that exist in `config.js`. The "Previous version" header link
 was removed; `/v1/` is still deployed by `pages.yml`.
+
+## Revision 19 (2026-11-06): social preview
+
+`index.html` now carries Open Graph and Twitter card tags (absolute URLs, `summary_large_image`) and a `description`. The card is `webapp/social-preview.png` (1200x630), rendered by `scripts/webapp/social_preview.py` (env `gradi`), which reads the protein counts from `webapp/data/*.json` so the card cannot disagree with the site. Text stays inside a 90 px safe margin and was checked at 320 px wide, the size chat apps show on a phone. Re-run the script if the payload size changes. Link scrapers cache the image, so a changed card may take time to refresh after a deploy.
