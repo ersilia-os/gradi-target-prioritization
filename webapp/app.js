@@ -429,7 +429,7 @@ function renderThead() {
     if (last && last.group === g) last.span++;
     else runs.push({ group: g, span: 1 });
   }
-  let band = `<th class="gband gband-empty" colspan="2"></th>`;
+  let band = `<th class="gband gband-empty gband-corner" colspan="2"></th>`;
   for (const r of runs) {
     if (!r.group) { band += `<th class="gband gband-empty" colspan="${r.span}"></th>`; continue; }
     const open = state.expanded.includes(r.group);
