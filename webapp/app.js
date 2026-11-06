@@ -399,7 +399,14 @@ function colWidths() {
   const w = window.innerWidth;
   if (w <= 700) return { rank: 34, gene: 150, data: 100, wide: 190 };
   if (w <= 900) return { rank: 40, gene: 190, data: 100, wide: 210 };
+  if (w <= 1440) return { rank: 44, gene: 210, data: 98, wide: 210, k: 0.94 };   // laptop: about a quarter more columns in view
   return { rank: 44, gene: 240, data: 108, wide: 230 };
+}
+// a collapsed group is one column wide and its band carries the group name, so that column never goes below 116
+function colW(c, W) {
+  const base = c.w || (c.type === "text" ? W.wide : W.data);
+  if (c.summary) return Math.max(base, 116);
+  return Math.round(base * (c.w && W.k && c.key !== "length" ? W.k : 1));
 }
 function renderThead() {
   const cols = visibleColumns();
@@ -432,7 +439,7 @@ function renderThead() {
 
   // explicit column widths (table-layout: fixed reads only the first row, which has a colspan)
   const W = colWidths();
-  const widths = [W.rank, W.gene, ...(showWeighted() ? [W.data] : []), ...cols.map((c) => (c.key === "length" && window.innerWidth <= 700) ? W.data : (c.w || (c.type === "text" ? W.wide : W.data)))];
+  const widths = [W.rank, W.gene, ...(showWeighted() ? [W.data] : []), ...cols.map((c) => (c.key === "length" && window.innerWidth <= 700) ? W.data : colW(c, W))];
   document.documentElement.style.setProperty("--rankw", W.rank + "px");
   const tbl = $("table");
   let cg = tbl.querySelector("colgroup");
@@ -647,16 +654,18 @@ function groupPanelsHTML(row) {
     const open = state.cardOpen.includes(g);
     const head = cols.find((c) => c.summary);
     const evid = cols.find((c) => c.type === "tier" && /_evidence$/.test(c.key));
-    let meta = "";
+    // three fixed slots (value, percentile, evidence) so the right edge of every group header lines up
+    let mv = "", mp = "", me = "";
     if (head && row[head.key] !== null && row[head.key] !== undefined) {
-      meta += cellHTML(row, { ...head, heat: false });
+      mv = cellHTML(row, { ...head, heat: false });
       if (head.type === "score" && isNum(row[head.key])) {
         let pc = percentileOf(head.key, row[head.key]);
         if (pc !== null && tieShare(head.key, row[head.key]) > 0.25) pc = null;
-        if (pc !== null) meta += `<span class="pctnote">${ordinal(pc)} percentile</span>`;
+        if (pc !== null) mp = `<span class="pctnote">${ordinal(pc)} percentile</span>`;
       }
     }
-    if (evid && row[evid.key] != null) meta += `<span class="evlab">evidence</span>${cellHTML(row, evid)}`;
+    if (evid && row[evid.key] != null) me = `<span class="evlab">evidence</span>${cellHTML(row, evid)}`;
+    const meta = `<span class="mv">${mv}</span><span class="mp">${mp}</span><span class="me">${me}</span>`;
     let body = "";
     if (open) {
       if (g === "Essentiality" && !(isNum(row.deg_n_datasets) && row.deg_n_datasets > 0))
@@ -1167,7 +1176,7 @@ function buildWeights() {
     div.dataset.key = c.key;
     div.style.setProperty("--wc", colColor(c.key));
     div.innerHTML = `
-      <div class="top">
+      <div class="wtop">
         <input type="checkbox" class="sw" ${w.on && avail ? "checked" : ""} ${avail ? "" : "disabled"} aria-label="Enable ${c.label} in composite">
         <span class="lab">${c.label}${c.binary ? ` <span class="btag" title="Binary axis: value is 0 or 1. The weight is added only to targets scoring 1.">0/1</span>` : ""}</span>
         ${avail ? `<span class="wv">${w.weight}</span>` : `<span class="soon">soon</span>`}
