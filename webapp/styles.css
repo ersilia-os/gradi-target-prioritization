@@ -145,6 +145,8 @@ tbody tr.sel td{background:var(--brand-soft)}
 tbody tr.kbfocus td{background:var(--bg);box-shadow:inset 2px 0 0 var(--brand)}
 .colrank,.colgene{position:sticky;z-index:4}
 thead th.colrank,thead th.colgene{z-index:8}
+/* band-row corner above rank+gene: pin it left too, so group bands slide under it, not over the gene column */
+thead .bandrow th.gband-corner{left:0;z-index:8;border-right:1px solid var(--border)}
 .colrank{left:0;color:var(--faint);font-size:11.5px}
 .colgene{left:var(--rankw,44px);border-right:1px solid var(--border)}
 td.colgene{position:sticky;padding-left:10px;padding-right:26px}
