@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gram-negative target browser for protein degradation</title>
+  <link rel="preload" href="data/ec.json" as="fetch" crossorigin>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2350285A'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23fff' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css?v=40">
+</head>
+<body>
+  <header class="top">
+    <button class="iconbtn" id="filtersBtn" aria-label="Filters">Filters</button>
+    <h1>Gram-negative target browser for protein degradation</h1>
+    <div class="seg" id="orgToggle" role="tablist" aria-label="Organism">
+      <button role="tab" data-org="ec" aria-selected="true">E. coli</button>
+      <button role="tab" data-org="kp" aria-selected="false">K. pneumoniae</button>
+    </div>
+    <nav class="toplinks">
+      <button id="methodsBtn" class="linkbtn">Methods</button>
+      <a href="https://ersilia.io" target="_blank" rel="noopener">Ersilia</a>
+      <a href="https://github.com/ersilia-os/gradi-target-prioritization" target="_blank" rel="noopener">Code</a>
+    </nav>
+  </header>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="sbtop">
+        <input type="search" id="search" class="searchbox" placeholder="Gene, accession or name" autocomplete="off" aria-label="Search by gene, UniProt accession or protein name">
+        <div class="sbcount"><span><b id="sbShown">0</b> of <b id="sbTotal">0</b></span><button id="sbClear" class="linkbtn" hidden>Clear filters</button></div>
+      </div>
+
+      <div id="rangePanel"></div>
+
+      <div class="fsec" id="accLoc"><div class="fs-title">Localization <span class="acount"></span></div><div class="accbody" id="bodyLoc"></div></div>
+      <div class="fsec fs-inline" id="accOrth"><div class="fs-title">Human ortholog</div><div class="accbody" id="bodyOrth"></div></div>
+
+      <div class="fsec" id="accCog"><div class="fs-title">Function (COG) <span class="acount"></span></div><div class="accbody" id="bodyCog"></div></div>
+      <div class="fsec" id="accEvid"><div class="fs-title">Evidence level <span class="acount"></span></div><p class="fs-note">1 = nothing known, 3 = best backed</p><div class="accbody" id="bodyEvid"></div></div>
+
+      <div class="fsec" data-sec="weights">
+        <div class="fs-title">Weighted score <button class="reset" id="resetWeights">reset</button></div>
+        <p class="fs-note">Optional. Mixes the ranks in your browser only; never exported.</p>
+        <div class="wpresets" id="weightPresets">
+          <button data-wp="degradability">Degradability</button>
+          <button data-wp="deg_ess">Deg + Ess</button>
+          <button data-wp="deg_ess_lig">Deg + Ess + Lig</button>
+          <button data-wp="neglected">Neglected</button>
+          <button id="weightsOff">Off</button>
+        </div>
+        <div id="weights"></div>
+      </div>
+
+      <p class="footnote" id="genInfo"></p>
+      <button class="sbdone" id="sbDone">Show <b id="sbDoneN">0</b> proteins</button>
+    </aside>
+
+    <main class="main">
+      <div class="toolbar" id="topbar">
+        <div class="viewswitch seg" id="viewSwitch" role="tablist" aria-label="View"></div>
+        <div class="filterbar" id="filterbar" hidden></div>
+        <button class="tb-btn" id="shortlistBtn" title="Show only starred proteins" aria-pressed="false">★ Starred (0)</button>
+        <button class="tb-btn" id="exportBtn" title="Export the filtered table as CSV">⤓<span class="lbl"> CSV</span></button>
+        <div class="toolbar-right">
+          <span class="mapselchip" id="mapSelChip" hidden></span>
+          <span class="count"><b id="nShown">0</b> / <b id="nTotal">0</b></span>
+          <div class="pager" id="pager"></div>
+        </div>
+      </div>
+      <div class="tablewrap" id="tablewrap">
+        <div class="loading" id="loading"></div>
+        <table id="table" role="grid" aria-label="Proteins" hidden>
+          <thead></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="pagerfoot" id="pagerFoot" hidden></div>
+      </div>
+      <div class="cmpwrap" id="cmpwrap" hidden></div>
+      <div class="mapwrap" id="mapwrap" hidden>
+        <div class="mapctrl" id="mapctrl" hidden>
+          <label for="mapColor">Colour by</label>
+          <select id="mapColor"></select>
+          <label for="mapThresh">Show ≥ <b id="mapThreshVal">0.00</b></label>
+          <input type="range" id="mapThresh" min="0" max="1" step="0.01" value="0" aria-label="Highlight threshold">
+          <label class="maplabtog"><input type="checkbox" id="mapLabels" checked> Labels</label>
+          <span class="mapcount" id="mapHiCount"></span>
+        </div>
+        <canvas id="mapcanvas"></canvas>
+        <canvas id="mapoverlay"></canvas>
+        <div class="maptip" id="maptip" hidden></div>
+        <div class="maplegend" id="maplegend"></div>
+      </div>
+    </main>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+  <div class="sbscrim" id="sbScrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true"></aside>
+
+  <div class="modalscrim" id="methodsScrim" hidden></div>
+  <div class="modal" id="methodsModal" hidden role="dialog" aria-modal="true" aria-label="Methods"></div>
+
+  <script src="config.js?v=40"></script>
+  <script src="app.js?v=40"></script>
+</body>
+</html>

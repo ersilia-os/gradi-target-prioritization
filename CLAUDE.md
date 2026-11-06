@@ -1824,6 +1824,23 @@ column is one of the four it averages. The honest external comparison is protein
 unflattering: length alone scores **0.673** on Kp against P2Rank *within length deciles* at
 **0.489**, below chance. ρ(`pockets_consensus`, length) is **0.663 / 0.638 / 0.654**.
 
+## The v2 website lives in `webapp/` and must NOT supersede the live site
+
+**Standing instruction from the project owner, 2026-11-06: "do not supersede the previous site."** The deployed app (`app/` on `main`,
+`legacy/app/` on this branch) and `.github/workflows/pages.yml` stay as they are. The new browser is built in `webapp/` from the v2 tables by
+`scripts/webapp/export.py` (env `gradi`; reads only the `src/` loaders, writes `webapp/data/{ec,kp}.json`, verifies the files it wrote) and
+serves locally with `webapp/serve.sh`. **Do not edit `pages.yml`, move `webapp/` over `app/`, or publish it until the owner decides how.**
+Method, decisions and gaps: `docs/webapp.md`.
+
+**The weight sliders are the owner's single exception to "no composite, ever"** (2026-11-06: "keep the sliders"). They combine the
+`*_consensus` columns **in the browser only**, are OFF by default, are labelled "Weighted score (yours)", and the value is **never exported,
+stored or written to a data file**. Do not add any other combined score, star rating or priority tier to the site.
+
+**Two silent traps on that site.** K. pneumoniae HS11286 has no measured essentiality (DEG indexes no Klebsiella), so its `deg_*` columns are empty
+and the table hides them: do not "complete" them with zeros. And the evidence glyph reads only essentiality and ligands, because degradability
+ships no evidence column. `webapp/DESIGN.md` is the design contract; `tools/check_design_md.py` checks it offline (the official
+`npx @google/design.md lint` needs a download).
+
 ## Legacy
 
 **`legacy/` holds the complete v1 pipeline, frozen. Do not extend it.** Start at
