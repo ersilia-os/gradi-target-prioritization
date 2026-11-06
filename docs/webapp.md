@@ -1,8 +1,8 @@
 # The v2 website (`webapp/`): "Gram-negative target browser for protein degradation"
 
 Record of the 2026-11-06 build: a new browser for **E. coli** and **K. pneumoniae**, built from the v2 per-axis tables. The
-deployed v1 site (`app/` on `main`, `legacy/app/` here, `.github/workflows/pages.yml`) was **not touched**, on the owner's
-instruction ("do not supersede the previous site"). Nothing in `webapp/` deploys.
+v1 site was not touched while this was built (owner: "do not supersede the previous site"). On 2026-11-06 the owner reversed that ("I want the new site to be the default"): the new
+browser is the root of Pages and the v1 browser is served at `/v1/` (see Revision 17).
 
 ## Decisions (owner)
 
@@ -149,6 +149,10 @@ text legend with counts that fits the column. Smaller (80 px).
 Function is a grid of named tiles in the four COG groups (Information storage, Cellular processes, Metabolism, Poorly characterized) with plain names instead of letters (tooltip: letter and full COG name),
 no counts, tiles with nothing left dimmed; and nothing in the sidebar is collapsed any more: Function, Evidence level and Weighted score are always open. Verified: no `details` or hidden
 elements remain in the sidebar; tile selection, badge, filter and reset work; no label is truncated.
+
+**Revision 17 (release and deploy).** v1.0.0 was tagged on main (`dd6e76f`); `legacy/app/` was restored byte-for-byte from it; `webapp/data/*.json` became committed files (gitignore exception);
+`pages.yml` now assembles `_site/` = `webapp/` at the root plus the v1 browser at `/v1/` and fails the deploy if a payload is empty; the header gained a "Previous version" link. A local dry run of the
+assembly served both sites with no console errors (new: 100 rows, v1: 100 rows).
 
 ## Verified in a browser (Chrome, local server, 2026-11-06)
 

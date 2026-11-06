@@ -268,7 +268,7 @@ Enforced by `.gitignore`:
 
 - **Git**: `src/`, `scripts/`, `docs/`, `assets/`, `legacy/` (code and docs), `LICENSE`, `README.md`, `install.sh`, `requirements.txt`, `access.json`.
 - **eosvc (DVC + S3), not Git**: `data/` and `output/`. Use `~/miniconda3/envs/eosvc/bin/eosvc {view,upload,download,delete} --path <relative path>` (`~/miniconda3/bin/eosvc` is broken: ModuleNotFoundError).
-- `tmp/` is local-only scratch, tracked by neither. The only generated artifacts in Git are `legacy/app/data/*.json`, the webapp payloads.
+- `tmp/` is local-only scratch, tracked by neither. The only generated artifacts in Git are the browser payloads: `webapp/data/*.json` (the site) and `legacy/app/data/*.json` (the v1 site at `/v1/`).
 
 `eosvc upload` PUTs **one object at a time (~2 files/sec)**, so a directory of many small files is
 hours, not minutes — archive such trees first. And `eosvc view --path <file>` is unreliable for a
@@ -1824,22 +1824,23 @@ column is one of the four it averages. The honest external comparison is protein
 unflattering: length alone scores **0.673** on Kp against P2Rank *within length deciles* at
 **0.489**, below chance. ρ(`pockets_consensus`, length) is **0.663 / 0.638 / 0.654**.
 
-## The v2 website lives in `webapp/` and must NOT supersede the live site
+## The v2 website lives in `webapp/` and is the default site
 
-**Standing instruction from the project owner, 2026-11-06: "do not supersede the previous site."** The deployed app (`app/` on `main`,
-`legacy/app/` on this branch) and `.github/workflows/pages.yml` stay as they are. The new browser is built in `webapp/` from the v2 tables by
-`scripts/webapp/export.py` (env `gradi`; reads only the `src/` loaders, writes `webapp/data/{ec,kp}.json`, verifies the files it wrote) and
-serves locally with `webapp/serve.sh`. **Do not edit `pages.yml`, move `webapp/` over `app/`, or publish it until the owner decides how.**
-Method, decisions and gaps: `docs/webapp.md`.
+The new browser is built in `webapp/` from the v2 tables by `scripts/webapp/export.py` (env `gradi`; reads only the `src/` loaders, writes `webapp/data/{ec,kp}.json`, verifies the files it writes) and
+serves locally with `webapp/serve.sh`. **It is the site at the root of GitHub Pages** (owner's call, 2026-11-06, replacing the earlier "do not supersede the previous site"):
+`.github/workflows/pages.yml` assembles `_site/` from `webapp/` plus the previous v1 browser, kept byte-identical to release `v1.0.0` in `legacy/app/` and served at `/v1/`.
+`webapp/data/*.json` is **committed** (a `.gitignore` exception, like `legacy/app/data/`), because CI cannot regenerate it: after any axis changes, rerun the exporter and commit the JSON.
+Method, decisions and gaps: `docs/webapp.md`; design contract: `webapp/DESIGN.md`, checked offline by `tools/check_design_md.py`.
 
 **The weight sliders are the owner's single exception to "no composite, ever"** (2026-11-06: "keep the sliders"). They combine the
-`*_consensus` columns **in the browser only**, are OFF by default, are labelled "Weighted score (yours)", and the value is **never exported,
+`*_consensus` columns **in the browser only**, are OFF by default, are labelled "Weighted score", and the value is **never exported,
 stored or written to a data file**. Do not add any other combined score, star rating or priority tier to the site.
 
 **Two silent traps on that site.** K. pneumoniae HS11286 has no measured essentiality (DEG indexes no Klebsiella), so its `deg_*` columns are empty
-and the table hides them: do not "complete" them with zeros. And the evidence glyph reads only essentiality and ligands, because degradability
-ships no evidence column. `webapp/DESIGN.md` is the design contract; `tools/check_design_md.py` checks it offline (the official
-`npx @google/design.md lint` needs a download).
+and the table hides them: do not "complete" them with zeros. And a layout rule learned the hard way: **nothing may move on click**; every animation is opacity or transform, a scripted
+before/after layout diff (toolbar, header, sidebar, table scroll) is how it was checked, and the `.app` entry fade must not keep `animation-fill-mode` (a retained opacity traps the filter drawer under the header).
+
+**Releases:** `v1.0.0` is the first prototype (main as of 2026-07-24), `v2.0.0` the per-axis pipeline, the shortlist and this browser.
 
 ## Legacy
 
@@ -1862,7 +1863,7 @@ inside `legacy/`:
 cd legacy && python scripts/09h_localization_plots.py --organism ecoli
 ```
 
-The v1 webapp is still deployed from `legacy/app/` by `.github/workflows/pages.yml`.
+The v1 webapp is kept in `legacy/app/` (identical to release `v1.0.0`) and served at `/v1/` by `.github/workflows/pages.yml`; the default site is the v2 browser in `webapp/`.
 
 ## Setup
 

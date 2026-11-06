@@ -1,7 +1,7 @@
 # Gr-ADI: Target prioritization for *K. pneumoniae*, *E. coli* and *S. aureus*
 
-> ⚠️ **Work in progress.** This repository is an active prototype. Scores, data and methods are
-> provisional — do not treat any result here as final.
+> ⚠️ **Work in progress.** Scores, data and methods are provisional. Degradability for *E. coli* and
+> *K. pneumoniae* is **extrapolated** from *S. aureus* screens: a ranking hypothesis, not a measurement.
 
 Computational target selection for the Gr-ADI project *"Exploring BacPROTACs as a new paradigm for
 antibacterial discovery"*, led by **Prof. Erick Strauss** (Stellenbosch University).
@@ -41,17 +41,25 @@ The three things v1 most wants passed forward:
    exposure rather than any motif (ρ = 0.999), and nothing computed predicts cleavage: protein length
    alone beats a 13-feature model. A degradability axis needs new *data*, not new features.
 
-### What v2 has so far
+### What v2 has
 
-| stage | what |
-|---|---|
-| [`scripts/proteomes/download.py`](scripts/proteomes/download.py) | the four reference proteomes, and **one identified table per species** — see [`docs/proteomes.md`](docs/proteomes.md) |
+Ten per-protein axes, each one complete table (one row per protein, same order everywhere), for *K. pneumoniae*, *E. coli* and *S. aureus*:
 
-Stage 00 exists mainly to fix the problem that cost v1 the most: the anchor proteomes are badly
-under-named. Gene names cover only **18.4%** of *K. pneumoniae* HS11286 and 28.2% of *S. aureus*
-NCTC 8325, against 100% for *E. coli* K-12 — and gene names are what literature and databases key on.
-Filling them from the rest of each species (identical sequences, then UniRef90 clusters, never across
-species) takes *K. pneumoniae* to **63.4%** and *S. aureus* to 44.6%.
+| axis | what it answers | record |
+|---|---|---|
+| proteomes | which proteins, with names filled within the species | [`docs/proteomes.md`](docs/proteomes.md) |
+| function · localization | COG and GO annotation; where in the cell | [`docs/function.md`](docs/function.md), [`docs/localization.md`](docs/localization.md) |
+| degradability | is it a substrate of activated ClpP (predicted from *S. aureus* screens) | [`docs/degradability.md`](docs/degradability.md) |
+| essentiality | measured and predicted | [`docs/essentiality.md`](docs/essentiality.md) |
+| ligandability · pockets | known ligands and drugs; structural pockets | [`docs/ligands.md`](docs/ligands.md), [`docs/pockets.md`](docs/pockets.md) |
+| orthology · studiedness | human off-targets and conservation; how much is known | [`docs/orthology.md`](docs/orthology.md), [`docs/studiedness.md`](docs/studiedness.md) |
+
+Each axis ships a within-species rank (`<axis>_consensus`) and an evidence level (`<axis>_evidence`); there is deliberately **no combined score**.
+On top of them: a function- and length-balanced **shortlist of 200 *E. coli* proteins with a random control**
+([`docs/presentation.md`](docs/presentation.md)) and the **target browser** below.
+
+The anchor proteomes are badly under-named (gene names cover **18.4%** of *K. pneumoniae* HS11286 and 28.2% of *S. aureus* NCTC 8325, against 100% for *E. coli* K-12), and gene names are
+what literature and databases key on. Stage 00 fills them within each species (identical sequences, then UniRef90 clusters, never across species): *K. pneumoniae* reaches **63.4%** and *S. aureus* 44.6%.
 
 Four species, one reference proteome each: *K. pneumoniae* HS11286 · *E. coli* K-12 MG1655 ·
 ***S. aureus* NCTC 8325** (new in v2 — the organism the activated-ClpP proteomics is native to, and
@@ -83,12 +91,23 @@ Git. [`data/raw/PROVENANCE.md`](data/raw/PROVENANCE.md) indexes every raw datase
 whether you could obtain it again, since a good deal of it came through authenticated browser
 sessions or by hand from paywalled articles.
 
-## The v1 target browser
+## The target browser
 
-The prioritization browser built for v1 is still live at
-https://ersilia-os.github.io/gradi-target-prioritization/ and is deployed from `legacy/app/`. It
-serves v1 numbers, including two degradability columns that `legacy/HISTORY.md` §7 documents as
-untrustworthy.
+**https://ersilia-os.github.io/gradi-target-prioritization/** is the *Gram-negative target browser for protein degradation*:
+one table per species (*E. coli* K-12, *K. pneumoniae* HS11286), column groups per axis, range-slider filters,
+a gene card with the AlphaFold model, a map and a compare view. It is built from the v2 tables by
+[`scripts/webapp/export.py`](scripts/webapp/export.py) and lives in [`webapp/`](webapp/); the design contract is
+[`webapp/DESIGN.md`](webapp/DESIGN.md) and the record is [`docs/webapp.md`](docs/webapp.md).
+
+The previous browser (release **v1.0.0**) stays reachable at `/v1/`; it serves v1 numbers, including two degradability
+columns that `legacy/HISTORY.md` §7 documents as untrustworthy.
+
+## Releases
+
+| tag | what |
+|---|---|
+| `v1.0.0` | the first prototype: the task-numbered pipeline and the v1 browser |
+| `v2.0.0` | the per-axis pipeline, the *E. coli* shortlist and the new browser |
 
 ## Meetings
 
