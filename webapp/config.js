@@ -197,7 +197,7 @@ const TABLE_COLUMNS = [
     desc: "3 = both predictors agree, DeepLocPro is confident (>= 0.7) and a curated GO cellular-component term agrees; 2 = one of those; 1 = neither or a GO term contradicts. Not experimental." },
 
   // Orthology
-  { key: "has_human_ortholog", label: "Human ortholog", type: "binary01", summary: true, group: "Orthology",
+  { key: "has_human_ortholog", label: "Human ortholog", type: "binary01", w: 132, summary: true, group: "Orthology",
     desc: "A human ortholog by either OrthoFinder or reciprocal best hit (union). Tick = has one (a selectivity liability)." },
   { key: "bacterial_panel_orthologs", label: "Panel conserv.", type: "pct", group: "Orthology",
     desc: "Fraction of 28 bacterial proteomes with an ortholog (species counted, not proteins). A fraction, not a count." },

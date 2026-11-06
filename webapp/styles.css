@@ -43,7 +43,7 @@ b{font-weight:600}
 /* layout */
 .app{flex:1;min-height:0;display:grid;grid-template-columns:272px 1fr}
 .sidebar{background:var(--surface);border-right:1px solid var(--border);padding:0 18px 24px;overflow-y:auto;overscroll-behavior:contain}
-.sbtop{position:sticky;top:0;z-index:3;background:var(--surface);padding:16px 0 2px}
+.sbtop{position:sticky;top:0;z-index:5;background:var(--surface);margin:0 -18px;padding:16px 18px 2px}
 .main{min-width:0;min-height:0;padding:14px 20px 16px;display:flex;flex-direction:column}
 
 /* sidebar */
@@ -75,7 +75,7 @@ b{font-weight:600}
 .chk button[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:#fff}
 #bodyCog .chk button{min-width:27px;text-align:center;padding:3px 6px}
 .tristate{display:inline-flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
-.tristate button{border:0;border-right:1px solid var(--border);background:var(--surface);padding:4px 11px;font-size:12px;cursor:pointer}
+.tristate button{border:0;border-right:1px solid var(--border);background:var(--surface);padding:4px 9px;font-size:12px;cursor:pointer}
 .tristate button:last-child{border-right:0}
 .tristate button[aria-pressed="true"]{background:var(--brand);color:#fff}
 .fgroup .flabel{display:none}
@@ -90,7 +90,7 @@ b{font-weight:600}
 .wpresets button{border:1px solid var(--border);background:var(--surface);border-radius:var(--r);padding:3px 8px;font-size:11.5px;cursor:pointer}
 .wpresets button:hover{border-color:var(--brand);color:var(--brand)}
 .weight{margin-bottom:10px;--wc:var(--brand)}
-.weight .top{display:flex;align-items:center;gap:8px}
+.weight .wtop{display:flex;align-items:center;gap:8px}
 .weight .lab{flex:1;font-size:12.5px}
 .weight .wv{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted)}
 .weight.off{opacity:.55}
@@ -125,7 +125,7 @@ b{font-weight:600}
 .tablewrap{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
 table{border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:13px}
 thead th{position:sticky;z-index:5;background:var(--surface);text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:bottom;line-height:1.25}
-thead .bandrow th{top:0;height:34px;padding:0 8px;vertical-align:middle;border-bottom:0}
+thead .bandrow th{top:0;height:34px;padding:0 6px;vertical-align:middle;border-bottom:0}
 thead tr:nth-child(2) th{top:34px;white-space:normal;overflow-wrap:break-word}
 th[data-sort]{cursor:pointer;user-select:none}
 th[data-sort]:hover{color:var(--ink)}
@@ -133,10 +133,10 @@ th.ar,td.ar{text-align:right;padding-right:16px}
 th.ac,td.ac{text-align:center}
 th.al,td.al{text-align:left}
 .arrow{margin-left:3px;color:var(--brand)}
-.gband.gtoggle{cursor:pointer;user-select:none;border-top:3px solid var(--gc);border-right:5px solid var(--surface);background:color-mix(in srgb,var(--gc) 9%,#fff);border-radius:0}
+.gband.gtoggle{cursor:pointer;user-select:none;border-top:3px solid var(--gc);border-right:3px solid var(--surface);background:color-mix(in srgb,var(--gc) 9%,#fff);border-radius:0}
 .gband.gtoggle:hover{background:color-mix(in srgb,var(--gc) 17%,#fff)}
 .gband.gtoggle.open{background:color-mix(in srgb,var(--gc) 16%,#fff)}
-.gband .gl{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap}
+.gband .gl{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap}
 .gband.gband-empty{border-bottom:0}
 tbody td{padding:6px 8px;height:50px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle;background:var(--surface);overflow:hidden;text-overflow:ellipsis}
 tbody tr{cursor:pointer}
@@ -213,6 +213,9 @@ td.emptyrow{height:auto;white-space:normal}
 .gchead:hover{background:color-mix(in srgb,var(--pc) 7%,#fff)}
 .gcard.open>.gchead{background:color-mix(in srgb,var(--pc) 10%,#fff)}
 .gcmeta{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:13px}
+.gcmeta .mv{display:flex;justify-content:flex-end;min-width:44px}
+.gcmeta .mp{display:flex;justify-content:flex-end;min-width:96px}
+.gcmeta .me{display:flex;align-items:center;justify-content:flex-end;gap:8px;width:88px}
 .gcmeta .sc{width:80px}
 .pctnote,.evlab{font-size:11.5px;color:var(--faint)}
 .gcnote{margin:0 0 6px;font-size:12px;color:var(--warn)}
@@ -268,7 +271,8 @@ td.emptyrow{height:auto;white-space:normal}
 .mfoot{margin-top:18px;font-size:11.5px;color:var(--faint)}
 
 /* tablet */
-@media (max-width:1200px){ .app{grid-template-columns:240px 1fr} .top{gap:14px} }
+@media (max-width:1200px){ .app{grid-template-columns:256px 1fr} .top{gap:14px} }
+@media (max-width:1100px) and (min-width:901px){ .toolbar .lbl{display:none} .toolbar-right{gap:8px} .pager{min-width:0} }
 /* below 900px the filters become a drawer */
 @media (max-width:900px){
   .app{grid-template-columns:1fr}
@@ -296,6 +300,7 @@ td.emptyrow{height:auto;white-space:normal}
   thead .bandrow th{padding:0 6px}
   .pdesc{display:none}
   .gcmeta .pctnote{display:none}
+  .gcmeta .mp{min-width:0}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 
@@ -312,7 +317,7 @@ td.emptyrow{height:auto;white-space:normal}
 .dbody{overscroll-behavior:contain}
 @media (max-width:900px){
   .sidebar{padding:0 16px 24px}
-  .sbtop{padding-top:14px}
+  .sbtop{margin:0 -16px;padding:14px 16px 2px}
   .chk button{min-height:36px;padding:6px 11px}
   .bands button,.tristate button{min-height:38px}
   .seg button,.tb-btn,.iconbtn{min-height:38px}
@@ -490,3 +495,12 @@ tbody tr{content-visibility:auto;contain-intrinsic-size:auto 46px}
 .cogt:last-child:nth-child(odd){grid-column:auto}
 .locrow.empty{opacity:.4}
 .locrow{padding:5px 8px}
+
+/* sort arrow of a right-aligned or centred header hangs outside the label, so the label lines up with its values */
+th.ar .hc,th.ac .hc{position:relative}
+th.ar .arrow,th.ac .arrow{position:absolute;left:100%;top:50%;transform:translateY(-50%);width:auto;margin-left:3px}
+.ligrow .rs-head{gap:10px}
+/* the threshold only applies to numeric colourings; show it as unavailable for categories */
+.mapctrl input[type=range]:disabled{opacity:.35;cursor:not-allowed}
+.mapctrl:has(input[type=range]:disabled) label[for=mapThresh]{opacity:.45}
+.fsec .reset{padding:0}
