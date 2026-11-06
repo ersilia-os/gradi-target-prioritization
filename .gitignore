@@ -14,6 +14,10 @@ tmp/
 !/legacy/app/data/
 !/legacy/app/data/**
 
+# The new browser (webapp/) is served from committed JSON as well, built by scripts/webapp/export.py.
+!/webapp/data/
+!/webapp/data/**
+
 # legacy/data and legacy/output are symlinks to the real trees one level up, so the
 # archived scripts' `parents[1]` path resolution still works. The `data/`/`output/`
 # patterns above have trailing slashes and do NOT match a symlink, so name them.
