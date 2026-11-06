@@ -1,41 +1,127 @@
-# Gr-ADI: Target prioritization for *K. pneumoniae* and *E. coli*
+# Gr-ADI: Target prioritization for *K. pneumoniae*, *E. coli* and *S. aureus*
 
-> ⚠️ **Work in progress.** This repository and its outputs are an active prototype. Scores,
-> data, methods, and the web interface (https://ersilia-os.github.io/gradi-target-prioritization/)
-> are provisional and will change — do not treat any result here as final.
+> ⚠️ **Work in progress.** Scores, data and methods are provisional. Degradability for *E. coli* and
+> *K. pneumoniae* is **extrapolated** from *S. aureus* screens: a ranking hypothesis, not a measurement.
 
-Computational target selection for the Gr-ADI project *"Exploring BacPROTACs as a new paradigm for antibacterial discovery"*, led by **Prof. Erick Strauss** (Stellenbosch University).
+Computational target selection for the Gr-ADI project *"Exploring BacPROTACs as a new paradigm for
+antibacterial discovery"*, led by **Prof. Erick Strauss** (Stellenbosch University).
 
-This repository covers Ersilia's contribution to **target selection**: building a workflow that prioritises proteins of interest (PoI) in *Klebsiella pneumoniae* and *Escherichia coli* as candidates for targeted protein degradation (BacPROTACs).
+This repository covers Ersilia's contribution to **target selection**: a workflow that prioritises
+proteins of interest (PoI) as candidates for targeted protein degradation. Ligand identification
+against the prioritized PoIs is a separate workstream and is **out of scope** here.
 
 ## Background
 
-This project explores targeted protein degradation (TPD) as a new modality for antibacterial discovery against Gram-negative pathogens.
+The project explores targeted protein degradation (TPD) as a new modality for antibacterial discovery.
+Ersilia leads the computational target-selection workflow, applying integrative chemo- and
+bioinformatic approaches to nominate degradable, druggable and biologically meaningful targets.
 
-Ersilia leads the computational target selection workflow, applying integrative chemo- and bioinformatic approaches to nominate degradable, druggable, and biologically meaningful targets in *K. pneumoniae* and *E. coli*. Ligand identification against the prioritized PoIs is handled in a separate workstream and is **out of scope** here.
+**Deliverable.** A prioritized list of PoIs.
 
-**Deliverable.** Prioritized list of PoIs for *K. pneumoniae* and *E. coli*.
+## Status: v2, a deliberate restart
+
+A first complete version of the prioritization logic was built between May and August 2026, covering
+five scoring axes and a web browser for the results. It is **finished and frozen** under
+[`legacy/`](legacy/).
+
+v2 restarts the pipeline while keeping what v1 established. If you are picking this up, read
+**[`legacy/HISTORY.md`](legacy/HISTORY.md)** first — it records what was built and what was not, the
+methodological decisions and their rationale, roughly 70 documented traps, which data sources were
+obtained and how, and which artifacts look like data but are not.
+
+The three things v1 most wants passed forward:
+
+1. **The scoring contract** — renormalise a composite over the tracks that actually have evidence
+   rather than zero-filling a missing one, and drive tiers off evidence rather than score thresholds.
+2. **Sequence-first identifier resolution** — *K. pneumoniae* HS11286 is a dark TrEMBL proteome, and
+   matching external databases by accession silently misses even its clinically central
+   β-lactamases. Map by sequence.
+3. **A negative result worth not re-deriving** — partnerless activated ClpP has no usable sequence
+   degron. Only 42 of 4,403 E. coli proteins carry a weighted motif, the composite tracks terminal
+   exposure rather than any motif (ρ = 0.999), and nothing computed predicts cleavage: protein length
+   alone beats a 13-feature model. A degradability axis needs new *data*, not new features.
+
+### What v2 has
+
+Ten per-protein axes, each one complete table (one row per protein, same order everywhere), for *K. pneumoniae*, *E. coli* and *S. aureus*:
+
+| axis | what it answers | record |
+|---|---|---|
+| proteomes | which proteins, with names filled within the species | [`docs/proteomes.md`](docs/proteomes.md) |
+| function · localization | COG and GO annotation; where in the cell | [`docs/function.md`](docs/function.md), [`docs/localization.md`](docs/localization.md) |
+| degradability | is it a substrate of activated ClpP (predicted from *S. aureus* screens) | [`docs/degradability.md`](docs/degradability.md) |
+| essentiality | measured and predicted | [`docs/essentiality.md`](docs/essentiality.md) |
+| ligandability · pockets | known ligands and drugs; structural pockets | [`docs/ligands.md`](docs/ligands.md), [`docs/pockets.md`](docs/pockets.md) |
+| orthology · studiedness | human off-targets and conservation; how much is known | [`docs/orthology.md`](docs/orthology.md), [`docs/studiedness.md`](docs/studiedness.md) |
+
+Each axis ships a within-species rank (`<axis>_consensus`) and an evidence level (`<axis>_evidence`); there is deliberately **no combined score**.
+On top of them: a function- and length-balanced **shortlist of 200 *E. coli* proteins with a random control**
+([`docs/presentation.md`](docs/presentation.md)) and the **target browser** below.
+
+The anchor proteomes are badly under-named (gene names cover **18.4%** of *K. pneumoniae* HS11286 and 28.2% of *S. aureus* NCTC 8325, against 100% for *E. coli* K-12), and gene names are
+what literature and databases key on. Stage 00 fills them within each species (identical sequences, then UniRef90 clusters, never across species): *K. pneumoniae* reaches **63.4%** and *S. aureus* 44.6%.
+
+Four species, one reference proteome each: *K. pneumoniae* HS11286 · *E. coli* K-12 MG1655 ·
+***S. aureus* NCTC 8325** (new in v2 — the organism the activated-ClpP proteomics is native to, and
+the only one of the three with the ClpC machinery every published BacPROTAC targets) · human, for
+selectivity.
+
+## Repository layout
+
+```
+scripts/<task>/            one folder per task, no stage numbers
+scripts/plots/             all figures — separate, because many are comparative ACROSS tasks
+scripts/workers/           entry points run under a different conda interpreter
+src/                       shared helpers + proteome_registry.tsv
+docs/                      one document per axis
+legacy/                    the complete v1 pipeline, frozen — start at HISTORY.md
+data/source/<provider>/    external inputs, bucketed by WHERE THEY CAME FROM
+data/processed/<task>/     the deliverables — plus evidence/ (cite it) and scratch/ (delete it)
+data/raw/                  the frozen v1 archive; see data/raw/PROVENANCE.md
+output/{results,plots}/    results and figures
+```
+
+Tasks: `proteomes` `embeddings` `function` `localization` `orthology` `degradability`
+`essentiality` `ligands` `studiedness`, plus `pockets` `interactome` (README only, no code yet).
+Every deliverable is a **complete matrix**: one row per protein, in the same canonical order across
+every axis — `python -m src.matrices` audits it.
+
+`data/` and `output/` are versioned with [eosvc](https://github.com/ersilia-os/eosvc) (DVC + S3), not
+Git. [`data/raw/PROVENANCE.md`](data/raw/PROVENANCE.md) indexes every raw dataset and — importantly —
+whether you could obtain it again, since a good deal of it came through authenticated browser
+sessions or by hand from paywalled articles.
+
+## The target browser
+
+**https://ersilia-os.github.io/gradi-target-prioritization/** is the *Gram-negative target browser for protein degradation*:
+one table per species (*E. coli* K-12, *K. pneumoniae* HS11286), column groups per axis, range-slider filters,
+a gene card with the AlphaFold model, a map and a compare view. It is built from the v2 tables by
+[`scripts/webapp/export.py`](scripts/webapp/export.py) and lives in [`webapp/`](webapp/); the design contract is
+[`webapp/DESIGN.md`](webapp/DESIGN.md) and the record is [`docs/webapp.md`](docs/webapp.md).
+
+The previous browser (release **v1.0.0**) stays reachable at `/v1/`; it serves v1 numbers, including two degradability
+columns that `legacy/HISTORY.md` §7 documents as untrustworthy.
+
+## Releases
+
+| tag | what |
+|---|---|
+| `v1.0.0` | the first prototype: the task-numbered pipeline and the v1 browser |
+| `v2.0.0` | the per-axis pipeline, the *E. coli* shortlist and the new browser |
 
 ## Meetings
 
-- 26/05/14: [Meeting #1](https://docs.google.com/presentation/d/1ktqv42ylLPgQo6vBqlrP5tt2mJl2Mrk_qCTjA0cztTs/edit?usp=drivesdk). Kick-off meeting in which workflow diagrams are discussed.
-- 26/06/12: [Meeting #2](https://docs.google.com/presentation/d/18RxzTKev5Cop0QIokVffumbeuKxct-54t6emjNE2n2A/edit?usp=sharing). Task-agnostic annotation of the *Klebsiella pneumoniae* and *Escherichia coli* proteomes.
+- 26/05/14: [Meeting #1](https://docs.google.com/presentation/d/1ktqv42ylLPgQo6vBqlrP5tt2mJl2Mrk_qCTjA0cztTs/edit?usp=drivesdk). Kick-off; workflow diagrams.
+- 26/06/12: [Meeting #2](https://docs.google.com/presentation/d/18RxzTKev5Cop0QIokVffumbeuKxct-54t6emjNE2n2A/edit?usp=sharing). Task-agnostic annotation of the proteomes.
 - 26/06/26: [Meeting #3](https://docs.google.com/presentation/d/1_w6N2veARYSRlDvryVdt-O0DD93AiV-iSKjaDv00N68/edit?usp=sharing). Ligandability assessment.
 - 26/07/14: [Meeting #4](https://docs.google.com/presentation/d/1gqcBd9pLYAknGwxpmVM3p7lFEUnMwRAYD2RQmBywWlE/edit?usp=sharing). Essentiality annotation and predictions.
 - 26/07/24: [Meeting #5](https://docs.google.com/presentation/d/11yDNqMQUHVPZ8q0vn-_kKcUD9v02bo4CdBhp66HPn18/edit?usp=sharing). First draft of the target prioritization browser.
-
-## Prioritization criteria
-
-Targets are scored along the axes documented in [`docs/`](docs/). See [`docs/pipeline.md`](docs/pipeline.md) for the index and diagram-style legend, and each section below for the full track breakdown, Mermaid diagram, and references.
-
-1. **[Task-agnostic per-protein annotation](docs/01_task_agnostic.md)**. Proteome-wide evidence consumed by every downstream axis: PANTHER / InterPro family-and-domain classification, PDB + AlphaFold structural quality, BV-BRC conservation (within-Kp, cross-species, vs human), bibliometric novelty (UniProt + Europe PMC), and ESM-2 embeddings.
-2. **[Ligandability](docs/02_ligandability.md)**. Can a small-molecule recruiter engage the target? Combines binding-affinity transfer from bacterial orthologs (OrthoDB + ChEMBL / BindingDB), structural ligand evidence (PDB co-crystals + AlphaFill) and pocket / binding-site prediction (AF2Bind + fpocket + P2Rank), with disorder as a negative signal.
-3. **[Degradability](docs/03_degradability.md)**. Is the target a plausible Clp-protease substrate? Combines sequence-based degron motifs (modulated by AlphaFold pLDDT exposure), *E. coli* substrate-trap and half-life transfer (Flynn 2003 + Nagar 2021), cross-bacterial trap evidence (*Caulobacter*, *M. tuberculosis* ClpC1, *S. aureus*) and an ESM-2-based learned classifier.
-4. **[Essentiality](docs/04_essentiality.md)**. Is the target required for fitness or survival? Combines direct *K. pneumoniae* Tn-seq (in vitro / in vivo) and CRISPRi with *E. coli* essentiality transfer and computational predictors (ProteomeLM-Ess, Geptop 2.0, DeeplyEssential, FBA on iYL1228).
-5. **[Expression and localization](docs/05_expression_and_localization.md)**. Is the target expressed and accessibly localised? Combines UniProt / PSORTb / DeepLocPro subcellular calls with Kp proteomics abundance and cross-species expression transfer from *S. aureus* (ADEP4 / ONC212) and *E. coli*.
+- 26/08/07: [Meeting #6](https://docs.google.com/presentation/d/1j3abSZ8P2cj0uu2M-IpfVSE1Md62ABZPlos_6fg36QE/edit?usp=sharing). Degradability studies.
+- 26/09/03: [Meeting #7](https://docs.google.com/presentation/d/1qZWv9Q3XFMoy3BCHcZZRANVXPyXxMvIuwn77fia9BQA/edit?usp=sharing). Resuming and simplifying the workflow.
 
 ## About Ersilia
 
-The [Ersilia Open Source Initiative](https://ersilia.io) is a tech-nonprofit organization fueling sustainable research in the Global South.
+The [Ersilia Open Source Initiative](https://ersilia.io) is a tech-nonprofit organization fueling
+sustainable research in the Global South.
 
 ![Ersilia Logo](assets/Ersilia_Brand.png)

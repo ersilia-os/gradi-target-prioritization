@@ -1,0 +1,1204 @@
+# Stage 04 — degradability
+
+`scripts/degradability/predict.py` · `scripts/plots/degradability.py` · loader `src/degradability.py`
+
+One question per protein: **is it a substrate of activated partnerless ClpP?** A binary
+**TabPFN-3.5** classifier on stage-01 ESM-C embeddings, trained on the two *S. aureus* activator
+screens and applied to the rest of *S. aureus* and all of *E. coli* and *K. pneumoniae*.
+
+**The shipped scores are now a late fusion** (2026-11-04): one TabPFN-3.5 model per embedding
+(ESM-C and ProtT5), probabilities averaged. Fused, 5 seeds, cluster-grouped CV: **ADEP4 0.882 / PR
+0.635, ONC212 0.769 / PR 0.587**. **The table below is the ESM-C arm**, which still reproduces
+under `GRADI_TABPFN_CACHE_ONLY=1`; the fusion run is in the 2026-11-04 log entry.
+
+| activator | paper | labeled | positives | out-of-fold ROC-AUC | PR-AUC | cross-assay ref |
+|---|---|---|---|---|---|---|
+| `adep4` | Conlon 2013 (ADEP4) | 1,677 | 230 (13.7%) | **0.8738 ± 0.0029** | **0.6103** | 0.877 |
+| `onc212` | Jacques 2020 (ONC212) | 1,045 | 257 (24.6%) | **0.7671 ± 0.0060** | **0.5803** | 0.815 |
+
+**Superseded numbers.** Until 2026-09-17 this stage shipped a RandomForest(500) scoring
+0.8645 / 0.7517 (PR 0.5632 / 0.5481). `--estimator forest` reproduces those exactly; the retrofit
+is recorded in the run log. **Read PR-AUC alongside ROC-AUC** — TabPFN's gain is ~4× larger there,
+i.e. concentrated at the top of the ranking, which is what a shortlist consumes.
+
+ROC-AUC is the mean ± SD over **5 repeats** of the cluster-grouped split. A single-seed estimate
+carries ±0.004 of pure arbitrariness — larger than any of the three effects tested below — so one
+seed is not reported.
+
+**This overturns v1's headline negative result.** v1 pre-registered the gate *"does any sequence
+feature beat protein length alone?"* and answered no — disorder added +0.009 over length, a
+13-feature GBM lost to logistic length-only (0.762 vs 0.775), degron motifs took 0% of SHAP. Its
+retrospective concluded *"a degradability axis needs new **data**, not new features."* Measured under
+identical cluster-grouped CV and on the same rows, ESM-C beats a properly-estimated length baseline
+by **+0.095** (ADEP4, 0.8744 vs 0.7796) and **+0.072** (ONC212, 0.7592 vs 0.6870) — both read from
+the −1.0 row of `evidence/cutoff_sensitivity.tsv`, so the two numbers share a code path. *(The
+forest it replaced gave +0.081 and +0.062, from 0.857 and 0.750 against the same baselines.)*
+
+And on ADEP4 it essentially matches **what a second independent experiment achieves**: 0.8738
+against 0.877, where 0.877 is ONC212's own measured readout used to predict ADEP4's calls.
+
+**On terminology.** That 0.877 was previously called a "ceiling" here. It is not one — the model
+exceeds it at three of the five cutoffs in the sensitivity table below — and v1's
+`degradability_datasets.md` §10.3 already uses "reproducibility ceiling" for a *different* quantity
+(label-vs-label agreement, ρ 0.52 / Jaccard 0.32). It is now the **cross-assay reference**:
+`CROSS_ASSAY_AUROC`, what the other screen achieves at the same task.
+
+![ROC curves](../output/plots/degradability/roc_curves.png)
+
+## Binary classification, and why the obvious objection does not apply
+
+The two activators' binary calls overlap at only **Jaccard 0.32**, which looks like a reason not to
+classify. It is not, and the distinction matters:
+
+| | value | what it says |
+|---|---|---|
+| Jaccard of the two binary calls | 0.323 | the experiments disagree on **where to draw the line** |
+| ADEP4 readout → ONC212 calls, AUROC | 0.815 | but they agree well on **which proteins rank as susceptible** |
+| ONC212 readout → ADEP4 calls, AUROC | 0.877 | |
+
+ONC212 simply drew a looser line — 165 hits ADEP4 misses against 28 the other way, it being the more
+promiscuous compound at 30 µM. That is a *threshold* disagreement, and a classifier that emits a
+probability and is scored on ranking never touches it.
+
+Classification also makes the v1 comparison exact: 0.7747, 0.6799, 0.6916 and 0.7650 are all
+classifier AUROCs. What it costs is magnitude inside each class — a −9.4 log2FC and a −1.1 both
+become `1`. A regression variant of this stage was built and measured first; see the run log.
+
+**Judge nothing against 1.0.** The cross-assay reference is 0.877 / 0.815, and it is drawn as its own
+curve on the figure rather than as a horizontal line, because an AUROC is an area and not a
+true-positive rate.
+
+## The label — verified against v1's code
+
+`legacy/scripts/10e_activator_features.py:119-131`, with `ABUNDANCE_LOG2 = -1.0`, `PADJ = 0.05`:
+
+```python
+out["conlon_abundance_bin"]  = (adep4_abundance_log2fc <= -1.0) & (adep4_abundance_padj < 0.05)
+out["jacques_abundance_bin"] =  onc212_abundance_log2fc <= -1.0        # Jacques published no p-values
+```
+
+Unmeasured stays `np.nan`, never 0 — a missing readout is not a negative. Verified arithmetically:
+233 + 1,479 = 1,712, exactly the proteins carrying an ADEP4 value.
+
+The definitions are **asymmetric** — ADEP4 significance-filtered, ONC212 effect-size only — because
+that is the best each paper supports. Do not "fix" it into symmetry or the numbers stop being
+comparable to v1's.
+
+The **cleavage** readout is deliberately unused: it reproduces between activators at only ρ = 0.22,
+and within a single chemistry abundance and cleavage agree at **ρ = 0.06**. Not two views of one
+quantity.
+
+## The identifier problem — 0 of 1,943 join
+
+Conlon is strain **COL** (`SACOL#####` / `YP_18xxxx`), Jacques is **C0673** (`ODV*`), the v2 proteome
+is **NCTC 8325** (`SAOUHSC_*` / `YP_498xxx`).
+
+| route | result |
+|---|---|
+| `saureus_acc` (`YP_*`/`ODV*`) → proteome `refseq` | **0 / 1,943** |
+| `sacol` → `locus_tag_all` (`SAOUHSC_*`) | **0 / 1,943** |
+| Jacques `Mu50_homolog` UniProt → `uniprot_ac` | **0 / 534** |
+| `gene` → `gene_name` | 559 / 691 symbols, but only 692 of 1,943 rows carry one |
+
+The obvious repairs are dead ends (`legacy/scripts/10c_clpp_activator.py:47-56`): modern RefSeq
+re-tagged COL as `SACOL_RS#####` keeping **no** `old_locus_tag`, and UniProt demoted the COL and Mu50
+proteomes as redundant — 939 and 1,033 entries survive — so a UniProt bridge would silently drop ~45%
+of Conlon.
+
+So the join is **by sequence**, CLAUDE.md's standing rule, at its `≥95% identity = direct` threshold:
+
+```
+1,943 labeled proteins -> 1,873 direct (96.4%) at >=95.0% id / >=80% cov
+  direct  1873   below_threshold  54   no_hit  16
+identity: median 100.0%   5th pct 99.3%
+```
+
+Loosening to ≥50% would gain only 21 proteins, so the strict cut costs nothing. Unlike v1's
+cross-phylum hop at median 42% identity, this one is free. **The stage exits below 90% mapped.**
+
+## Method
+
+**The shipped estimator is TabPFN-3.5**, the project default (`CLAUDE.md`, *Supervised ML*). It is
+called through `src/tabpfn.py` (`predict_fold`, `oof_predict`), which dispatches **across a process
+boundary** into the `gradi-tabpfn` conda env via `scripts/workers/tabpfn_cv.py` — the stage itself
+runs in `gradi` and never imports torch 2.14. `GRADI_TABPFN_BIN` overrides the interpreter;
+`GRADI_TABPFN_HOSTED=0` asks for local weights instead of the hosted API. No feature scaling: the
+1,152 ESM-C dimensions go in whole (TabPFN 9.0.0 declares `MAX_NUMBER_OF_FEATURES` 500/2,000 and
+`MAX_NUMBER_OF_SAMPLES` 10,000/50,000 depending on the inference config, so n=1,677 × 1,152 is well
+inside one call).
+
+```python
+# the superseded estimator, still reachable with --estimator forest
+RandomForestClassifier(n_estimators=500, class_weight="balanced", n_jobs=-1, random_state=0)
+```
+
+The forest needed no `StandardScaler` either — trees split on thresholds — and `class_weight=
+"balanced"` carried the 13.7% / 24.6% positive rates without resampling. It is imported from
+`src.degradability.RF_PARAMS` rather than re-specified, so a later forest-vs-TabPFN number is a
+comparison of estimators and not of two scripts.
+
+**Cross-validation: two 5-fold stratified schemes side by side.**
+
+- **`StratifiedGroupKFold(5, shuffle=True, random_state=0)`** grouped on the MMseqs2 30%-identity
+  clusters (1,461 clusters over 1,677 ADEP4 proteins). Stratified keeps the base rate in every fold;
+  grouped stops homologues straddling the split. **This is the reported number.**
+- **`StratifiedKFold(5, shuffle=True, random_state=0)`**, plain, with `leakage_gap` emitted. Measured
+  at **−0.010 to +0.002** — negligible, because the cluster count is close to the protein count.
+  v1's `07d` used an ungrouped `cv=5`; this is what that costs, and here it costs nothing.
+- **ROC-AUC** with a stratified bootstrap 95% CI, plus **PR-AUC** and the base rate beside it.
+
+**Cross-activator**, the only non-circular test — `degradability_datasets.md` §10.4 listed it as
+*"available now, not done"*:
+
+| train | test | mode | n | ROC-AUC | 95% CI | PR-AUC | v1 hand-built |
+|---|---|---|---|---|---|---|---|
+| adep4 | onc212 | shared | 1,045 | **0.7673** | [0.7323, 0.8000] | 0.5787 | 0.6916 |
+| onc212 | adep4 | shared | 1,677 | **0.8486** | [0.8239, 0.8720] | 0.4179 | 0.7650 |
+| onc212 | adep4 | cluster_disjoint | 580 | 0.8612 | [0.8223, 0.8963] | 0.5114 | — |
+
+*(Read from `evidence/cross_activator.tsv` as written by the TabPFN run of 2026-09-18. The forest
+scored 0.747 / 0.843 / 0.836 here; those are superseded.)*
+
+`shared` is v1's setup and the comparable one. `cluster_disjoint` also demands sequence novelty; the
+**adep4 → onc212 direction cannot supply it** (ADEP4 covers almost every cluster, leaving 29 ONC212
+proteins) and is reported as skipped rather than quietly dropped.
+
+## Two things the estimator search settled
+
+Both are cheap traps that would have gone unnoticed. The search predates the TabPFN retrofit, so
+the AUROCs here are the forest's and the logistic's — but both lessons are about *how to estimate a
+baseline*, which no estimator change touches.
+
+**1. A forest is the wrong estimator for a one-feature baseline.** On `log_length` alone, RF scored
+0.682 (ADEP4) against balanced logistic's 0.776 on identical rows and splits, and saturated 33% of
+its probabilities — 500 bootstrapped trees bin a single variable into steps instead of using it
+monotonically. Quoting RF's length number would have credited the embedding with **+0.175** when the
+honest figure is **+0.081**. The baseline ladder is retired from the pipeline, but that is why the
+delta above is quoted against the *logistic* baseline.
+
+**2. Logistic at `C=1.0` saturates and loses accuracy.** v1's `10f` hard-coded it, and 10f never ran,
+so it was never caught. On 1,152 standardised dimensions at n≈1,677 the sigmoid pins **52% of
+out-of-fold probabilities at exactly 0.000 or 1.000** — unrankable ties across half the proteome —
+while also costing real accuracy:
+
+| C | ROC-AUC (ADEP4) | saturated |
+|---|---|---|
+| 1.0 | 0.813 | 52.3% |
+| 0.01 | 0.855 | 1.4% |
+| 0.001 | 0.873 | 0.0% |
+
+A forest has no such cliff and saturates 0% untuned, which is what broke the tie: on ESM-C the two
+estimators are otherwise a wash (logistic 0.873 vs RF 0.857 on ADEP4; 0.744 vs 0.750 on ONC212, CIs
+overlapping both ways). `HistGradientBoostingClassifier` was also measured and rejected — no better,
+and it saturated 25–67%. **A `saturated > 20%` guard now exits the stage**, so this cannot regress
+silently.
+
+## Three questions asked, three negatives
+
+All three were measured under this stage's own cluster-grouped CV. None improves the model, and that
+is the useful result: it locates the remaining headroom in the labels rather than the method.
+**Every AUROC in this section is the RandomForest's** — these experiments predate the TabPFN
+retrofit and were not re-run, since what they establish is about *features* and *labels*, not about
+the estimator. The hit-rate-by-compartment table is a property of the labels alone and is
+estimator-independent.
+
+### 1. Localization and function features add nothing
+
+| block | features | ADEP4 | ONC212 |
+|---|---|---|---|
+| **esmc** (shipped) | 1152 | **0.857** [0.827, 0.882] | **0.750** [0.716, 0.784] |
+| localization alone | 11 | 0.748 | 0.646 |
+| function (COG) alone | 24 | 0.685 | 0.612 |
+| esmc + localization | 1163 | 0.859 (**+0.002**) | 0.745 (**−0.005**) |
+| esmc + loc + function | 1187 | 0.860 (+0.003) | 0.750 (+0.000) |
+
+*(single-seed, seed 0, which is why `esmc` reads 0.857 here against the 0.865 headline.)*
+
+Localization *alone* is a decent predictor, but the embedding already encodes it — DeepLocPro is
+ESM-2-based and TMbed is ProtT5-based, so this is redundancy, not new information. v1's own lesson,
+recurring: *"SHAP splits credit among correlated features … the nested models measure what is
+added."* **The model stays ESM-C-only**, with no dependency on stages 02/03.
+
+**But the compartment breakdown is worth more than the AUROC**, and it does not gate the way
+intuition says:
+
+| class | ADEP4 hit rate | ONC212 hit rate |
+|---|---|---|
+| cytoplasm | 0.180 | 0.275 |
+| extracellular | 0.049 | **0.346** |
+| **cytoplasmic_membrane** | **0.031** | **0.105** |
+| cell_wall_surface | 0.000 (n=15) | 0.000 (n=7) |
+
+**Membrane proteins are protected in both screens** — co-translational insertion means they never
+present a soluble cytoplasmic chain for an open ClpP pore to take. **Secreted proteins are not
+protected**, because they transit the cytoplasm as unfolded chains, which is exactly what activated
+ClpP prefers. So if you filter on localization downstream, **"cytoplasmic only" is the wrong rule** —
+"not membrane" is closer to what the data says. The two screens disagree on `extracellular`
+(0.049 vs 0.346, n=82/52), so treat that class as unsettled. Join via `src/localization.py`.
+
+### 2. Hyperparameters do not matter
+
+A 10-point sweep over `max_features` ∈ {sqrt, log2, 0.02, 0.05, 0.10}, `min_samples_leaf` ∈ {1, 3}
+and `criterion` ∈ {gini, entropy} spanned **0.854–0.862** (ADEP4) and **0.742–0.750** (ONC212) — less
+than one CI half-width, with the winner differing between activators. Reseeding the CV showed it was
+selection noise:
+
+| config | ADEP4, 5 CV seeds | ONC212, 5 CV seeds |
+|---|---|---|
+| default (`sqrt`, msl=1) | 0.8621 ± 0.0036 | 0.7483 ± 0.0052 |
+| sweep winner (`0.1`, msl=3) | 0.8645 ± 0.0021 | 0.7517 ± 0.0075 |
+
+**+0.002 / +0.003, at or below seed noise.** `RF_PARAMS` adopts the winner because it is free and
+consistent in sign — not because tuning mattered. Do not spend more time here.
+
+### 3. The log2FC cutoff must not be tuned — but sweeping it proves the result is cutoff-free
+
+**AUROC is not comparable across different labels.** Tightening the cutoff shrinks the positive class
+and makes it more extreme, which inflates AUROC mechanically. Optimising on that would buy a spurious
++0.08 and a label chosen for being easy rather than meaningful.
+
+`evidence/cutoff_sensitivity.tsv`, recomputed every run (TabPFN, 2026-09-18; the forest's version
+of this table read 0.862 at adep4 −1.0 and is superseded):
+
+| activator | cutoff | n_pos | model | cross-assay | **gap** | length | ESM-C − length |
+|---|---|---|---|---|---|---|---|
+| adep4 | −0.5 | 379 | 0.8453 | 0.8037 | **+0.042** | 0.7285 | +0.117 |
+| adep4 | **−1.0** | 234 | 0.8744 | 0.8696 | **+0.005** | 0.7796 | +0.095 |
+| adep4 | −1.5 | 136 | 0.9012 | 0.8726 | **+0.029** | 0.8432 | +0.058 |
+| adep4 | −2.0 | 96 | 0.9168 | 0.8752 | **+0.042** | 0.8434 | +0.074 |
+| adep4 | −3.0 | 46 | 0.9543 | 0.9564 | **−0.002** | 0.8709 | +0.083 |
+| onc212 | −0.5 | 351 | 0.7259 | 0.7783 | −0.052 | 0.6612 | +0.065 |
+| onc212 | **−1.0** | 257 | 0.7592 | 0.8156 | −0.056 | 0.6870 | +0.072 |
+| onc212 | −1.5 | 191 | 0.7898 | 0.8462 | −0.056 | 0.7168 | +0.073 |
+| onc212 | −2.0 | 151 | 0.7978 | 0.8595 | −0.062 | 0.7390 | +0.059 |
+| onc212 | −3.0 | 96 | 0.8201 | 0.8731 | −0.053 | 0.7864 | **+0.034** |
+
+**`model` rises with strictness for a trivial reason and is not a tuning signal.** The column that
+matters is `gap`: the cross-assay reference rises in lockstep, so their difference is the invariant —
+ADEP4 within ±0.045 at **every** cutoff, ONC212 a consistent −0.052 to −0.062 below. That makes the
+shipped conclusion **cutoff-independent**, which is far stronger than a single-cutoff claim.
+
+One more thing the sweep shows: **ESM-C's margin over length shrinks as the cutoff tightens** —
+ONC212 falls from +0.065 at −0.5 to **+0.034** at −3.0. The most dramatically depleted proteins are
+largely just the smallest ones, so the embedding earns its keep in the moderate-effect middle rather
+than at the extremes. (Under the forest the same column fell from +0.057 to +0.009; TabPFN holds a
+wider margin at the extremes but the direction is the same.)
+
+**The cutoff stays at −1.0**: it is v1's audited definition (keeping 0.7747 comparable), it is what
+both papers effectively used, and it retains 234/257 positives where −3.0 leaves 46. A guard asserts
+that the sweep's −1.0 row agrees with the main CV number, so the two code paths cannot drift apart
+about what the label is.
+
+## Running it
+
+```bash
+python scripts/degradability/predict.py --dry-run
+python scripts/degradability/predict.py --limit 300          # smoke -> scratch/smoke_*
+python scripts/degradability/predict.py                      # ~6 min: 5 CV seeds + the cutoff sweep
+python scripts/degradability/predict.py --estimator forest   # regenerates the superseded RF numbers
+python scripts/plots/degradability.py
+python scripts/plots/degradability_predictions.py
+python scripts/plots/degradability_top.py
+python scripts/degradability/enrichment.py
+python scripts/degradability/orthology_check.py --species ecoli   # also kpneumoniae, --rbh-only
+python scripts/degradability/cosine_calibration.py                # cosine vs orthology, conserved genes
+```
+
+The `gradi` env throughout — **never activate `gradi-tabpfn` to run the stage**; it reaches that env
+across a process boundary (see *Method*). Full CLI: `--species` · `--activator {adep4,onc212}` ·
+`--estimator {forest,tabpfn}` · `--folds` · `--seed` · `--limit` · `--refresh` · `--dry-run` ·
+`-q/--quiet`. A re-run that recomputes nothing spends no credits, because every hosted call is
+served from the content-addressed cache — see *Traps*.
+
+## Outputs
+
+```
+data/processed/degradability/
+    degradability_<species>.tsv               7 columns, keyed on uniprot_ac, every protein present
+    evidence/
+        labels_saureus.tsv                    measured call + log2FC on uniprot_ac + join evidence
+        seqmap_audit.tsv                      every join: source acc, target, pident, cov, verdict
+        cv_<activator>.tsv                    ROC-AUC, PR-AUC, base rate, leakage_gap, saturation
+        cross_activator.tsv                   both directions, both modes
+        cutoff_sensitivity.tsv                model vs cross-assay vs length, per cutoff
+        domain_bands.tsv                      AUROC by similarity band + per-species reweighting
+        oof_<activator>_saureus.tsv           out-of-fold probability + fold index per labeled protein
+        model_<activator>[_prott5].npz        the training set + config per embedding, and its CV metrics
+        consensus_audit.tsv                   per protein: measured calls, labels_agree, nn_similarity,
+                                              band_validated, consensus and the 1-3 ladder (dropped column)
+        ortholog_support_<species>.tsv        why each *_ortholog_hit is 1, 0 or NA, plus the log2FC
+        manifest.tsv
+    scratch/
+        smoke_*                               --limit output, safe to purge
+        lazyqsar/                             the rejected head's CV cache
+output/plots/degradability/roc_curves.png
+```
+
+**`model_<activator>.npz` replaced `model_<activator>.joblib` at the TabPFN retrofit.** TabPFN
+learns *in context*, so there is no fitted object to pickle — the artifact is the **training set +
+config**, which is what actually determines the predictions and which survives a library upgrade in
+a way a pickled forest does not.
+
+| column | meaning |
+|---|---|
+| `<act>_prob` | the fused model's probability for **every** protein, **averaged over 5 seeds**. **Out-of-fold only for the labeled *S. aureus* proteins**; every other protein (all of *E. coli* and *K. pneumoniae*, and the unlabeled *S. aureus* ones) is unseen, so it gets the full-fit prediction and there is no fold to hold out |
+| `nn_similarity` | raw ESM-C cosine to the nearest *S. aureus* training protein. **Not a relatedness measure**: random pairs have median 0.775 and a median ortholog pair only 0.89–0.91 |
+| `degradability_consensus` | 0–1, the mean within-species percentile rank of the two `_prob` columns |
+| `<act>_ortholog_hit` | nullable 1 / 0 / NA, per activator: a measured *S. aureus* ortholog is a degrader (1) or none is (0). **NA is nothing to say, never 0** |
+
+### The two standard columns
+
+Added **2026-10-04**, the axis's share of the project-wide pair defined in `src/consensus.py`.
+This was the first axis with both a real magnitude and a real experiment, so it shipped the
+consensus as well as the evidence. **The evidence column was dropped on 2026-11-05** (below); the
+consensus stays.
+
+**`degradability_consensus` adds very little, and the docstring says so.** It correlates with
+either activator alone at **rho 0.970–0.973** on all three species, because the two probabilities
+are themselves at **rho 0.884** — one opinion wearing two hats, both read off the same embedding.
+Compare essentiality, whose three inputs sit at rho 0.13–0.57 and whose consensus genuinely
+combines them. This one mostly averages noise out of a single opinion. It earns its place as the
+axis's comparable 0–1 scale, **not** as two-source corroboration.
+
+**`nn_similarity` is deliberately not an input to it.** It measures how far the prediction reached
+in ESM-C space, not how degradable the protein is; averaging it in would rank a well-covered
+non-substrate above a poorly-covered substrate.
+
+#### `degradability_evidence` — dropped 2026-11-05, kept here as the record
+
+**Why it went (owner's call).** The tier rested on `nn_similarity >= 0.90`, and raw ESM-C cosine
+turned out not to mean "similar protein". Measured against the whole *S. aureus* proteome
+(`scripts/degradability/cosine_calibration.py` → `output/results/degradability/cosine_calibration.tsv`): random *Ec*/*Kp*–*Sa* pairs have **median cosine
+0.775 / 0.761, 95th percentile 0.90 / 0.89, 99th 0.93**, while a true ortholog pair (OrthoFinder or
+RBH) has a **median of 0.906 (Ec) / 0.894 (Kp)** — the 0.90 cut sits at the random-pair 95th
+percentile. A protein's nearest *S. aureus* neighbour is a true ortholog only **1.7% / 2.0%** of the
+time at 0.90–0.93 and **6.8% / 6.9%** at 0.95–0.97 (23.5% / 12.9% above 0.97). Mean-pooled ESM-C
+vectors share a large common component, so every pair scores high. The band AUROCs behind the cut
+were also built excluding only the protein itself, not its paralogs, so they are probably
+optimistic. The ladder is still computed by `D.evidence()` and is **verified equal to the dropped
+column on all 13,020 rows** in `evidence/consensus_audit.tsv`. If a tier returns it should rest on
+sequence identity or the ortholog call (`orthology/neighbors.tsv`), not on cosine.
+
+The ladder as it was:
+
+```
+3  measured -- the protein was in an activator screen
+2  not measured, but nn_similarity >= 0.90, i.e. inside a band with a validated AUROC
+1  not measured, and beyond any band the model was ever validated in
+```
+
+| | L1 | L2 | L3 |
+|---|---|---|---|
+| Kp | 1,175 | 4,553 | — |
+| Ec | 541 | 3,862 | — |
+| Sa | 221 | 959 | 1,709 |
+
+**Kp and Ec cannot exceed 2, and that needed no special-casing** (project owner's constraint,
+2026-10-04). The activated-ClpP screens are *S. aureus* only, so `measured()` is all-NA on the
+other two and the cap falls out of the ladder. It is asserted anyway: a future non-Sa label set
+should widen the ladder loudly, not silently.
+
+**The 0.90 cut is read off `evidence/domain_bands.tsv`, not chosen.** The two bands below it carry
+a **NaN `roc_auc`** — too few labeled proteins to estimate one — while `[0.90,0.95)` measures
+0.8002 and `[0.95,1.01)` 0.8549. So level 1 means exactly *the model has never been validated this
+far out*, and it reproduces this doc's own "a fifth of Kp": 0.4% + 20.3% = 20.7% of the bands,
+1,175/5,728 = 20.5% of the ladder. `VALIDATED_SIMILARITY` is derived from `SIMILARITY_BANDS[2][0]`
+so the two cannot drift apart — **do not retune it**; rerun the bands and read the new edge off
+them.
+
+**Level 3 is "measured at all", not "measured twice and agreeing"** (project owner, 2026-10-04),
+chosen over the alternative with its cost in view: it keeps the cap legible — 3 is an experiment,
+2 is a trustworthy prediction — at the price of not separating the **823** proteins whose two
+labels agree from the **190** that disagree. That distinction is not lost; it is per protein in
+`evidence/consensus_audit.tsv`.
+
+**This deviates from the generic ladder in `src/consensus.py`**, which defines 3 as "≥2 sources,
+unanimous, concordant with the consensus". A reader who assumes the generic rule will over-read a
+3. The deviation is right here because the two activators are not two sources in that sense: their
+probabilities are one opinion (rho 0.884), and although their *labels* are genuinely independent
+(rho 0.436, agreeing 823/1,013 = 81.2%), an activator a protein was never tested against is
+missing data rather than a dissenting source.
+
+**"In the labels file" is NOT "measured", and the gap is 162 proteins.**
+`evidence/labels_saureus.tsv` holds **1,871 rows, of which 162 are NaN for both activators** —
+sequence-mapped to the proteome, never called by either screen. Level 3 tests `measured()`, which
+drops them, so it reads 1,709 and not 1,871. A membership test against the file would promote 162
+proteins to "experimentally measured" on the strength of a successful sequence join alone. This
+was caught by the verification assertion, not by inspection.
+
+**Polarity control**: on *S. aureus* the consensus median is **0.753 at measured hits against
+0.384 at measured non-hits**. A range check cannot see a sign flip; this can.
+
+**`_prob` is one comparable scale across all 13,020 proteins**, because a labeled protein carries
+its out-of-fold value rather than a 1.0 that would outrank every uncertain prediction. It is the
+**seed-averaged** out-of-fold value, never a single seed's — a single-seed estimate carries ±0.004 of arbitrariness
+and seed 0 alone read 0.857 against the 5-seed 0.8738.
+
+### The measured calls are not in this table
+
+Dropped on the project owner's instruction, **2026-10-03**. `<act>_hit` and `<act>_source` were
+four columns that said almost nothing: `_hit` was empty for **10,131 of 13,020** proteins — every
+*E. coli* and *K. pneumoniae* row, because no activated-ClpP screen has ever touched either
+organism — and `_source` read `predicted` for all but 1,871.
+
+**Nothing was lost, and that was checked rather than assumed.** Both columns are *exactly*
+reconstructible from `evidence/labels_saureus.tsv`, verified per species and per activator before
+the tables were rewritten: 1,677 adep4 and 1,045 onc212 calls, byte-identical on both columns. The
+labels table is strictly richer than the bit was — it carries the continuous log2FC behind each
+call (a measured −0.51 explains a `0` in a way the bit cannot) and the cluster used for grouping.
+
+Two helpers in `src/degradability.py` put the measurement back where it is wanted:
+
+| helper | returns |
+|---|---|
+| `measured(activator)` | the 1/0 calls, indexed on `uniprot_ac`. All-NA on Ec and Kp, which is the truth about them |
+| `with_measured(df)` | a copy of `df` with `<act>_hit` re-attached, for plots and audits |
+
+**`hits()` is unchanged in behaviour** — a measurement still wins over the model wherever one
+exists. It now reads the labels itself instead of a column.
+
+**The loader name collides with the frozen `legacy/src/degradability.py`.** v2 never imports that
+one; `src/degradability.py` is the only module this stage knows about, and the legacy file belongs
+to the v1 pipeline described in `legacy/HISTORY.md` §7 (which lists four verified defects in the Kp
+legacy degradability TSV).
+
+### Thresholding: 0.5 is the wrong cut, and the right cut MOVED with the estimator
+
+TabPFN's probabilities span a much wider range than the balanced forest's did. Measured on the
+shipped (fused) tables: `adep4_prob` tops out at **0.8873 on Kp**, 0.8495 on Ec and **0.9472 on
+Sa**, so `>= 0.5` selects **240 Kp**, 214 Ec and 226 Sa (393 / 290 / 281 for `onc212_prob`). *(The
+ESM-C-only table read 220 / 210 / 232 and 547 / 356 / 376.) Under the
+forest `adep4_prob` topped out near 0.614 on Kp and `>= 0.5` selected 20 of 5,728 — that is the
+superseded number, and it is why a cut inherited from the old outputs now behaves completely
+differently.*
+
+The thresholds that reproduce each activator's own training base rate are **0.319** (adep4) and
+**0.308** (onc212), re-derived 2026-11-05 on the **fused** out-of-fold probabilities (`oof_fused`);
+the ESM-C-only TabPFN's were 0.328 / 0.313 and the forest's 0.394 / 0.426.
+`src.degradability.hits()` defaults to them (`BASE_RATE_THRESHOLD`). Two things about them:
+
+- **They are empirical quantiles of the out-of-fold distribution**, i.e. a property of the
+  estimator's *calibration*, not of the biology. **Re-derive them on any estimator change** — the
+  retrofit is the worked example of what happens if you do not.
+- **They reproduce the base rate on the LABELED set, not on a proteome.** Applied whole-proteome the
+  same cut takes **adep4 Kp 14.1% · Ec 13.6% · Sa 20.0%** and **onc212 Kp 29.5% · Ec 27.7% ·
+  Sa 34.4%** — far above the 13.7% / 24.6% training base rates, and not an estimate of how many real
+  substrates each proteome holds.
+
+Better still: rank on `_prob` and take a top-N. The model was validated on ranking, not on any cut.
+
+| helper | returns |
+|---|---|
+| `load(species)` / `load_all()` | the shipped table |
+| `hits(df, activator, threshold=None)` | predicted-or-measured positives, base-rate threshold by default |
+| `load_labels()` | measured calls + log2FCs on `uniprot_ac` |
+| `load_seqmap_audit()` | every sequence join, including the 70 that failed |
+| `load_cv(activator)` / `load_cross_activator()` / `load_domain_bands()` | the validation tables |
+| `load_cutoff_sensitivity()` | the cutoff sweep — read the `gap` column, not `model` |
+| `load_oof(activator)` | out-of-fold probabilities + fold index |
+| `manifest()` | per-species counts and provenance |
+
+## Pricing the cross-species leap
+
+There are **no** activated-ClpP measurements for *E. coli* or *K. pneumoniae*, anywhere, so nothing
+validates those rows. The stage bands out-of-fold AUROC by cosine distance to the nearest
+*S. aureus* training protein (self excluded) and reweights by where each species' queries land — the
+control that turned a rejected k-NN's 86.8% headline into an honest 68% in stage 02.
+
+Reweighted expectation, from `evidence/domain_bands.tsv` as written by the TabPFN run:
+
+| | Kp | Ec | Sa | band coverage (Kp / Ec / Sa) |
+|---|---|---|---|---|
+| **ADEP4** | **0.8140** | **0.8173** | 0.8450 | 79.3% / 87.5% / 92.1% |
+| **ONC212** | **0.7770** | **0.7748** | 0.7552 | 77.5% / 85.6% / 91.5% |
+
+**These replace the forest-era figures Kp 0.752 / Ec 0.754 (ADEP4) and Kp 0.659 / Ec 0.660
+(ONC212)**, which were still printed here after the retrofit. Median `nn_similarity` on predicted
+rows is 0.9278 (Kp), 0.9359 (Ec), 0.9728 (Sa) — unchanged, since the embedding did not.
+
+**Read this in the direction that does not flatter it.** Only two of the four bands carry a measured
+AUROC — nothing labeled lands below cosine 0.90 — so **the reweighted number covers only 79.3% of
+Kp**, and says nothing at all about the other fifth. Read panel B of `extrapolation.png` before
+quoting any expected AUROC. The banding also has almost no dynamic range in which to detect a decay
+with distance, and the premise that ESM-C cosine measures transferability is **unvalidated and
+untestable** without Gram-negative labels.
+
+## Figures
+
+Two scripts, answering different questions. Both write `output/plots/degradability/`.
+
+| script | figure | question |
+|---|---|---|
+| `plots/degradability.py` | `roc_curves.png` | **how good is the model** — per-fold ROC on the one species with labels, against the cross-assay reference |
+| `plots/degradability_predictions.py` | `predictions.png` | **what did it predict** — score distributions per species and activator, plus *S. aureus* split by measured status |
+| | `agreement.png` | **are the two activators independent evidence?** No |
+| | `extrapolation.png` | **what are the Kp/Ec numbers worth?** |
+| `plots/degradability_top.py` | `top_adep4.png`, `top_onc212.png` | **which proteins are at the top**, named |
+| | `top_composition.png` | what the top of the list is made of, and how much the two shortlists share |
+| `degradability/enrichment.py` | `cog_fisher.png` | **Fisher-exact enrichment of COG categories** at the top of the ranking |
+| | `loc_fisher.png` | **Fisher-exact enrichment of the localization compartments** and the TMbed topology features |
+| | `interest_panel.png` | where the **GraDi consortium's proteins of interest** actually rank |
+| | `enrichment_fisher.tsv` | every test, with raw 2x2 counts (`output/results/degradability/`) |
+
+CLIs: `plots/degradability_top.py` takes `--top` (default 20) · `--composition-top` (default 100) ·
+`--species` · `-q`. `degradability/enrichment.py` takes `--top-pct 10` · `--top-n` (an absolute
+override of the percentage) · `--multi` (count a protein under **every** COG letter it carries, not
+just the first) · `--species` · `-q`. Run plot scripts **one at a time** — stylia clears the
+matplotlib font cache at import, so two concurrent runs delete each other's.
+
+### `predictions.png`
+
+Panels A/C are the predicted-probability distribution per species against the base-rate cut; B/D are
+*S. aureus* split into measured hit / measured non-hit / unmeasured. B and D are the only panels in
+the axis where a predicted score sits on the same axis as a real one, and the separation is visible:
+measured on the shipped *S. aureus* table, **ADEP4 hits have median `_prob` 0.391 against 0.043 for
+measured non-hits**, while **ONC212's two groups (0.349 vs 0.176)** sit much closer — which is the
+AUROC difference (0.8738 vs 0.7671) seen as a distribution rather than a curve. *(Forest-era this
+read 0.45 vs 0.20 and 0.44 vs 0.32; TabPFN separates ADEP4 far more sharply at the bottom.)*
+
+At the base-rate cut (0.319 / 0.308, fused) the selected fraction is **14.1% Kp · 13.6% Ec · 20.0%
+Sa** for ADEP4 and **29.5 / 27.7 / 34.4%** for ONC212. *(The ESM-C-only cuts of 0.328 / 0.313 gave
+16.4 / 14.4 / 20.9% and 33.1 / 31.4 / 34.6%; the forest's 0.394 / 0.426 gave 13.1 / 14.5 / 15.4%
+and 18.7 / 18.7 / 25.5%. Both are superseded.)* These are **not** close to the training base
+rates — the cut reproduces the base rate on the *labeled* set, not on a whole proteome — and they
+are *not* evidence about how many real substrates each proteome holds.
+
+Note how far the distributions sit from 1.0: the ADEP4 median is **0.064–0.080** and the maximum
+anywhere is 0.9459 (Sa). The distribution is far more skewed under TabPFN than under the forest
+(whose ADEP4 median was 0.22–0.26 and whose maximum was ~0.61) — same fact as *0.5 is the wrong
+threshold*, but with the mass at the other end.
+
+### `agreement.png`
+
+adep4 vs onc212 predicted probability, one panel per species, hexbinned. A tight near-linear ridge:
+**rho +0.883 Kp · +0.878 Ec · +0.891 Sa** over all rows, measured on the shipped (fused) tables
+*(ESM-C-only TabPFN: +0.895 / +0.891 / +0.884)*. *(The
+forest gave +0.835 / +0.833 / +0.835, so **TabPFN made the two columns LESS independent, not
+more**.)* The underlying *labels* agree at only
+rho 0.52 / Jaccard 0.32, so the models agree far more than the experiments do — both read the same
+ESM-C embedding, so the shared signal is the learnable part, not corroboration. **A shortlist built
+on "both activators agree" is close to one opinion, not two.** The stage's own flag fires above
+0.90, so at 0.89 this does not stop a run — it is a caveat to carry, not an error.
+
+One number to keep straight: the stage itself prints rho over the **predicted rows only**, which for
+*S. aureus* is a different population (n=1,212, rho **+0.896**) from the figure's all-rows
+n=2,889 / +0.884. Kp and Ec have no measured rows, so both routes agree exactly there. The figure
+puts `n` in each title for this reason.
+
+### `extrapolation.png`
+
+Panel A is `nn_similarity` per species with the band edges drawn: medians **0.928 Kp · 0.936 Ec ·
+1.000 Sa** (Sa's is 1.000 because the measured proteins are their own nearest neighbours; the
+manifest's 0.973 is the predicted-only median). Kp and Ec are genuinely further from the training set
+than Sa, and Kp furthest.
+
+Panel B is the honest part, and it is the one worth looking at before quoting any expected AUROC:
+**a fifth of *K. pneumoniae* is unpriced.** Only two of four bands carry a measured AUROC, so the
+reweighted figure covers **79.3% of Kp · 87.5% of Ec · 92.1% of Sa** (ADEP4; 77.5 / 85.6 / 91.5% for
+ONC212) and says nothing at all about the rest. The `expected_roc_auc` values — ADEP4 **0.814** Kp /
+**0.8173** Ec, ONC212 **0.777** / **0.7748** — are conditional on being in a priced band. *(The
+forest read 0.780 / 0.785 and 0.772 / 0.770 here.)*
+
+Panel C is why even the priced part is shaky. ADEP4 rises with proximity as one would hope
+(band [0.90,0.95) **0.8002** [0.7382, 0.8617] → band [0.95,1.01) **0.8549** [0.8196, 0.8901]), but
+**ONC212 falls** (**0.7857** [0.7010, 0.8578] → **0.7462** [0.7063, 0.7866]) — the opposite of the
+premise the reweighting rests on. *(Forest-era: 0.757 → 0.847 and 0.784 → 0.732; the direction of
+each activator survived the estimator swap, which is itself worth knowing.)* The confidence
+intervals overlap, so the non-monotonicity is within noise; that is the charitable reading, and it
+is also an admission that with two bands and 118 proteins in the smaller one there is not enough
+here to establish the trend either way. **The premise that ESM-C cosine measures transferability
+remains unvalidated, and is untestable without Gram-negative labels.**
+
+### `top_adep4.png` / `top_onc212.png`
+
+The 20 highest-ranked proteins per species, labelled and coloured by COG group. Labels resolve
+`gene_name` -> eggNOG `preferred_name` -> accession, which names 20/20 for Kp and Ec and 16/20 for
+Sa: the top of the ranking is unusually well annotated because high-scoring proteins are small,
+conserved and abundant. **Ranking, not thresholding** — the model was validated on AUROC.
+
+**The two activators rank different biology, and it is obvious on sight.** ONC212's top is almost
+pure ribosome — `rplX rplR rplC rpsQ rpsP rplA rplW rpsH`, one COG group filling the panel. ADEP4's
+is broader: ribosomal proteins and translation factors (`rplK rpsA infA infB`) but also H-NS
+chromatin proteins (`hns stpA`), cold-shock proteins (`cspB cspC cspI cspG`), FKBP-type PPIases
+(`fklB slyD`), glutaredoxins (`grxA grxC`) and chaperones (`grpE groES`). That difference is the
+mechanism behind the low shortlist overlap below, and it is the strongest argument for having kept
+the two activators as separate models.
+
+A `*` marks a protein the *S. aureus* screens actually measured as a hit. **This is the closest
+thing to a validation of the top of the list, and it holds**: of Sa's top 20, ADEP4 has 13 measured
+of which **9 are confirmed hits**, and ONC212 has 16 measured of which **14 are confirmed**. Kp and
+Ec carry no `*` at all, because they have no measured labels — every bar there is a hypothesis.
+
+### `top_composition.png`
+
+Panels A and B put the top 100's composition against the whole proteome's (the black tick), so
+enrichment reads as bar-vs-tick.
+
+- **The top is overwhelmingly cytoplasmic: 94% Kp / 95% Ec / 97% Sa against ~60% of the proteome.**
+  For an axis whose whole premise is that cytoplasmic Clp has to reach the substrate, this is the
+  reassuring direction, and it was not built in — localization is not a feature of the model
+  (`docs` §"Three questions asked, three negatives" measured that adding it changes nothing).
+- **Information storage and processing is 36–44% of the top 100 against ~16% of the proteome** —
+  translation and transcription machinery, which is what both screens found.
+
+Panel C is the one that changes how the ranking should be used. Despite rho 0.835 between the two
+activators' scores, their **top 100 lists share only 28/100 on Kp**, 28 on Ec, 32 on Sa (fused, 2026-11-05; ESM-C-only
+was 24 / 32 / 40) — and at
+top-10 the Kp lists share *nothing*. Chance is ~2/100, so the agreement is real and far above
+random; it is simply nowhere near interchangeable. **Global rank correlation is not shortlist
+agreement**, and a shortlist is what gets taken. Read alongside `agreement.png`: the two activators
+are close to one opinion in aggregate and clearly two at the sharp end, and both statements matter.
+
+### A localization mis-call the top list exposed
+
+`rplK` — ribosomal protein L11, the **highest-ranked ADEP4 protein in both Gram-negatives** — is
+called `outer_membrane` by DeepLocPro in Kp *and* Ec, while TMbed puts it at
+`cytoplasmic_fraction = 1.0` with no signal peptide. A ribosomal protein is cytoplasmic; the
+compartment call is wrong, reproducibly, in both species (Sa gets it right). Nothing downstream
+breaks, but it is a concrete instance of the advice in `docs/localization.md`: the compartment
+column is good in aggregate and fallible per protein, so check `cytoplasmic_fraction` before
+trusting an individual call — especially for a protein you are about to put in a shortlist.
+
+### `cog_fisher.png` — what the top of the ranking is made of, tested
+
+**"The top" is the top 10% of each proteome** — 573 Kp / 440 Ec / 289 Sa. Not a fixed count: the
+proteomes differ by 2x in size, so one absolute N would mean the top 1.7% of Kp against the top 3.5%
+of Sa and the odds ratios would not be comparable between species. `--top-pct` changes the fraction,
+`--top-n` forces an absolute count.
+
+One 2x2 Fisher exact test per COG category over the **full proteome**: in-top-10% vs not,
+in-category vs not. Two-sided, Benjamini-Hochberg **within each species x activator x test-family
+block**. Category descriptions come from COGclassifier's own bundled
+`resources/cog_func_category.tsv`, never a hard-coded list. All **244** tests with raw 2x2 counts in
+`output/results/degradability/enrichment_fisher.tsv` — 152 COG, 50 localization, 42 panel — of which
+**119** are significant at FDR 0.05 (74 COG, 45 loc, 0 panel).
+
+Odds ratios **as written by the TabPFN run**, `*` = FDR < 0.05. **This table was regenerated from
+the TSV in 2026-10: the figures previously printed here (J 3.08–10.17, O 1.83–2.79, M 0.06–0.20,
+E 0.11–0.23) were the forest's and had survived the retrofit unchanged, contradicting the retrofit
+section below.**
+
+| | category | Kp | Ec | Sa | Kp | Ec | Sa |
+|---|---|---|---|---|---|---|---|
+| | | **ADEP4** | | | **ONC212** | | |
+| **B** | Chromatin structure and dynamics | 27.26\* | 9.08\* | 9.02 | **63.74\*** | 27.38\* | 9.02 |
+| **J** | Translation, ribosomal structure | 1.78\* | 2.59\* | 1.47 | 4.08\* | 5.72\* | 5.93\* |
+| **X** | Mobilome: prophages, transposons | 1.59 | 4.67\* | 3.53\* | 0.10\* | 2.04\* | 0.36 |
+| **S** | Function unknown | 1.98\* | 1.76 | 1.71 | 0.91 | 1.32 | 0.89 |
+| **K** | Transcription | 1.55\* | 2.00\* | 2.29\* | 0.40\* | 0.83 | 1.36 |
+| **O** | Protein turnover, chaperones | 1.38 | 2.06\* | 1.84 | 1.03 | 0.86 | 1.00 |
+| **H** | Coenzyme transport and metabolism | 0.22\* | 0.41\* | 0.20\* | 0.26\* | 0.41\* | 0.20\* |
+| **C** | Energy production and conversion | 0.13\* | 0.15\* | 0.23\* | 0.13\* | 0.09\* | 0.15\* |
+| **I** | Lipid transport and metabolism | 0.11\* | 0.14\* | 0.42 | 0.16\* | 0.14\* | 0.65 |
+| **E** | Amino acid transport and metabolism | 0.09\* | 0.16\* | 0.12\* | 0.14\* | 0.13\* | 0.20\* |
+| **G** | Carbohydrate transport and metabolism | 0.09\* | 0.13\* | 0.30\* | 0.04\* | 0.07\* | 0.30\* |
+| **M** | Cell wall/membrane/envelope biogenesis | 0.06\* | 0.06\* | 0.06\* | 0.00\* | 0.00\* | 0.12\* |
+| **N** | Cell motility | 0.00\* | 0.50 | 0.00 | 0.00\* | 0.00\* | 0.00 |
+| | `unclassified` | 4.78\* | 3.05\* | 1.90\* | 7.61\* | 5.15\* | 1.87\* |
+
+**The robust core is the depletions, and `unclassified`.** Six groups are significant in all six
+species x activator combinations and point the same way every time: **M** envelope biogenesis
+(0.00–0.12), **E** amino acid metabolism (0.09–0.20), **G** carbohydrate metabolism (0.04–0.30),
+**C** energy production (0.09–0.23), **H** coenzyme metabolism (0.20–0.41) — all down — and
+`unclassified` (1.87–7.61) up. **Neither function nor localization is a model feature** (the
+negatives above measured that adding them changes nothing), so this is the ESM-C embedding
+recovering the screens' biology unaided.
+
+**J is up in 5 of 6 arms but no longer uniformly significant**, and **O is not an enrichment at all
+under ONC212** (1.03 / 0.86 / 1.00, every q > 0.7). *This is the correction the retrofit forced:
+the forest predicted O at 1.83–2.79 and J at 3.08–10.17, and the labels support neither — measured
+on the labels with no model involved, ONC212's hits are 17.1% COG O against a 24.6% base rate
+(OR 0.63, p 0.42), and ADEP4's label OR for J is 1.81.* Judge enrichment against the labels, never
+against the previous model.
+
+**B is the largest effect and the least trustworthy.** OR **63.7** on Kp/ONC212, with **7 of its 8**
+chromatin proteins in the top 10% (6 of 8 on Kp/ADEP4, 4 of 8 on Ec/ADEP4) — H-NS, StpA, the HU
+subunits. The direction is almost certainly real (those proteins are small, abundant,
+nucleoid-associated, and appear by name at the top of the ADEP4 lists), but **the category has 8
+members in a Gram-negative and 2 in *S. aureus***, so the odds ratio carries no useful precision.
+Quote the count, not the ratio.
+
+**The two activators differ, and it is the same difference the named lists show.** ONC212's profile
+is narrow: J at OR 4.1–5.9 and almost nothing else moving upward. ADEP4's is broad — J plus **K**
+transcription (significant in all three species), **X** mobilome and **S** function unknown.
+**X flips sign between activators** (1.6–4.7 up for ADEP4; 0.10\*–2.04 for ONC212, significantly
+*depleted* on Kp at OR 0.10). This is `top_adep4.png` vs `top_onc212.png` — pure ribosome versus
+ribosome plus chromatin, cold-shock and chaperones — restated as a statistic.
+
+**`unclassified` is tested, not dropped**, and under TabPFN it is the most consistent enrichment in
+the table: **OR 1.87–7.61, significant in all six arms**, strongest on the dark Kp proteome
+(4.78 / 7.61 — 290 and 345 of its 1,200 unclassified proteins reach the top 10%). *Under the forest
+it was weaker and inconsistent (1.61 Kp ADEP4, depleted 0.50 on Sa ONC212), so this changed with the
+estimator.* It is **unexplained** — tested against protein length and not accounted for by it
+(TabPFN tracks length at ρ −0.62 against the forest's −0.61) — and it is a caution, not a finding:
+on Kp the model is ranking proteins nobody can classify into the top decile, and nothing here says
+why. Dropping them would also change the background for every other test.
+
+**One caveat in the other direction: TabPFN over-depletes G**, predicting 0.04–0.30 where the labels
+show 0.74 / 0.65, both non-significant. And both estimators track protein length far more strongly
+than the labels do (−0.61 against the labels' −0.33) — a standing caveat on this axis, not a
+property of the swap.
+
+Two smaller decisions: `cog_category` is the **first letter** of a possibly multi-letter assignment
+(9–16% of classified proteins carry more than one — `docs/function.md`), and `--multi` re-runs
+counting a protein in every letter it carries. And the odds ratio is **reported raw but plotted with
+a Haldane-Anscombe (+0.5) correction**, because a zero cell cannot be drawn on a log axis; the TSV
+keeps the uncorrected value and the counts.
+
+### `loc_fisher.png` — the top of the ranking is cytoplasmic, and Clp can reach it
+
+The same 2x2 Fisher test, same top 10%, applied to the stage-03 compartments plus the TMbed features
+that Clp reachability actually turns on. Ten groups per species: the six DeepLocPro compartments
+(which partition the proteome exactly, since DeepLocPro always calls), plus `has_signal_peptide`,
+`n_tm_helix > 0`, `n_tm_strand >= 8` (a beta-barrel) and `cytoplasmic_fraction == 1`.
+
+Odds ratios **regenerated 2026-11-05 from `enrichment_fisher.tsv` on the FUSED scores**. The previous
+table (ESM-C-only TabPFN, 2026-09-17) read wholly cytoplasmic 9.22–29.82, Cyt 2.44–7.18 and Ext
+0.46–3.80; before that the forest's were wholly cytoplasmic 11.5–13.1, Cyt 7.9–10.3, Ext 0.10–0.38.
+
+| group | ADEP4 (Kp / Ec / Sa) | ONC212 (Kp / Ec / Sa) | reading |
+|---|---|---|---|
+| **wholly cytoplasmic** (`cytoplasmic_fraction == 1`) | **9.94\* / 10.91\* / 18.34\*** | **27.02\* / 34.58\* / 29.82\*** | the single strongest enrichment in the axis |
+| **Cyt** (cytoplasm) | 5.61\* / 9.31\* / 8.65\* | 4.40\* / 7.37\* / 3.62\* | |
+| **Ext** (extracellular) | 1.23 / 0.95 / 0.42\* | 1.53\* / 0.83 / 1.78\* | **mostly at chance under the fused scores** — see below |
+| **OM** (outer membrane) | 0.39\* / 0.17\* / — | 0.99 / 1.02 / —, q ≈ 1 | ADEP4 avoids it; ONC212 is *exactly at chance* |
+| **CM** (cytoplasmic membrane) | 0.10\* / 0.05\* / 0.06\* | 0.10\* / 0.03\* / 0.02\* | |
+| **Peri** (periplasm) | 0.15\* / 0.14\* / — | 0.05\* / 0.00\* / — | |
+| **signal peptide** | 0.16\* / 0.11\* / 0.04\* | 0.03\* / 0.01\* / 0.00\* | an export signal is close to disqualifying |
+| **TM helix** | 0.07\* / 0.07\* / 0.04\* | 0.03\* / 0.02\* / 0.02\* | |
+| **beta-barrel** | **0.00\* / 0.00\* / —** | **0.00\* / 0.00\* / —** | **not one of the 67 Kp / 66 Ec barrels is in the top 10%** |
+| **CW** (cell wall surface) | — / — / 0.50, n.s. | — / — / 0.00, n.s. | Sa only, n=19 — no power |
+
+**This is the axis's premise confirmed from the outside.** Cytoplasmic Clp should reach cytoplasmic
+proteins and little else, and the ranking behaves that way — without localization ever being a model
+feature.
+
+**TMbed's residue count beats DeepLocPro's class label at predicting a high score.**
+`cytoplasmic_fraction == 1` gives OR 9.94–34.58 against 3.62–9.31 for the `cytoplasm` compartment
+itself, and it wins in all six arms. The two predictors share no machinery, so this is a genuine
+comparison: *how much of the protein sits in the cytoplasm* separates degradable from not better
+than *which compartment it was assigned to*. Consistent with `docs/localization.md`'s advice to
+prefer the fraction for individual proteins.
+
+**Zero beta-barrels in the top 10%**, on both Gram-negatives. A clean, mechanistically sensible
+absolute: a 16–26-strand barrel folded into the outer membrane is not something a cytoplasmic
+protease processes.
+
+**`Ext` no longer tells a clean story, and an earlier version of this section overstated it.** The
+ESM-C-only TabPFN table enriched `extracellular` for ONC212 in all three species (2.08–3.80\*), which
+looked like the model tracking the measured hit rate (ONC212 hits 34.6% of extracellular proteins
+against 27.5% of cytoplasmic ones, because a secreted protein transits the cytoplasm as an unfolded
+chain). **Under the fused scores it mostly disappears**: ONC212 reads 1.53\* (Kp, q 0.029), 0.83
+(Ec, n.s.) and 1.78\* (Sa); ADEP4 reads 1.23 (n.s.), 0.95 (n.s.) and 0.42\*. So `Ext` is at chance or
+weakly enriched, depending on activator and species, and **it should not be quoted as confirmation of
+the secreted-proteins-transit-the-cytoplasm mechanism.** `docs/localization.md` records `extracellular`
+as the least trustworthy compartment (TMbed disputes 58% of those calls), and the two screens
+disagree about it (ADEP4 hit rate 0.049 against ONC212's 0.346), so the signal may be a fact about
+the label rather than about the model.
+
+**Where the two activators differ is the outer membrane.** For ADEP4 `OM` is strongly depleted
+(0.17–0.39\*); for ONC212 it sits at chance (0.99 / 1.02, q ≈ 1).
+
+Compartments absent from a species — `CW` in a Gram-negative, `Peri`/`OM` in a Gram-positive, and
+beta-barrels in Sa — are skipped rather than tested, which is why those points are missing from the
+figure. That is a structural zero, not a failed test.
+
+### `interest_panel.png` — where the consortium panel sits
+
+Secondary to the COG analysis above, and reported for completeness. The GraDi targets are recorded
+only in prose (`legacy/docs/03_degradability.md:420`, the ~30 envelope targets; `legacy/HISTORY.md:611`,
+the v5 GyrA/GyrB proposal); `src/interest.py` writes them down as data and is **explicitly a draft**
+— see its `EXPANSION_NOTES`. Coverage by gene symbol: Ec 43/43, Kp 41/43, Sa 11/43, where Sa's gap is
+mostly the *structural* absence of LPS/Lpt/Bam in a Gram-positive.
+
+At the top 10% the panel is **consistently below expectation but nowhere near significant** (TabPFN
+run; the forest gave 3/44, 1/44, 1/43, 2/43, 1/12, 0/12 at OR 0.21–0.82): now **2/44 and 0/44** on
+Kp (ADEP4 / ONC212), **1/43 and 0/43** on Ec, **0/12 and 0/12** on Sa, odds ratios **0.43, 0.00,
+0.21, 0.00, 0.00, 0.00**, smallest q **0.151**. **Not one of the 42 panel tests is significant.** So the
+honest statement is a *trend* toward depletion with no power to call it — not the "OR 0.00, q = 1.0"
+that a fixed top-100 produced by having almost no panel proteins in scope at all. It agrees in
+direction with **M** (envelope biogenesis) being the most strongly depleted COG category, and with
+the warning already at `legacy/docs/03_degradability.md:420` that these targets are almost all
+envelope and reachable only through the pre-export window.
+
+The members that do rank high are the cytoplasm-facing ones — `secA` 96th percentile, `secB` 94–95th,
+`yajC` 89–93rd, `lptB` (the Lpt complex's cytoplasmic ABC ATPase) 79–81st, GyrA/GyrB 60–70th on Sa.
+
+## Run log
+
+### 2026-09-02 — Random Forest classifier, shipped
+
+DIAMOND 2.2.1 · scikit-learn 1.9.0 · 5 folds · seed 0 · **30 s** wall clock, plots ~10 s.
+ADEP4 0.857 [0.829, 0.882], PR-AUC 0.535 at a 0.137 base rate. ONC212 0.750 [0.714, 0.783], PR-AUC
+0.539 at 0.246. Leakage gap +0.002 / −0.010. Saturation 0.0% on both.
+
+**Spot checks — v1's pre-registered predictions, all held** (`HISTORY.md` §7.5). In binary form these
+test the threshold as well as the value, which the continuous version could not:
+
+| gene | ONC212 | ADEP4 | v1's prediction |
+|---|---|---|---|
+| `dnaK` | hit **0** (log2FC −0.51) | hit 1 | "1.4× down, NOT ≥2×" ✅ |
+| `acpP` | hit **0** (log2FC +0.03) | hit 1 | "unchanged (+0.03)" ✅ exact |
+| `gyrB` | unmeasured | hit 0 | "essentially no evidence" ✅ |
+
+`acpP` matching to the second decimal is a hard check on the whole chain: xlsx parse → v1's merge →
+DIAMOND sequence join → label table.
+
+**The shared-confound diagnostic, which v1 had no way to run — and it is the least comfortable
+number here.** The two activators' predicted probabilities correlate at **ρ = 0.824 (Kp) / 0.837 (Ec)
+/ 0.844 (Sa)**, while their *labels* agree at only ρ 0.52 continuous / Jaccard 0.32. Two models
+trained on moderately-agreeing targets are producing predictions that agree far more than the
+experiments do.
+
+Some of that is expected and benign: a model output is smoother than a noisy measurement, and both
+models read the same 1,152-dim embedding, so whatever signal is learnable from it is shared. But it
+means **`adep4_prob` and `onc212_prob` are not two independent lines of evidence** — treating
+agreement between them as corroboration would be overreading. The measured AUROCs are unaffected
+(they are scored against held-out labels), but a shortlist built on "both activators agree" is closer
+to one opinion than two.
+
+The flag fires above 0.90, so this does not stop the run. For comparison the regression variant
+measured 0.72–0.80 on the same diagnostic, i.e. slightly *better* separated than the forest.
+
+### 2026-09-02 — prediction figures, and what they made explicit
+
+`scripts/plots/degradability_predictions.py` added: three figures covering all three species.
+Nothing refitted — the tables and `evidence/domain_bands.tsv` are read as written. *(This entry
+predates the September 2026 directory contract; what it calls `accessory/` is now `evidence/`, and
+what it quotes are forest-era numbers — the current band AUROCs are in* Pricing the cross-species
+leap *above.)*
+
+The stage's own outputs had to be regenerated first: `degradability_<species>.tsv` were absent while
+`evidence/` (models included) was intact, so a plain re-run rebuilt them deterministically in ~30 s
+and reproduced every recorded number — n 5,728 / 4,403 / 2,889, `nn_similarity` medians, the spot
+checks, and the band AUROCs all identical to the manifest.
+
+Three things the figures turned from prose into numbers:
+
+- **A fifth of *K. pneumoniae* is unpriced.** "Only two bands are populated" was already written
+  down, but not what it costs: the reweighted expected AUROC covers **79.3% of Kp**, 87.5% of Ec,
+  92.1% of Sa, and is silent on the rest. Any quote of "expected AUROC 0.78 on Kp" is conditional on
+  a protein being in a priced band, and one in five is not.
+- **The non-monotonicity is ONC212's alone, and it is within noise.** ADEP4 rises with proximity
+  (0.757 → 0.847) as the premise predicts; ONC212 falls (0.784 → 0.732). Plotting the bootstrap CIs
+  shows they overlap, so the reversal is not established — but neither is the trend, on 118 proteins
+  in the smaller band.
+- **The two activators' predictions agree more than their experiments do**, visibly: a single tight
+  ridge at rho 0.835 against labels that agree at 0.52. The figure is the clearest statement of the
+  "not independent evidence" caveat in the axis.
+
+One bookkeeping trap found while writing it: the stage prints rho over **predicted rows only**, so
+its *S. aureus* figure (n=1,212, +0.866) is not the same quantity as the all-rows +0.835 the plot
+shows. Both are right; they are different populations, and Kp/Ec cannot show the discrepancy because
+every row there is predicted. The figure carries `n` in each panel title so the two cannot be
+conflated.
+
+### 2026-09-02 — the named top of the list
+
+`scripts/plots/degradability_top.py` added, on request to see the actual proteins rather than
+distributions. `--top` and `--composition-top` set the two list lengths (20 and 100 by default).
+
+**The ranking survives being read.** Both activators put small, abundant, cytoplasmic
+translation-machinery proteins at the top, which is what the two screens measured and what the
+length correlation predicts. Where truth exists it is largely right: **9 of the 13 measured proteins
+in Sa's ADEP4 top 20 are confirmed hits, and 14 of 16 for ONC212.**
+
+**The two activators rank visibly different biology.** ONC212's top 20 is almost pure ribosome;
+ADEP4's mixes ribosome with H-NS chromatin proteins, cold-shock proteins, FKBP PPIases and
+chaperones. This is the qualitative face of a number already recorded — and it retires any
+temptation to merge them.
+
+**The finding that changes how to use the output**: rho 0.835 between the activators' scores, but
+their **top-100 lists share only 24/100 on Kp** (32 Ec, 40 Sa), and their top-10 on Kp share
+nothing. Global rank correlation and shortlist agreement are different quantities, and the axis had
+only measured the first. Both readings are needed: aggregate near-duplication argues against
+treating "both activators agree" as corroboration, while the shortlist divergence argues against
+picking either list as *the* answer.
+
+**A cross-stage error surfaced.** `rplK` (ribosomal L11) is the top-ranked ADEP4 protein in both
+Gram-negatives and DeepLocPro calls it `outer_membrane` in both, while TMbed reports
+`cytoplasmic_fraction = 1.0` and no signal peptide. The compartment call is simply wrong, and
+reproducibly so (Sa is correct). Recorded under Figures; it is a live example of why
+`docs/localization.md` says to check the fraction before trusting an individual compartment call.
+
+No plot-layout lesson worth generalising, except one that keeps recurring: in a panel whose bars
+reach 94% there is no in-axes space for a legend, so legends here go **below** their own panel.
+Placing them under each axes rather than under the figure keeps two neighbouring legends from
+colliding.
+
+### 2026-09-02 — localization enrichment
+
+Same Fisher machinery, third test family: the six stage-03 compartments plus four TMbed-derived
+features. `loc_fisher.png`. **Every odds ratio below is the RandomForest's**; the shipped TabPFN
+values are in the `loc_fisher.png` section above, and the qualitative conclusions survived the swap
+except for `Ext`, which the ESM-C-only TabPFN enriched and the fused scores mostly do not (2026-11-05).
+
+**The axis's premise, confirmed from outside the model.** `cytoplasmic_fraction == 1` is enriched at
+**OR 11.5–13.1** and the `cytoplasm` compartment at 7.9–10.3, while signal peptides (0.01–0.11), TM
+helices (0.02–0.07), the cytoplasmic membrane (0.05–0.13) and the periplasm (0.07–0.10) are all
+strongly depleted. **Not one of the 67 Kp / 66 Ec beta-barrels is in the top 10%.** Localization is
+not a model feature, so the ranking arrived here on its own.
+
+**A cross-predictor result worth keeping**: TMbed's residue count out-predicts DeepLocPro's class
+label. `cytoplasmic_fraction == 1` (OR 11.5–13.1) beats the `cytoplasm` call itself (7.9–10.3) at
+identifying high-scoring proteins. The two share no machinery, so this is a fair comparison, and it
+supports `docs/localization.md`'s advice to prefer the fraction for individual proteins.
+
+**One activator difference, read cautiously.** ADEP4 depletes `OM` and `Ext`; ONC212 sits at chance
+there (OR 0.99–1.02, q ≈ 1). Since `extracellular` is the least trustworthy compartment in stage 03
+— TMbed disputes 58% of those calls — this may be a fact about the label rather than the chemistry.
+
+### 2026-09-02 — Fisher enrichment of the COG categories
+
+`scripts/degradability/enrichment.py` added. Fisher exact per COG category over the full
+proteome, **top 10% as hits** (573 Kp / 440 Ec / 289 Sa), two-sided, BH within each
+species x activator x test-family block. 194 tests, 67 significant at FDR 0.05.
+
+**Every odds ratio in this entry is the RandomForest's, and two of its headline claims did not
+survive the retrofit** — see the 2026-09-17 entry below and the current table under `cog_fisher.png`.
+The current run is 244 tests, 119 significant.
+
+**Five categories move the same way in all six species x activator combinations.** Enriched: **J**
+translation and ribosome (OR 3.1–10.2), **O** protein turnover and chaperones (1.8–2.8). Depleted:
+**M** envelope biogenesis (0.06–0.20), **E** amino acid metabolism (0.11–0.23), **G** carbohydrate
+metabolism (0.16–0.30). Three organisms, two chemistries, same direction and similar magnitude.
+Since neither function nor localization is a model feature — measured earlier as adding nothing —
+this is the embedding recovering the screens' biology unaided, and it is the best sanity check the
+axis has.
+
+**The two activators' profiles differ exactly as their named top-20 lists do.** ONC212 is narrow: J
+at 5.8–10.2 and little else. ADEP4 is broad: J plus K transcription (significant in all three
+species), X mobilome, S function unknown, V defense, D cell division. **X flips sign** between the
+two (2.1–7.8 up for ADEP4; 0.0–0.9 for ONC212, significantly depleted in Sa).
+
+**B (chromatin) is the biggest number and the weakest evidence.** OR 64 on both Gram-negatives with
+7 of 8 members in the top 10%. The direction is credible — H-NS/StpA/HU appear by name at the top of
+the ADEP4 lists — but with 8 members the ratio has no precision. Quote the count.
+
+Two decisions worth recording:
+
+- **Top 10% rather than a fixed count.** The proteomes differ 2x in size, so an absolute N defines
+  "the top" as 1.7% of Kp against 3.5% of Sa and the odds ratios stop being comparable across
+  species. This also gave the test real power: at a fixed top-100 most small categories had zero
+  members in scope and returned OR 0.00 with q = 1.0, which looks like a finding and is not one.
+- **BH within each test family, not across the block.** The COG categories and the consortium panel
+  are different questions asked of the same ranking; pooling them made a COG category's q-value
+  depend on how many panel families happened to be tested beside it.
+
+`unclassified` is tested rather than dropped (removing it would change the background for every other
+test) and does *not* behave consistently — enriched on Kp, depleted on Sa/ONC212. Do not read the
+unclassified fraction as one phenomenon.
+
+The consortium panel is reported alongside but is secondary: at the top 10% it is consistently below
+expectation (OR 0.21–0.82) with every q > 0.2, i.e. a trend toward depletion with no power to call
+it. `src/interest.py` had to be written to test it at all, since the targets existed only as prose;
+it is a draft, with every expansion judgement recorded in its `EXPANSION_NOTES`.
+
+### 2026-11-04 — ESM-C + ProtT5 late fusion, label sensitivity, S. aureus ortholog support
+
+**Shipped probability is now the mean of two TabPFN-3.5 models**, one per embedding (ESM-C 1152-d,
+ProtT5 1024-d), per activator. Late fusion, not concatenation: 2,176 features exceed the installed
+`tabpfn` limit of 2,000. Cluster-grouped CV, 5 seeds x 5 folds, same folds as the single arms
+(`scripts/degradability/fusion_eval.py` -> `output/results/degradability/fusion_eval.tsv`):
+ESM-C arm reproduces ADEP4 0.874 / PR 0.610 and ONC212 0.767 / PR 0.580; **fused ADEP4 0.882 /
+0.635, ONC212 0.769 / 0.587**. Fused vs the old E. coli ranking: Spearman 0.954 / 0.961.
+
+**Binarization** (`label_sensitivity.py` -> `label_sensitivity.tsv`): dropping the grey zone
+(-1 < log2FC <= -0.5) and requiring both Conlon replicates to agree do not move the ranking;
+stricter labels (<= -2, stringency-matched ONC212) do, and raise length confounding. No extra
+predictors recommended; the cutoff stays at -1. AUROC is not comparable across label definitions.
+
+**`adep4_ortholog_hit` / `onc212_ortholog_hit`** are now in the deliverable (8 columns): 1 = at
+least one measured *S. aureus* ortholog is a degrader, 0 = measured and none is, **NA = nothing to
+say** (no ortholog, or none in that screen; all-NA on *S. aureus*, whose proteins are the
+measurement). Orthologs = OrthoFinder or RBH, many-to-many kept. The label that tells the NAs apart
+(`ortholog_degradable` / `_not_degradable` / `_unmeasured` / `no_ortholog` / `self`) and the
+ortholog's log2FC are in `evidence/ortholog_support_<sp>.tsv`. E. coli adep4: 143 / 941 / NA 3,319.
+**Not independent of the model**: ortholog labels were training data.
+
+**Orthology check** (`orthology_check.py`, `output/results/degradability/orthology_check_<sp>.tsv`):
+top-decile proteins with a measured ortholog have a degradable one 76% (ADEP4) / 83% (ONC212) of the
+time vs 8% / 19% elsewhere. But 71% of the consensus >= 0.7 set has no *S. aureus* ortholog and is
+dominated by very short proteins (median 104 aa), and the 0.7 floor is permissive (ADEP4 hit rate
+among upranked with a measured ortholog 34% at >= 0.7, 65% at >= 0.9). Discordant: ribosomal
+proteins, rpoZ, ihfA/B, folA. `BASE_RATE_THRESHOLD` was NOT yet re-derived here; it was on 2026-11-05
+(0.319 / 0.308).
+
+### 2026-11-05 — `degradability_evidence` dropped; what a raw ESM-C cosine means
+
+**The table is now 7 columns.** The 1-3 ladder was removed on the owner's call (see *The dropped
+evidence ladder*). It is computed by `D.evidence()` and kept per protein in
+`evidence/consensus_audit.tsv`, verified equal to the dropped column on all 13,020 rows.
+
+**Cosine calibration** (`cosine_calibration.py`): random Ec/Kp-Sa pairs have median 0.775 / 0.761
+(p95 0.90 / 0.89); true ortholog pairs 0.906 / 0.894; a protein's nearest *S. aureus* neighbour is
+a true ortholog 1.7-6.9% of the time below 0.97. Raw cosine is not a relatedness measure.
+
+**Is 27-31% orthology to *S. aureus* too low?** No. 1,344 / 4,403 Ec (31%) and 1,531 / 5,728 Kp
+(27%) proteins have an *S. aureus* ortholog; 1,214 of the 2,889 *S. aureus* proteins (42%) have an
+Ec one. The raw-sequence route agrees: best DIAMOND hit at >= 25% identity with both coverages
+>= 50% reaches 31% / 27%, >= 40% only 10% / 9%, median best-hit identity ~32%. All 30 conserved
+genes tested (`rpoB`, `gyrA`, `ftsZ`, `secA`, ...) have an *S. aureus* ortholog in Ec and 29 in Kp
+(`tufA` has no gene name in the Kp proteome, so the lookup failed, not the call); 28 are RBH, and
+`parC`/`parE` are OrthoFinder-only, as expected for paralogs. Literature points the same way
+(~994 positional orthologous pairs Ec vs *B. subtilis*, BMC Evol Biol 2007, 7:237, Table 4 — read
+from a search snippet, not verified in the paper).
+
+**Ortholog discrimination, Ec** (`orthology_check.py`): among proteins with a measured *S. aureus*
+ortholog, the Ec score predicts the ortholog's call at **AUROC 0.893 / PR 0.686 (base 0.132) for
+ADEP4 (n = 1,084)** and **0.843 / 0.710 (base 0.264) for ONC212 (n = 735)**, against a
+shorter-protein-first baseline of 0.750 / 0.695. **This is consistency, not independent
+validation**: the ortholog's label was training data. The clean test — retrain with every
+*S. aureus* protein that has an Ec ortholog removed, then score those Ec proteins — was priced
+(~40,000 credits for one seed) and **not run**; the owner was convinced without it.
+
+**Out-of-fold wording corrected.** Only the labeled *S. aureus* proteins are out-of-fold. Ec and Kp
+are unseen by construction, so their `_prob` is the full-fit prediction.
+
+### Superseded: the regression variant (2026-09-01)
+
+This stage was first built as a **regression** on the continuous abundance log2FC, on the argument
+that thresholding costs reproducibility (ρ 0.52 → Jaccard 0.31). **That argument was wrong** — it
+measured set overlap, whereas a classifier is scored on ranking, where the two activators agree at
+AUROC 0.82–0.88. Kept here because the numbers are informative:
+
+| | length | ESM-C ridge | v1's label-agreement ρ |
+|---|---|---|---|
+| ADEP4 | ρ 0.319, AUROC 0.779 | ρ **0.515**, AUROC 0.874 | ρ 0.52 |
+| ONC212 | ρ 0.253, AUROC 0.688 | ρ **0.363**, AUROC 0.753 | ρ 0.52 |
+
+Cross-activator 0.777 / 0.864. So regression and classification land in the same territory
+(ADEP4 0.874 vs 0.857; ONC212 0.753 vs 0.750), which is the reassuring outcome — the conclusion does
+not hinge on the framing. Regression's one real advantage was retaining magnitude; classification's
+is comparability with v1 and with the published literature, which is all AUROC.
+
+
+### 2026-09-17 — retrofit to TabPFN-3.5
+
+**What changed.** The estimator, and only the estimator. Features (ESM-C), labels, homology
+clusters, folds, seeds and every control are unchanged.
+
+**Why.** A 3-estimator × 3-embedding × 2-activator grid on byte-identical cluster-grouped folds
+(`output/results/degradability/proteomelm_vs_esmc.tsv`, 18 arms). TabPFN beat the forest on
+**PR-AUC in 6 of 6 arms, each winning all 5 seeds**: +0.041 / +0.014 / +0.056 on ADEP4 across
+esmc/proteomelm/prott5, +0.033 / +0.028 / +0.021 on ONC212. On ROC-AUC the gain is smaller and
+clears only with ESM-C. **lazy-qsar 3.4.4 was tested in the same grid and rejected** — its one real
+gain (ADEP4 PR +0.021, 5/5 seeds) does not transfer to ONC212 (+0.005, 3/5).
+
+**Use the PAIRED test.** Every head ran identical folds, so shared partition difficulty cancels.
+The unpaired 2-SD bar called 1 of 4 arms "no difference" that the paired test resolves decisively;
+on ONC212 both arms carry SD ~0.008 from the splits alone.
+
+**Two corrections the paired test forced on earlier conclusions.**
+- **ProteomeLM is not "equal" to ESM-C — it is worse.** Paired, `forest × ProteomeLM` loses to
+  `forest × ESM-C` on ADEP4 by −0.0039 ROC-AUC and −0.0221 PR-AUC, **winning 0 of 5 seeds on both**.
+  It never wins anywhere in the grid.
+- **Estimator and features interact.** ProtT5 is the *worst* features under a forest (−0.0152,
+  0/5 seeds) and the *best* under TabPFN (+0.0107, 5/5). Benchmarking embeddings with one
+  convenient model would have discarded the best pairing. ESM-C stays regardless: TabPFN × ProtT5
+  wins ADEP4 but TabPFN × ESM-C wins ONC212, a split decision, and ESM-C adds no new dependency.
+
+**The acceptance test was wrong, and that is the most important finding here.** It was framed as
+"do the five consistent COG directions survive?" — but that sentence described the *forest's*
+behaviour, so using it to judge a new model assumed the incumbent was correct. Measured against the
+**labels** instead: under ONC212, COG O (chaperones) is **not** enriched among measured hits (17.1%
+vs a 24.6% base rate, OR 0.63, p 0.42), yet the forest predicted 1.8–2.8. TabPFN predicts
+0.86–1.03 — it tracks the measurement. Same for J under ADEP4: label OR 1.81, TabPFN 1.47–2.59,
+forest 3.1–10.2. **Judge enrichment against the labels, never against the previous model.**
+
+**Caveats, stated rather than buried.** TabPFN over-depletes **G** (predicts 0.04–0.30 where the
+labels show 0.74 / 0.65, both non-significant). `unclassified` is strongly enriched (OR 5.2–7.6) and
+this is **unexplained** — tested against protein length and rejected (TabPFN ρ −0.62 vs forest
+−0.61, a 0.02 difference). The two activators' predictions now correlate at **ρ 0.89** (forest
+0.83–0.86), so they are *less* independent than before. **Forest and TabPFN agree on only 62–64% of
+the Kp top 10%** — 208–219 of 573 proteins differ, so any shortlist built on the old outputs has
+genuinely moved. Both models track length far more strongly than the labels do (−0.61 vs −0.33),
+which is a standing caveat on the axis, not a property of the swap.
+
+**Operational — the process boundary.** The estimator lives in the **`gradi-tabpfn`** conda env
+(`tabpfn==9.0.0`, `tabpfn-client==0.6.0`), never in `gradi`: it pulls torch 2.14 against gradi's
+2.12 and installing it there would break stage 01's ESM-C. The stage therefore runs in `gradi` and
+reaches across a **process boundary** — `predict_fold` in `src/tabpfn.py` → `scripts/workers/
+tabpfn_cv.py`. **`GRADI_TABPFN_BIN`** overrides the interpreter; **`GRADI_TABPFN_HOSTED=0`** asks
+for local weights. Nothing shells out to the worker directly; the dispatch, cache, retry and credit
+guard all live in `src/tabpfn.py` so any axis can reach them. Needs `TABPFN_TOKEN` in the
+environment.
+
+**Operational — credits.** ~160 hosted calls ≈ 1.6M of a 20M monthly quota. Cost is **flat per
+*call*** — measured 10,000 whether the test set is 350 or 2,889 rows — and `fit` is free, which is
+why per-fold prediction and not corpus size is the thing to count.
+
+**Operational — the hosted API is a third-party uptime dependency.** A GCS `500 InternalError` —
+server-side, nothing wrong with our data — killed a 40-minute run at **call 64 of ~160**. Every
+call now retries **5× with 5/10/20/40 s backoff**, and a failed attempt is not billed.
+
+**Operational — the cache is load-bearing and silently fragile.** `data/processed/tabpfn/cache/` is
+content-addressed on the sha256 of X_train / y_train / X_test, shared across axes, and the
+filenames **are** the keys (so the directory can move safely). A re-run that recomputes nothing
+spends nothing, and an interrupted run resumes for free. But **any change to what `_key` hashes
+invalidates every entry with no error** — just universal misses, which look identical to a working
+cache until the bill arrives. Measured: adding one field to the hashed string cost **1,540,000
+credits (7.7% of the monthly quota)** for numbers that then reproduced identically.
+
+Two rules follow. **To check whether a particular call is cached, compute the key and test for the
+file** — never "verify the cache" with a made-up input, which always misses and proves nothing.
+Both mistakes have been made. And **after any refactor that could disturb the key, re-run the stage
+under `GRADI_TABPFN_CACHE_ONLY=1`**, which refuses to spend: if the stage still reproduces
+**ADEP4 0.8738 / PR 0.6103 and ONC212 0.7671 / PR 0.5803**, the cache survived. That is the only
+correct check.
+
+`model_<activator>.joblib` became `model_<activator>.npz`: TabPFN learns in context, so the
+artifact is the training set + config.
+
+## Traps
+
+- **The whole label set joins to nothing by identifier.** Three strains, zero ID matches. Go through
+  sequence; see the §"identifier problem" before trying anything else.
+- **ONC212 has no p-values.** Its calls rest on effect size alone, which is part of why it is the
+  weaker label (0.7671 vs 0.8738; 0.750 vs 0.857 under the forest).
+- **Jacques writes `"NA"` as a literal string**, not an empty cell; without `na_values=["NA"]` the
+  column arrives as `object`. Conlon's header is on row 4 of Table S1 and row 6 of Table S2, and
+  `Sample_ A` has a literal space after the underscore. This stage sidesteps all of it by reading
+  v1's audited merge rather than the xlsx.
+- **`legacy/HISTORY.md` §7's warning about 45-/35-row hand-curated substitutes does NOT apply here.**
+  That concerns `data/raw/legacy/clp_substrates/` — *E. coli*, ClpXP, a different axis. The
+  *S. aureus* supplements are the publishers' own binaries, `fetch_status.tsv` marks both
+  `ok/cached`, row counts match the papers, and §10.6 records a passing internal-consistency audit
+  (recomputing Conlon's `Average` from raw intensities, max |Δ| = 0.0010).
+- **A good degrader target is stable natively but degradable when forced.** Do not validate this axis
+  against natural half-life: v1 measured `activator_evidence` vs Nagar half-life at **ρ = −0.073,
+  p = 0.17** and warned that *"optimising a degradability score against natural half-life could
+  select the **wrong** proteins."*
+- **ESM-C embeddings encode species and length**, so a model trained on *S. aureus* partly learns
+  "*S. aureus*-ness". The length comparison rules out length specifically; it does **not** rule out
+  species identity, which cannot be tested without Gram-negative labels.
+- **Every *E. coli* and *K. pneumoniae* row is a ranking hypothesis**, not a measurement. v1's `10f`
+  carried a literal `validation = "none — cross-species, unlabelled"` column for this reason.
+- **Local TabPFN weights need the licence ACCEPTED, not just a token.** Verified: the
+  `TABPFN_TOKEN` is valid, the account reads `accepted: False`, and the weight download is refused.
+  Until someone accepts at **ux.priorlabs.ai**, only the hosted path works — **which uploads
+  features and labels to a third party.** That is the other reason the content-addressed cache
+  exists.
+- **The TabPFN weights are non-commercial licensed.** Fine for methods work; **unresolved for
+  GraDi's deliverable**, and it must be settled against how these outputs are used before anything
+  derived from them ships externally.
+- **`src/degradability.py` collides by name with the frozen `legacy/src/degradability.py`.** v2
+  never imports the legacy one, and `legacy/HISTORY.md` §7 lists four verified defects in the
+  artifacts it produced (including an inverted N-end rule supplying 680 of 698 `medium` calls).
+  Check which module an import resolves to before trusting a number attributed to "the
+  degradability loader".
+- **Do not use the previous model as the acceptance test.** The forest's own COG profile was the
+  stated acceptance criterion for the retrofit, and two of its five "robust" directions turned out
+  to be forest artifacts. Score a new estimator against the **labels**.
+
+## Open leads
+
+- **Cleavage as its own axis.** 625 (Conlon) and 1,405 (Jacques) proteins have cleavage log2FCs on
+  disk, unused. Between-activator reproducibility is only ρ = 0.22, so expect less — but it is the
+  more mechanistically direct readout.
+- **The Gr-ADI WP1 assay.** `degradability_datasets.md` §10.4: *"Even 20–30 proteins with a binary
+  call would outweigh all 3,262 turnover labels."* The measurement that would let a Gram-negative
+  prediction be checked at all.
+- **Won 2024** — 72 *M. smegmatis* proteins with measured induced-proximity degradation rate
+  constants: the only external set, and the right *modality*. Weak (ClpC1, Actinobacteria) but real.
+- **Feng 2013** (*S. aureus* ClpXP/ClpCP) is a placeholder on disk, ACS-gated, never obtained.
