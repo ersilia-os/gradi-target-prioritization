@@ -1655,6 +1655,9 @@ function initMap() {
   const wrap = $("mapwrap");
   wrap.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
+    // the colour/threshold controls and the legend sit inside the map: a drag there is not a box-select
+    // (it used to select a box AND redraw, which snapped the threshold slider back to its old value)
+    if (e.target.closest(".mapctrl, .maplegend, input, select, button, label")) return;
     const rect = wrap.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
     _mapDrag = { x0: x, y0: y, x1: x, y1: y }; _mapDragged = false;
