@@ -423,6 +423,8 @@ tbody td{transition:background-color .14s ease}
 .rs-hist{display:flex;align-items:flex-end;gap:1px;height:20px}
 .rs-hist i{flex:1;--b:100%;background:linear-gradient(to top,color-mix(in srgb,var(--c) 70%,#fff) var(--b),color-mix(in srgb,var(--c) 14%,#fff) var(--b));border-radius:1px 1px 0 0;min-height:1px}
 .rs-hist i.out{background:linear-gradient(to top,#d9dbe3 var(--b),var(--line) var(--b))}
+/* a bin too tall to draw to scale: a notch near the top marks it as cut off */
+.rs-hist i.spike{-webkit-mask:linear-gradient(to bottom,#000 0 3px,transparent 3px 5px,#000 5px);mask:linear-gradient(to bottom,#000 0 3px,transparent 3px 5px,#000 5px)}
 .rs-track{position:relative;height:18px;touch-action:none;cursor:pointer}
 .rs-track::before{content:"";position:absolute;left:0;right:0;top:7px;height:4px;border-radius:2px;background:var(--line)}
 .rs-fill{position:absolute;top:7px;height:4px;border-radius:2px;background:var(--c)}
@@ -451,14 +453,6 @@ tbody tr{content-visibility:auto;contain-intrinsic-size:auto 46px}
 .sbcount .linkbtn{line-height:20px}
 
 /* ligandability: any / has / none, then a slider over those that have evidence */
-.ligrow .rs-head{align-items:center;margin-bottom:4px}
-.tri{display:inline-flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
-.tri button{border:0;border-right:1px solid var(--border);background:var(--surface);padding:3px 9px;font-size:12px;cursor:pointer;color:var(--ink)}
-.tri button:last-child{border-right:0}
-.tri button[aria-pressed="true"]{background:var(--brand);color:#fff}
-.ligrow .sub{padding:0;margin-top:2px;transition:opacity .2s}
-.ligrow .sub .rs-label{font-weight:500;font-size:11.5px;color:var(--muted)}
-.ligrow.nosub .sub{opacity:.4}
 /* localization as the cell: a quiet diagram in the Localization colour (green) */
 .locwrap{display:flex;align-items:center;gap:8px}
 .loccircle{width:80px;height:80px;flex:none}
@@ -501,7 +495,6 @@ tbody tr{content-visibility:auto;contain-intrinsic-size:auto 46px}
 /* sort arrow of a right-aligned or centred header hangs outside the label, so the label lines up with its values */
 th.ar .hc,th.ac .hc{position:relative}
 th.ar .arrow,th.ac .arrow{position:absolute;left:100%;top:50%;transform:translateY(-50%);width:auto;margin-left:3px}
-.ligrow .rs-head{gap:10px}
 /* the threshold only applies to numeric colourings; show it as unavailable for categories */
 .mapctrl input[type=range]:disabled{opacity:.35;cursor:not-allowed}
 .mapctrl:has(input[type=range]:disabled) label[for=mapThresh]{opacity:.45}

@@ -877,8 +877,12 @@ function rangeSpec(spec) {
   s.toT = toT; s.fromT = fromT;
   const bins = new Array(RANGE_PTS).fill(0);
   for (const r of DATA.rows) { const x = r[spec.key]; if (isNum(x) && x >= min - 1e-9) bins[Math.min(RANGE_PTS - 1, Math.max(0, Math.floor(toT(x) * RANGE_PTS)))]++; }
-  const top = Math.max(...bins.map(Math.sqrt)) || 1;
-  s.hist = bins.map((c) => Math.sqrt(c) / top);          // square root so a spike at zero does not hide the rest
+  // A bin holding most proteins (ligandability: ~97% pinned at 0, "nobody looked") would flatten every other bar,
+  // and no transform can spread a tie. So scale the bars to the rest and draw that bin full height, marked as cut off.
+  const total = bins.reduce((a, b) => a + b, 0);
+  s.spike = bins.findIndex((c) => c > total / 2);
+  const top = Math.max(...bins.filter((_, i) => i !== s.spike).map(Math.sqrt)) || 1;
+  s.hist = bins.map((c, i) => i === s.spike ? 1 : Math.sqrt(c) / top);   // square root so tall bins do not hide the rest
   s.counts = bins;
   return (memo[spec.key] = s);
 }
@@ -891,7 +895,9 @@ function makeRange(spec0, compact) {
   el.className = "rs" + (compact ? " compact" : "");
   el.dataset.key = s.key;
   el.style.setProperty("--c", s.color || "var(--brand)");
-  const bars = compact ? "" : `<div class="rs-hist">${s.hist.map((h) => `<i style="height:${Math.max(4, Math.round(h * 100))}%;--b:100%"></i>`).join("")}</div>`;
+  const bars = compact ? "" : `<div class="rs-hist">${s.hist.map((h, i) => i === s.spike
+    ? `<i class="spike" style="height:100%;--b:100%" title="${s.counts[i].toLocaleString()} proteins (bar cut off)"></i>`
+    : `<i style="height:${Math.max(4, Math.round(h * 100))}%;--b:100%"></i>`).join("")}</div>`;
   el.innerHTML = `<div class="rs-head"><span class="rs-label">${s.label}</span><span class="rs-val"></span></div>${bars}`
     + `<div class="rs-track"><div class="rs-fill"></div><button class="rs-thumb" data-w="lo" role="slider" aria-label="${s.label} minimum"></button><button class="rs-thumb" data-w="hi" role="slider" aria-label="${s.label} maximum"></button></div>`;
   const track = el.querySelector(".rs-track"), fill = el.querySelector(".rs-fill"), val = el.querySelector(".rs-val");
@@ -913,7 +919,7 @@ function makeRange(spec0, compact) {
   let raf = 0;
   const push = (final) => {
     const active = paint();
-    if (active || s.alwaysStore) state.filters.ranges[s.key] = [lo, hi]; else delete state.filters.ranges[s.key];
+    if (active) state.filters.ranges[s.key] = [lo, hi]; else delete state.filters.ranges[s.key];
     if (s.onStore) s.onStore();
     if (final) { cancelAnimationFrame(raf); raf = 0; save(); recompute(); return; }
     if (!raf) raf = requestAnimationFrame(() => { raf = 0; recompute({ quiet: true }); updateAccCounts(); });
@@ -954,37 +960,6 @@ function makeRange(spec0, compact) {
   paint();
   el._range = () => [lo, hi];
   return el;
-}
-// Ligandability is zero for ~97% of proteins ("nobody looked"), so a plain 0-1 slider is mostly one spike. It is a
-// three-way choice (any / has evidence / none) plus a slider over the proteins that DO have evidence.
-function makeLigand(f) {
-  const key = f.key;
-  const wrap = document.createElement("div");
-  wrap.className = "rs ligrow";
-  const cur = state.filters.ranges[key];
-  let mode = !cur ? "any" : (cur[1] <= 0 ? "none" : "has");
-  const nHas = DATA.rows.filter((r) => isNum(r[key]) && r[key] > 0).length;
-  wrap.innerHTML = `<div class="rs-head"><span class="rs-label">${f.label}</span><span class="tri" role="group" aria-label="Ligand evidence">`
-    + `<button data-m="any">any</button><button data-m="has" title="${nHas.toLocaleString()} proteins have ligand evidence">has</button><button data-m="none">none</button></span></div>`;
-  const slider = makeRange({ ...f, label: "Rank among those with ligands", min: 0.01, max: 1, alwaysStore: true }, false);
-  slider.classList.add("sub");
-  wrap.appendChild(slider);
-  const setMode = (m, commit) => {
-    mode = m;
-    wrap.querySelectorAll(".tri button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === m)));
-    wrap.classList.toggle("nosub", m !== "has");
-    if (m === "any") delete state.filters.ranges[key];
-    else if (m === "none") state.filters.ranges[key] = [0, 0];
-    else { const v = slider._range(); state.filters.ranges[key] = v; }
-    if (commit) { save(); recompute(); updateAccCounts(); }
-  };
-  wrap.querySelectorAll(".tri button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.m, true)));
-  // moving the slider means "has ligands, in this range"
-  slider.addEventListener("pointerdown", () => { if (mode !== "has") setMode("has", false); });
-  slider.addEventListener("keydown", () => { if (mode !== "has") setMode("has", false); });
-  setMode(mode, false);
-  if (mode === "has") state.filters.ranges[key] = cur;
-  return wrap;
 }
 // Localization as the cell itself: concentric rings, centre to outside. Click a ring (or a row) to select.
 const LOC_ORDER = ["cytoplasm", "cytoplasmic_membrane", "periplasm", "outer_membrane", "extracellular"];
@@ -1081,7 +1056,7 @@ function buildRangePanel() {
   keepSidebarScroll(() => {
     const host = $("rangePanel"); if (!host) return;
     host.innerHTML = "";
-    for (const f of RANGE_SPECS()) host.appendChild(f.key === "ligands_consensus" ? makeLigand(f) : makeRange(f, false));
+    for (const f of RANGE_SPECS()) host.appendChild(makeRange(f, false));
     const ev = $("bodyEvid");
     if (ev) {
       ev.innerHTML = "";
