@@ -1283,15 +1283,6 @@ function applyPreset() {
   buildFilterBar();
   save(); recompute();
 }
-// weighting-scheme presets (set the composite sliders)
-const WEIGHT_PRESETS = {
-  default:       null,                                     // COMPONENTS' own weights: four axes equal, Novelty off
-  degradability: { degradability_consensus: 100 },
-};
-function applyWeightPreset(name) {
-  if (!(name in WEIGHT_PRESETS)) return;
-  setWeights(WEIGHT_PRESETS[name] || DEFAULT_WEIGHTS());
-}
 // same-gene ortholog in the other organism (gene-symbol match; needs the other org cached)
 function orthologInOther(row) {
   const other = state.org === "kp" ? "ec" : "kp";
@@ -1756,9 +1747,6 @@ function init() {
   };
   $("resetWeights").onclick = () => setWeights(DEFAULT_WEIGHTS());
   $("sbClear").onclick = () => applyPreset("reset");
-  $("weightPresets").querySelectorAll("button[data-wp]").forEach((b) =>
-    b.onclick = () => applyWeightPreset(b.dataset.wp));
-  $("weightsOff").onclick = () => setWeights({});
   $("exportBtn").onclick = exportCSV;
   $("filtersBtn").onclick = () => document.body.classList.toggle("sbopen");
   $("sbScrim").onclick = () => document.body.classList.remove("sbopen");
