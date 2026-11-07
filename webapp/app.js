@@ -1006,21 +1006,41 @@ function paintLoc() {
     b.classList.toggle("empty", (counts[k] || 0) === 0 && !sel.has(k));   // nothing left in this compartment
   });
 }
-// Function as a grid of named tiles (letters mean nothing to most readers), grouped as COG groups them
+// Function as compact chips, grouped as COG groups them. All ON by default (nothing filtered). The stored filter
+// is still the set of INCLUDED categories, empty = all, so saved views keep working.
+//   click a chip: turn it off / on      double-click: only this one      click a group name: toggle the group
+function cogPresent() { return COG_GROUPS.flatMap(([, ks]) => ks).filter((k) => new Set(distinct("cog")).has(k)); }
+function setCog(next) {   // next: Set of categories to show; all (or none) of them collapses to "no filter"
+  const all = cogPresent();
+  const sel = state.filters.cats.cog;
+  sel.clear();
+  if (next.size && next.size < all.length) next.forEach((k) => sel.add(k));
+  paintCog(); updateAccCounts(); save(); recompute();
+}
 function buildCogGrid() {
   const host = $("bodyCog"); if (!host) return;
   host.innerHTML = "";
   if (!has_("cog")) return;
   if (!state.filters.cats.cog) state.filters.cats.cog = new Set();
-  const sel = state.filters.cats.cog;
-  const present = new Set(distinct("cog"));
+  const present = new Set(cogPresent());
   host.innerHTML = `<div class="coggrid">` + COG_GROUPS.map(([g, ks]) => {
-    const tiles = ks.filter((k) => present.has(k)).map((k) => `<button class="cogt" data-k="${k}" aria-pressed="false" title="${k === "none" ? "No COG category could be assigned" : k + ": " + ((FC_BY_ID[k] || {}).label || "")}"><span>${COG_SHORT[k] || k}</span></button>`).join("");
-    return tiles ? `<div class="cog-h">${g}</div>${tiles}` : "";
+    const chips = ks.filter((k) => present.has(k)).map((k) => `<button class="cogt" data-k="${k}" aria-pressed="true" title="${k === "none" ? "No COG category could be assigned" : k + ": " + ((FC_BY_ID[k] || {}).label || "")} (double-click: only this)">${COG_SHORT[k] || k}</button>`).join("");
+    return chips ? `<div class="cogg"><button class="cog-h" data-g="${g}" title="Turn the whole group on or off">${g}</button><div class="cogchips">${chips}</div></div>` : "";
   }).join("") + `</div>`;
-  host.querySelectorAll(".cogt").forEach((b) => b.addEventListener("click", () => {
-    const k = b.dataset.k; if (sel.has(k)) sel.delete(k); else sel.add(k);
-    paintCog(); updateAccCounts(); save(); recompute();
+  const shown = () => { const sel = state.filters.cats.cog; return new Set(sel.size ? sel : present); };
+  host.querySelectorAll(".cogt").forEach((b) => {
+    b.addEventListener("click", () => {
+      const on = shown(), k = b.dataset.k;
+      if (on.has(k)) { if (on.size > 1) on.delete(k); } else on.add(k);   // the last one on stays on
+      setCog(on);
+    });
+    b.addEventListener("dblclick", () => setCog(new Set([b.dataset.k])));
+  });
+  host.querySelectorAll(".cog-h").forEach((h) => h.addEventListener("click", () => {
+    const ks = (COG_GROUPS.find(([g]) => g === h.dataset.g) || [, []])[1].filter((k) => present.has(k));
+    const on = shown(), allOn = ks.every((k) => on.has(k));
+    ks.forEach((k) => (allOn ? on.delete(k) : on.add(k)));
+    setCog(on.size ? on : new Set(ks));
   }));
   paintCog();
 }
@@ -1030,9 +1050,13 @@ function paintCog() {
   const counts = {};
   for (const r of DATA.rows) if (passFilters(r, "cog")) counts[r.cog] = (counts[r.cog] || 0) + 1;
   host.querySelectorAll(".cogt").forEach((b) => {
-    const k = b.dataset.k, n = counts[k] || 0;
-    b.setAttribute("aria-pressed", String(sel.has(k)));
-    b.classList.toggle("empty", n === 0 && !sel.has(k));
+    const k = b.dataset.k, on = !sel.size || sel.has(k);
+    b.setAttribute("aria-pressed", String(on));
+    b.classList.toggle("empty", (counts[k] || 0) === 0);
+  });
+  host.querySelectorAll(".cog-h").forEach((h) => {
+    const ks = [...h.nextElementSibling.querySelectorAll(".cogt")];
+    h.classList.toggle("off", ks.every((b) => b.getAttribute("aria-pressed") === "false"));
   });
 }
 // Each histogram shows how many proteins are left in every bin once ALL the other filters are applied (dark),
@@ -1257,7 +1281,9 @@ function updateAccCounts() {
   const set = (id, n) => { const e = document.querySelector(`#${id} .acount`); if (e) e.textContent = n ? String(n) : ""; };
   const size = (k) => (state.filters.cats[k] ? state.filters.cats[k].size : 0);
   set("accLoc", size("localization"));
-  set("accCog", size("cog"));
+  const cogN = size("cog"), cogT = document.querySelector("#accCog .acount");
+  if (cogT) cogT.innerHTML = cogN ? `${cogN} of ${cogPresent().length} <button class="cogall" type="button">show all</button>` : "";
+  const ca = cogT && cogT.querySelector(".cogall"); if (ca) ca.onclick = () => setCog(new Set());
   set("accOrth", (state.filters.bools.has_human_ortholog || "any") !== "any" ? 1 : 0);
   set("accEvid", EVID_FILTERS.filter(([k]) => state.filters.ranges[k]).length);
   const b = $("sbClear"); if (b) b.hidden = !(anyFilterActive() || !!state.filters.search);
