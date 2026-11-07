@@ -109,9 +109,9 @@ const FC_BY_ID = Object.fromEntries(FUNCTIONAL_CLASSES.map((c) => [c.id, c]));
 const COMPONENTS = [
   { key: "degradability_consensus", label: "Degradability", short: "Deg", weight: 100, on: true,
     help: "Rank of the predicted ClpP-activator susceptibility (ADEP4 and ONC212 models, trained on S. aureus screens, applied here). Within-species percentile; a ranking hypothesis for E. coli and K. pneumoniae." },
-  { key: "essentiality_consensus", label: "Essentiality", short: "Ess", weight: 100, on: true,
+  { key: "essentiality_consensus", label: "Essentiality", short: "Ess", radar: "Essent.", weight: 100, on: true,
     help: "Mean within-species percentile of three predictors. On E. coli it is partly circular (built from the same screens as the measured calls)." },
-  { key: "ligands_consensus", label: "Ligand precedence", short: "Lig", weight: 100, on: true,
+  { key: "ligands_consensus", label: "Ligand precedence", short: "Lig", radar: "Ligand prec.", weight: 100, on: true,
     help: "Potent ChEMBL ligands for this protein or a bacterial homolog. Zero for the ~97% nobody has screened; that is 'not looked', not 'undruggable'." },
   { key: "pockets_consensus", label: "Pockets", short: "Pkt", weight: 100, on: true,
     help: "Predicted and observed pockets on their own 0-1 scales; a ligand seen in the protein's own PDB structure counts at least 0.8. Tracks protein length (rho about 0.65): use with care." },
@@ -120,13 +120,13 @@ const COMPONENTS = [
 ];
 
 // ---- table columns -----------------------------------------------------------
-// `fixed` columns belong to no group and are always shown, next to Target.
+// `fixed` columns belong to no group and are always shown, after all the groups (last column).
 // type: score (0-1 heat) | pct (0-1 as %) | plddt | num | int | binary01 | bool | tier | text | class
 const TABLE_COLUMNS = [
   { key: "length", label: "Length (aa)", type: "int", fixed: true, w: 116,
     desc: "Protein length in amino acids (UniProt reference proteome sequence). Degradability probabilities fall steeply with length (rho about -0.6 to -0.7), so read the degradability and pocket ranks against it; the length bands in the filters keep proteins of similar size together." },
   // Degradability
-  { key: "degradability_consensus", label: "Rank", type: "score", summary: true, heat: true, group: "Degradability",
+  { key: "degradability_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Degradability",
     desc: "Degradability consensus (0-1): mean within-species percentile of the ADEP4 and ONC212 probabilities. Never compare across species. Tracks either probability at rho 0.97, so it adds little over them. Rows for E. coli and K. pneumoniae are predictions extrapolated from S. aureus screens." },
   { key: "adep4_prob", label: "ADEP4 prob.", type: "score", heat: true, group: "Degradability",
     desc: "Probability the protein is depleted by ADEP4-activated ClpP (TabPFN-3.5 on ESM-C and ProtT5 embeddings, trained on S. aureus; cluster-grouped CV AUROC 0.88). Strongly length-dependent: short proteins score higher." },
@@ -140,7 +140,7 @@ const TABLE_COLUMNS = [
     desc: "Cosine of the nearest S. aureus protein in ESM-C space. Raw cosine, not relatedness: random pairs reach a median of 0.78." },
 
   // Essentiality
-  { key: "essentiality_consensus", label: "Rank", type: "score", summary: true, heat: true, group: "Essentiality",
+  { key: "essentiality_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Essentiality",
     desc: "Essentiality consensus (0-1): mean within-species percentile of Geptop, ProteomeLM-Ess and the screen-trained models. Partly circular on E. coli." },
   { key: "essentiality_evidence", label: "Evidence", type: "tier", group: "Essentiality",
     desc: "3 = two or more independent experimental sources, unanimous and agreeing with the consensus; 2 = one source, or several that conflict; 1 = no measurement. Provenance, not outcome. On K. pneumoniae a 3 rests on strains other than HS11286." },
@@ -156,7 +156,7 @@ const TABLE_COLUMNS = [
     desc: "Geptop 2.0 score (orthology to known essential genes). A 0 is a confident non-essential call when orthologs exist and none is essential, otherwise 'no orthologs'." },
 
   // Ligand precedence
-  { key: "ligands_consensus", label: "Rank", type: "score", summary: true, heat: true, group: "Ligand precedence",
+  { key: "ligands_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Ligand precedence",
     desc: "Ligand precedence consensus (0-1): percentile of potent ChEMBL ligand counts (own, bacterial homologs) and best potency, pinned to 0 for the ~97% with no evidence. Human ligands are excluded (a liability, not a benefit)." },
   { key: "ligands_evidence", label: "Evidence", type: "tier", group: "Ligand precedence",
     desc: "3 = somebody assayed this protein, or a drug is recorded against it; 2 = only a bacterial homolog was assayed; 1 = nothing in ChEMBL (an open question, not a negative)." },
@@ -208,7 +208,7 @@ const TABLE_COLUMNS = [
     desc: "3 = placed in a grouping, OrthoFinder and RBH both found a bacterial ortholog and do not conflict on the human call; 2 = placed but not corroborated; 1 = in no grouping (could not look)." },
 
   // Studiedness
-  { key: "studiedness_consensus", label: "Rank", type: "score", summary: true, heat: true, group: "Studiedness",
+  { key: "studiedness_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Studiedness",
     desc: "Studiedness consensus (0-1): mean percentile of three paper counts. High = well studied. Proteins with no donor literature are pinned to 0 (S. aureus only)." },
   { key: "studiedness_evidence", label: "Evidence", type: "tier", group: "Studiedness",
     desc: "3 = a curated SwissProt donor at >= 95% identity (this protein's own literature); 2 = a donor at >= 40%; 1 = nothing in SwissProt resembles it." },

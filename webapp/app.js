@@ -382,7 +382,7 @@ function colHasData(k) {
   return m[k];
 }
 function visibleColumns() {
-  const out = TABLE_COLUMNS.filter((c) => c.fixed && DATA.columns.includes(c.key));
+  const out = [];
   for (const g of GROUP_ORDER) {
     const open = state.expanded.includes(g);
     for (const c of TABLE_COLUMNS) {
@@ -390,7 +390,7 @@ function visibleColumns() {
       if (open || c.summary) out.push(c);
     }
   }
-  return out;
+  return out.concat(TABLE_COLUMNS.filter((c) => c.fixed && DATA.columns.includes(c.key)));   // Length last
 }
 function tipAttr(text) {
   return text ? ` data-tip="${String(text).replace(/"/g, "&quot;")}"` : "";
@@ -420,7 +420,9 @@ function renderThead() {
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("gene", "Protein", { tip: LEADING_COL_DESC.name, cls: "colgene" })
     + (showWeighted() ? th("__c", "Weighted", { tip: LEADING_COL_DESC.__c, cls: "ar" }) : "");
-  for (const c of cols) h += th(c.key, c.label, { tip: c.desc, cls: alignOf(c) });
+  // a group's headline score needs no label while the group is collapsed: the band above already names it
+  const headLabel = (c) => !c.key.endsWith("_consensus") ? c.label : state.expanded.includes(c.group) ? "Score" : "";
+  for (const c of cols) h += th(c.key, headLabel(c), { tip: c.desc, cls: alignOf(c) });
 
   // group band: merge consecutive columns of one group; the untitled run (length, weighted) stays blank
   const runs = [];
@@ -1133,8 +1135,7 @@ function buildWeights() {
     const [x, y] = at(i, R + 16), cos = Math.cos(ang(i)), sin = Math.sin(ang(i));
     const anchor = cos > 0.3 ? "start" : cos < -0.3 ? "end" : "middle";
     const dy = sin < -0.5 ? -14 : sin > 0.5 ? 6 : -4;
-    const words = c.label.length > 12 ? c.label.split(" ") : [c.label];
-    const name = words.map((wd, j) => `<tspan x="${f(x)}" dy="${j ? 12 : 0}">${wd}</tspan>`).join("");
+    const name = `<tspan x="${f(x)}">${c.radar || c.label}</tspan>`;   // one line: long names carry a short `radar` form
     return `<text class="wr-lab" data-i="${i}" x="${f(x)}" y="${f(y + dy)}" text-anchor="${anchor}"${tipAttr(c.help + " Click to switch on or off.")}>${name}`
       + `<tspan class="wr-pct" x="${f(x)}" dy="13" style="fill:${colColor(c.key)}"></tspan></text>`;
   }).join("");
@@ -1282,15 +1283,6 @@ function applyPreset() {
   buildRangePanel();
   buildFilterBar();
   save(); recompute();
-}
-// weighting-scheme presets (set the composite sliders)
-const WEIGHT_PRESETS = {
-  default:       null,                                     // COMPONENTS' own weights: four axes equal, Novelty off
-  degradability: { degradability_consensus: 100 },
-};
-function applyWeightPreset(name) {
-  if (!(name in WEIGHT_PRESETS)) return;
-  setWeights(WEIGHT_PRESETS[name] || DEFAULT_WEIGHTS());
 }
 // same-gene ortholog in the other organism (gene-symbol match; needs the other org cached)
 function orthologInOther(row) {
@@ -1756,9 +1748,6 @@ function init() {
   };
   $("resetWeights").onclick = () => setWeights(DEFAULT_WEIGHTS());
   $("sbClear").onclick = () => applyPreset("reset");
-  $("weightPresets").querySelectorAll("button[data-wp]").forEach((b) =>
-    b.onclick = () => applyWeightPreset(b.dataset.wp));
-  $("weightsOff").onclick = () => setWeights({});
   $("exportBtn").onclick = exportCSV;
   $("filtersBtn").onclick = () => document.body.classList.toggle("sbopen");
   $("sbScrim").onclick = () => document.body.classList.remove("sbopen");
