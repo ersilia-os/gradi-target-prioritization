@@ -1562,11 +1562,20 @@ function drawMap() {
     ctx.save();
     ctx.font = '600 11.5px "Inter",system-ui,sans-serif';
     ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
-    for (const v in groups) {
+    // biggest groups first; a label that would overlap one already drawn is skipped (the legend still names it),
+    // and a group too small to have a meaningful centre gets none
+    const total = Object.values(groups).reduce((n, a) => n + a.length, 0);
+    const minN = Math.max(12, Math.round(0.03 * total));
+    const placed = [];
+    for (const v of Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length)) {
       const pts = groups[v];
-      if (pts.length < 12) continue;
+      if (pts.length < minN) continue;
       const mx = med(pts.map((p) => p[0])), my = med(pts.map((p) => p[1]));
       const label = catLabel(colorBy, v);
+      const w = ctx.measureText(label).width + 8, h = 16;
+      const box = { x0: mx - w / 2, x1: mx + w / 2, y0: my - h / 2, y1: my + h / 2 };
+      if (placed.some((q) => box.x0 < q.x1 && box.x1 > q.x0 && box.y0 < q.y1 && box.y1 > q.y0)) continue;
+      placed.push(box);
       ctx.lineWidth = 3.5; ctx.strokeStyle = "rgba(255,255,255,0.92)"; ctx.strokeText(label, mx, my);
       ctx.fillStyle = "#2C3E50"; ctx.fillText(label, mx, my);
     }
@@ -1624,7 +1633,7 @@ function renderMapLegend() {
   if (state.mapColorBy === "family") {
     const sw = MAP_CAT_PALETTE.slice(0, 8).map((c) => `<span style="background:${c}"></span>`).join("");
     $("maplegend").innerHTML = `<div class="lt">${lbl}</div><div class="catramp">${sw}</div>`
-      + `<div class="sc"><span>ESM-C cluster</span></div>`;
+      + `<div class="lnote">ESM-C cluster</div>`;
     return;
   }
   const field = state.mapColorBy, catMap = MAP_CATEGORICAL[field];
@@ -1639,7 +1648,7 @@ function renderMapLegend() {
         + `<span class="sw" style="background:${catMap[k]}"></span>${catLabel(field, k)}</button>`;
     }).join("");
     $("maplegend").innerHTML = `<div class="lt">${lbl}</div><div class="catlist">${rows}</div>`
-      + `<div class="sc"><span>click to isolate a group</span></div>`;
+      + `<div class="lnote">click to isolate a group</div>`;
     $("maplegend").querySelectorAll("button[data-cat]").forEach((b) => {
       b.onclick = () => {
         if (!state.filters.cats[field]) state.filters.cats[field] = new Set();
@@ -1712,7 +1721,7 @@ function initMap() {
     const rect = wrap.getBoundingClientRect();
     if (_mapDrag) {
       _mapDrag.x1 = e.clientX - rect.left; _mapDrag.y1 = e.clientY - rect.top;
-      if (Math.hypot(_mapDrag.x1 - _mapDrag.x0, _mapDrag.y1 - _mapDrag.y0) > 4) _mapDragged = true;
+      if (Math.hypot(_mapDrag.x1 - _mapDrag.x0, _mapDrag.y1 - _mapDrag.y0) > 4) { _mapDragged = true; _hoverAcc = null; }   // the point under the drag's start is not "hovered"
       $("maptip").hidden = true; wrap.style.cursor = "crosshair"; drawMapOverlay(); return;
     }
     const p = nearestPt(e.clientX - rect.left, e.clientY - rect.top);

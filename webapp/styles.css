@@ -24,6 +24,7 @@ b{font-weight:600}
 /* header */
 .top{position:relative;flex:none;height:var(--headh);display:flex;align-items:center;gap:20px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
 .top h1{margin:0;font-size:15px;font-weight:600;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.top .seg,.top .toplinks{flex-shrink:0}   /* the title truncates; the species toggle never clips */
 .toplinks{margin-left:auto;display:flex;align-items:center;gap:18px;font-size:13px}
 .toplinks a,.linkbtn{color:var(--muted);background:none;border:0;padding:0;cursor:pointer}
 .toplinks a:hover,.linkbtn:hover{color:var(--brand);text-decoration:none}
@@ -244,8 +245,7 @@ td.emptyrow{height:auto;white-space:normal}
 .maplegend{position:absolute;right:12px;bottom:12px;z-index:7;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;font-size:11.5px;color:var(--muted)}
 .maplegend .lt{font-weight:600;color:var(--ink);margin-bottom:5px}
 .maplegend .ramp{width:130px;height:8px;border-radius:2px}
-.maplegend .sc{display:flex;justify-content:space-between;font-size:10.5px;margin-top:3px;padding:0}
-.maplegend .sc::after{display:none}
+.maplegend .lnote{font-size:10.5px;margin-top:4px;color:var(--faint)}
 .maplegend .catlist{display:flex;flex-direction:column;max-height:220px;overflow-y:auto}
 .maplegend .catrow{display:flex;align-items:center;gap:7px;width:100%;text-align:left;font-size:12px;background:none;border:0;padding:2px 4px;cursor:pointer}
 .maplegend .catrow:hover{background:var(--bg)}
