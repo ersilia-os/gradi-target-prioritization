@@ -1,14 +1,14 @@
-// config.js — single source of truth for the browser's weight sliders, table columns, views,
+// config.js — single source of truth for the browser's weighted-score radar, table columns, views,
 // gene-card panels, filters and Methods text. It describes the v2 tables exported by
 // scripts/webapp/export.py (one row per protein; every axis keeps its own consensus + evidence).
 // A column referencing a key absent from the loaded data is skipped automatically.
 //
 // RULES THIS FILE ENCODES (see DESIGN.md and CLAUDE.md):
-//  * Each axis is shown as the axis ships it: `<axis>_consensus` (within-species percentile rank,
+//  * Each axis is shown as the axis ships it: `<axis>_consensus` (within-species 0-1 score,
 //    never comparable across species) beside `<axis>_evidence` (1-3, provenance not outcome).
-//  * The weight sliders are the owner's exception to the project's "no composite" rule: they combine
-//    the consensus columns IN THE BROWSER ONLY, are OFF by default, and are never exported or stored
-//    in the data files. The result is labelled "weighted (yours)", not a project score.
+//  * The weighted-score radar is the owner's exception to the project's "no composite" rule: it combines
+//    the consensus columns IN THE BROWSER ONLY (on by default, four axes equally, Novelty off) and is
+//    never exported or stored in the data files. The result is labelled "weighted (yours)", not a project score.
 //  * A missing value is "not annotated / could not look", never 0.
 
 // ---- axis colours -----------------------------------------------------------
@@ -124,7 +124,7 @@ const COMPONENTS = [
 // type: score (0-1 heat) | pct (0-1 as %) | plddt | num | int | binary01 | bool | tier | text | class
 const TABLE_COLUMNS = [
   { key: "length", label: "Length (aa)", type: "int", fixed: true, w: 116,
-    desc: "Protein length in amino acids (UniProt reference proteome sequence). Degradability probabilities fall steeply with length (rho about -0.6 to -0.7), so read the degradability and pocket ranks against it; the length bands in the filters keep proteins of similar size together." },
+    desc: "Protein length in amino acids (UniProt reference proteome sequence). Degradability probabilities fall steeply with length (rho about -0.6 to -0.7), so read the degradability and pocket scores against it; the length bands in the filters keep proteins of similar size together." },
   // Degradability
   { key: "degradability_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Degradability",
     desc: "Degradability consensus (0-1): mean within-species percentile of the ADEP4 and ONC212 probabilities. Never compare across species. Tracks either probability at rho 0.97, so it adds little over them. Rows for E. coli and K. pneumoniae are predictions extrapolated from S. aureus screens." },
@@ -240,7 +240,7 @@ const LEADING_COL_DESC = {
 // ---- methods / provenance panel ------------------------------------------------
 const METHODS = [
   { title: "Reading the table", color: "var(--brand)", body:
-    "Each axis gives a <b>rank</b> (0-1, a percentile within that species) and an <b>evidence</b> level (1-3: how well the call is backed; provenance, not outcome). Ranks cannot be compared between species. A dash means not annotated or not measured, never zero. The optional weighted score is yours: it mixes ranks in your browser only.",
+    "Each axis gives a <b>score</b> (0-1, within that species: a percentile for most axes, the inputs' own scales for Pockets) and an <b>evidence</b> level, shown as dots (1-3: how well the call is backed; provenance, not outcome). Scores cannot be compared between species. A dash means not annotated or not measured, never zero; a faded column has no data for this species. The <b>weighted score</b> is yours: drag the radar's spokes to set how much each axis counts (Novelty is 1 minus studiedness, off by default). It is computed in your browser only and never exported.",
     refs: [] },
   { title: "Degradability", color: "var(--amber)", body:
     "TabPFN-3.5 models on ESM-C and ProtT5 embeddings, trained on two <i>S. aureus</i> ClpP-activator screens (ADEP4, ONC212) and applied to every protein here. <b>These are predictions, not measurements</b>: no Gram-negative labels exist. Scores fall with protein length, and membrane proteins are protected from cytoplasmic ClpP. TabPFN is used under its non-commercial licence; this browser is a free, non-profit research resource.",
@@ -346,7 +346,7 @@ function catLabel(field, v) {
 const VIEW_FILTERS = {};
 
 // ---- range filters (both ends) -------------------------------------------------
-// Ranks are within-species percentile-like values (0-1, not comparable between species). Length is log-scaled.
+// Scores are within-species 0-1 values (not comparable between species). Length is log-scaled.
 const RANGE_FILTERS = [
   { key: "degradability_consensus", label: "Degradability", min: 0, max: 1, step: 0.01, color: "var(--amber)" },
   { key: "essentiality_consensus",  label: "Essentiality",  min: 0, max: 1, step: 0.01, color: "var(--crimson)" },
@@ -363,7 +363,7 @@ const ORGANISM_META = {
 };
 
 // ---- one single table; each group of columns expands and collapses ------------------
-// Collapsed, a group shows its `summary` columns (its rank and evidence, or its headline flag);
+// Collapsed, a group shows its `summary` columns (its score and evidence, or its headline flag);
 // expanded, it shows every column. Click a group's header band to toggle it.
 const GROUP_ORDER = ["Degradability", "Essentiality", "Ligand precedence", "Pockets", "Localization", "Function", "Orthology", "Studiedness"];
 // caveat shown above the table for every expanded group
