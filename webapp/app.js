@@ -420,7 +420,9 @@ function renderThead() {
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("gene", "Protein", { tip: LEADING_COL_DESC.name, cls: "colgene" })
     + (showWeighted() ? th("__c", "Weighted", { tip: LEADING_COL_DESC.__c, cls: "ar" }) : "");
-  for (const c of cols) h += th(c.key, c.label, { tip: c.desc, cls: alignOf(c) });
+  // a group's headline score needs no label while the group is collapsed: the band above already names it
+  const headLabel = (c) => !c.key.endsWith("_consensus") ? c.label : state.expanded.includes(c.group) ? "Score" : "";
+  for (const c of cols) h += th(c.key, headLabel(c), { tip: c.desc, cls: alignOf(c) });
 
   // group band: merge consecutive columns of one group; the untitled run (length, weighted) stays blank
   const runs = [];
