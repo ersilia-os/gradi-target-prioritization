@@ -120,7 +120,7 @@ const COMPONENTS = [
 ];
 
 // ---- table columns -----------------------------------------------------------
-// `fixed` columns belong to no group and are always shown, next to Target.
+// `fixed` columns belong to no group and are always shown, after all the groups (last column).
 // type: score (0-1 heat) | pct (0-1 as %) | plddt | num | int | binary01 | bool | tier | text | class
 const TABLE_COLUMNS = [
   { key: "length", label: "Length (aa)", type: "int", fixed: true, w: 116,

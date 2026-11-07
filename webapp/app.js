@@ -382,7 +382,7 @@ function colHasData(k) {
   return m[k];
 }
 function visibleColumns() {
-  const out = TABLE_COLUMNS.filter((c) => c.fixed && DATA.columns.includes(c.key));
+  const out = [];
   for (const g of GROUP_ORDER) {
     const open = state.expanded.includes(g);
     for (const c of TABLE_COLUMNS) {
@@ -390,7 +390,7 @@ function visibleColumns() {
       if (open || c.summary) out.push(c);
     }
   }
-  return out;
+  return out.concat(TABLE_COLUMNS.filter((c) => c.fixed && DATA.columns.includes(c.key)));   // Length last
 }
 function tipAttr(text) {
   return text ? ` data-tip="${String(text).replace(/"/g, "&quot;")}"` : "";
