@@ -92,11 +92,13 @@ const COG_SHORT = { J: "Translation", A: "RNA processing", K: "Transcription", L
   D: "Cell division", V: "Defense", T: "Signaling", M: "Cell envelope", N: "Motility", U: "Secretion", O: "Chaperones", X: "Mobilome",
   C: "Energy", G: "Carbohydrates", E: "Amino acids", F: "Nucleotides", H: "Coenzymes", I: "Lipids", P: "Ion transport", Q: "Secondary",
   R: "General", S: "Unknown", none: "No COG hit" };
+// one sidebar chip can stand for several codes: "Unknown" covers COG S (function unknown) and no COG hit at all
+const COG_CHIP_CODES = { S: ["S", "none"] };
 const COG_GROUPS = [
   ["Information storage", ["J", "A", "K", "L", "B"]],
   ["Cellular processes", ["D", "V", "T", "M", "N", "U", "O", "X"]],
   ["Metabolism", ["C", "G", "E", "F", "H", "I", "P", "Q"]],
-  ["Poorly characterized", ["R", "S", "none"]],
+  ["Poorly characterized", ["R", "S"]],
 ];
 const FC_BY_ID = Object.fromEntries(FUNCTIONAL_CLASSES.map((c) => [c.id, c]));
 

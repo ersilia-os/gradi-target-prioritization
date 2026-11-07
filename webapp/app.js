@@ -1009,12 +1009,17 @@ function paintLoc() {
 // Function as compact chips, grouped as COG groups them. All ON by default (nothing filtered). The stored filter
 // is still the set of INCLUDED categories, empty = all, so saved views keep working.
 //   click a chip: turn it off / on      double-click: only this one      click a group name: toggle the group
-function cogPresent() { return COG_GROUPS.flatMap(([, ks]) => ks).filter((k) => new Set(distinct("cog")).has(k)); }
-function setCog(next) {   // next: Set of categories to show; all (or none) of them collapses to "no filter"
+const chipCodes = (k) => COG_CHIP_CODES[k] || [k];
+function cogChips() {   // chips with at least one of their codes in this proteome
+  const present = new Set(distinct("cog"));
+  return COG_GROUPS.flatMap(([, ks]) => ks).filter((k) => chipCodes(k).some((c) => present.has(c)));
+}
+function cogPresent() { const present = new Set(distinct("cog")); return cogChips().flatMap(chipCodes).filter((c) => present.has(c)); }
+function setCog(next) {   // next: Set of codes to show; all (or none) of them collapses to "no filter"
   const all = cogPresent();
   const sel = state.filters.cats.cog;
   sel.clear();
-  if (next.size && next.size < all.length) next.forEach((k) => sel.add(k));
+  if (next.size && all.some((c) => !next.has(c))) next.forEach((c) => sel.add(c));
   paintCog(); updateAccCounts(); save(); recompute();
 }
 function buildCogGrid() {
@@ -1022,25 +1027,29 @@ function buildCogGrid() {
   host.innerHTML = "";
   if (!has_("cog")) return;
   if (!state.filters.cats.cog) state.filters.cats.cog = new Set();
-  const present = new Set(cogPresent());
+  const chipSet = new Set(cogChips()), codes = cogPresent();
+  const tip = (k) => chipCodes(k).map((c) => c === "none" ? "no COG hit" : c + ": " + ((FC_BY_ID[c] || {}).label || "")).join(" + ");
   host.innerHTML = `<div class="coggrid">` + COG_GROUPS.map(([g, ks]) => {
-    const chips = ks.filter((k) => present.has(k)).map((k) => `<button class="cogt" data-k="${k}" aria-pressed="true" title="${k === "none" ? "No COG category could be assigned" : k + ": " + ((FC_BY_ID[k] || {}).label || "")} (double-click: only this)">${COG_SHORT[k] || k}</button>`).join("");
+    const chips = ks.filter((k) => chipSet.has(k)).map((k) => `<button class="cogt" data-k="${k}" aria-pressed="true" title="${tip(k)} (double-click: only this)">${COG_SHORT[k] || k}</button>`).join("");
     return chips ? `<div class="cogg"><button class="cog-h" data-g="${g}" title="Turn the whole group on or off">${g}</button><div class="cogchips">${chips}</div></div>` : "";
   }).join("") + `</div>`;
-  const shown = () => { const sel = state.filters.cats.cog; return new Set(sel.size ? sel : present); };
+  const shown = () => { const sel = state.filters.cats.cog; return new Set(sel.size ? sel : codes); };
+  const isOn = (on, k) => chipCodes(k).some((c) => on.has(c));
   host.querySelectorAll(".cogt").forEach((b) => {
+    const k = b.dataset.k;
     b.addEventListener("click", () => {
-      const on = shown(), k = b.dataset.k;
-      if (on.has(k)) { if (on.size > 1) on.delete(k); } else on.add(k);   // the last one on stays on
+      const on = shown();
+      if (isOn(on, k)) { const rest = [...on].filter((c) => !chipCodes(k).includes(c)); if (rest.length) chipCodes(k).forEach((c) => on.delete(c)); }
+      else chipCodes(k).forEach((c) => on.add(c));   // the last chip on stays on
       setCog(on);
     });
-    b.addEventListener("dblclick", () => setCog(new Set([b.dataset.k])));
+    b.addEventListener("dblclick", () => setCog(new Set(chipCodes(k))));
   });
   host.querySelectorAll(".cog-h").forEach((h) => h.addEventListener("click", () => {
-    const ks = (COG_GROUPS.find(([g]) => g === h.dataset.g) || [, []])[1].filter((k) => present.has(k));
-    const on = shown(), allOn = ks.every((k) => on.has(k));
-    ks.forEach((k) => (allOn ? on.delete(k) : on.add(k)));
-    setCog(on.size ? on : new Set(ks));
+    const ks = (COG_GROUPS.find(([g]) => g === h.dataset.g) || [, []])[1].filter((k) => chipSet.has(k));
+    const on = shown(), allOn = ks.every((k) => isOn(on, k));
+    ks.forEach((k) => chipCodes(k).forEach((c) => (allOn ? on.delete(c) : on.add(c))));
+    setCog(on.size ? on : new Set(ks.flatMap(chipCodes)));
   }));
   paintCog();
 }
@@ -1050,9 +1059,9 @@ function paintCog() {
   const counts = {};
   for (const r of DATA.rows) if (passFilters(r, "cog")) counts[r.cog] = (counts[r.cog] || 0) + 1;
   host.querySelectorAll(".cogt").forEach((b) => {
-    const k = b.dataset.k, on = !sel.size || sel.has(k);
+    const ks = chipCodes(b.dataset.k), on = !sel.size || ks.some((c) => sel.has(c));
     b.setAttribute("aria-pressed", String(on));
-    b.classList.toggle("empty", (counts[k] || 0) === 0);
+    b.classList.toggle("empty", ks.every((c) => !counts[c]));
   });
   host.querySelectorAll(".cog-h").forEach((h) => {
     const ks = [...h.nextElementSibling.querySelectorAll(".cogt")];
@@ -1083,11 +1092,6 @@ function buildRangePanel() {
     const host = $("rangePanel"); if (!host) return;
     host.innerHTML = "";
     for (const f of RANGE_SPECS()) host.appendChild(makeRange(f, false));
-    const ev = $("bodyEvid");
-    if (ev) {
-      ev.innerHTML = "";
-      for (const [k, label] of EVID_FILTERS) if (has_(k)) ev.appendChild(makeRange({ key: k, label, min: 1, max: 3, step: 1, color: colColor(k) }, true));
-    }
     updateAccCounts();
     refreshHists();
   });
@@ -1261,8 +1265,6 @@ function chipRow(host, key, { label, short, order, text, inline } = {}) {
   }
   host.appendChild(row);
 }
-const EVID_FILTERS = [["essentiality_evidence", "Essentiality"], ["ligands_evidence", "Ligands"], ["pockets_evidence", "Pockets"],
-  ["localization_evidence", "Localization"], ["orthology_evidence", "Orthology"], ["studiedness_evidence", "Studiedness"], ["function_evidence", "Function"]];
 function keepSidebarScroll(fn) {
   const sb = $("sidebar"), y = sb ? sb.scrollTop : 0;
   fn();
@@ -1281,11 +1283,11 @@ function updateAccCounts() {
   const set = (id, n) => { const e = document.querySelector(`#${id} .acount`); if (e) e.textContent = n ? String(n) : ""; };
   const size = (k) => (state.filters.cats[k] ? state.filters.cats[k].size : 0);
   set("accLoc", size("localization"));
-  const cogN = size("cog"), cogT = document.querySelector("#accCog .acount");
-  if (cogT) cogT.innerHTML = cogN ? `${cogN} of ${cogPresent().length} <button class="cogall" type="button">show all</button>` : "";
+  const cogSel = state.filters.cats.cog, cogT = document.querySelector("#accCog .acount");
+  const cogN = cogSel && cogSel.size ? cogChips().filter((k) => chipCodes(k).some((c) => cogSel.has(c))).length : 0;
+  if (cogT) cogT.innerHTML = cogN ? `${cogN} of ${cogChips().length} <button class="cogall" type="button">show all</button>` : "";
   const ca = cogT && cogT.querySelector(".cogall"); if (ca) ca.onclick = () => setCog(new Set());
   set("accOrth", (state.filters.bools.has_human_ortholog || "any") !== "any" ? 1 : 0);
-  set("accEvid", EVID_FILTERS.filter(([k]) => state.filters.ranges[k]).length);
   const b = $("sbClear"); if (b) b.hidden = !(anyFilterActive() || !!state.filters.search);
 }
 function buildFilterBar() { buildCatPanel(); }
