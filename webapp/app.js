@@ -1314,7 +1314,7 @@ function exportCSV() {
   a.href = URL.createObjectURL(blob);
   a.download = `gradi_${state.org === "kp" ? "kpneumoniae" : "ecoli"}_targets.csv`;
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);   // revoking at once can cancel the download (Safari, Firefox)
 }
 
 // ---------- organism loading ----------------------------------------------
