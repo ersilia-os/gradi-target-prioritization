@@ -525,3 +525,4 @@ th.ar .arrow,th.ac .arrow{position:absolute;left:100%;top:50%;transform:translat
 th.nodata .hl{color:var(--border)}
 tbody td.sortcol{background:color-mix(in srgb,var(--brand) 4%,var(--surface))}
 th[data-sort]:hover .arrow:empty::after{content:"\2195";color:var(--faint);font-weight:400}
+thead th[data-sort]:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}

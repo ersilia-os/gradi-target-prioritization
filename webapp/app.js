@@ -195,6 +195,11 @@ function enabledComponents() {
   return COMPONENTS.filter((c) => AVAIL[c.key] && state.weights[c.key] && state.weights[c.key].on
     && state.weights[c.key].weight > 0);
 }
+// the current mix in words, e.g. "Degradability 25% · Essentiality 25% · ..."
+function weightMix() {
+  const comps = enabledComponents(), tot = comps.reduce((s, c) => s + state.weights[c.key].weight, 0);
+  return comps.map((c) => `${c.label} ${Math.round(100 * state.weights[c.key].weight / tot)}%`).join(" · ");
+}
 function computeAll() {
   const comps = enabledComponents();
   for (const row of DATA.rows) {
@@ -412,7 +417,7 @@ function renderThead() {
   };
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("gene", "Protein", { tip: LEADING_COL_DESC.name, cls: "colgene" })
-    + (showWeighted() ? th("__c", "Weighted", { tip: LEADING_COL_DESC.__c, cls: "ar" }) : "");
+    + (showWeighted() ? th("__c", "Weighted", { tip: weightMix() + ". " + LEADING_COL_DESC.__c, cls: "ar" }) : "");
   // a group's headline score needs no label while the group is collapsed: the band above already names it
   const headLabel = (c) => !c.key.endsWith("_consensus") ? c.label : state.expanded.includes(c.group) ? "Score" : "";
   // a column with no data for this species keeps its place (same columns on both) but fades
@@ -449,12 +454,15 @@ function renderThead() {
   thead.innerHTML = `<tr class="bandrow">${band}</tr><tr>${h}</tr>`;
   thead.querySelectorAll("th.gtoggle").forEach((el) => { el.onclick = () => toggleGroup(el.dataset.group); });
   thead.querySelectorAll("th[data-sort]").forEach((el) => {
-    el.onclick = () => {
+    el.tabIndex = 0;   // sortable from the keyboard: Tab to a header, Enter or Space
+    el.onclick = (e) => {
       const k = el.dataset.sort;
       if (state.sort.key === k) state.sort.dir *= -1;
       else state.sort = { key: k, dir: (k === "gene") ? 1 : -1 };
       save(); recompute();
+      if (e && e.detail === 0) { const t = document.querySelector(`thead th[data-sort="${k}"]`); if (t) t.focus({ preventScroll: true }); }   // keyboard: keep focus
     };
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } };
   });
 }
 // numbers align right, short categorical marks centre, words left
