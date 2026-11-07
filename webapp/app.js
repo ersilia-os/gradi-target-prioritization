@@ -481,7 +481,8 @@ const LOC_LABEL = { cytoplasm: "Cytoplasm", cytoplasmic_membrane: "Inner membran
 function classBadgeHTML(v) {
   if (!v || v === "none") return '<span class="na">–</span>';
   const m = FC_BY_ID[v];
-  return `<span class="cog" title="${esc(m ? m.label : String(v))}">${esc(v)}</span>`;
+  // the plain name (letters mean nothing to most readers); the letter and full name are in the tooltip
+  return `<span class="cog" title="${esc(v + ": " + (m ? m.label : ""))}">${esc(COG_SHORT[v] || v)}</span>`;
 }
 function cellHTML(row, c) {
   const v = row[c.key];
