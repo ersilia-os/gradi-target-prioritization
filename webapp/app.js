@@ -520,6 +520,7 @@ function renderPage() {
     frag.appendChild(tr);
   }
   let html = "";
+  const sk = state.sort.key;   // the sorted column gets a faint tint, so the eye finds it
   for (let i = start; i < end; i++) {
     const row = filtered[i];
     const cc = isNum(row.__c) ? row.__c : null;
@@ -530,8 +531,8 @@ function renderPage() {
       + `<div class="genehead">${row.gene ? `<span class="gene">${esc(row.gene)}</span>` : ""}`
       + `<span class="acc${row.gene ? "" : " accsolo"}">${row.uniprot_accession}</span></div>`
       + (pdesc ? `<div class="pdesc">${esc(pdesc)}</div>` : "") + `</td>`
-      + (showWeighted() ? `<td class="rc ar">${cellHTML({ __c: cc }, { key: "__c", type: "score", heat: true })}</td>` : "");
-    for (const col of cols) html += `<td class="rc ${alignOf(col)}">${cellHTML(row, col)}</td>`;
+      + (showWeighted() ? `<td class="rc ar${sk === "__c" ? " sortcol" : ""}">${cellHTML({ __c: cc }, { key: "__c", type: "score", heat: true })}</td>` : "");
+    for (const col of cols) html += `<td class="rc ${alignOf(col)}${col.key === sk ? " sortcol" : ""}">${cellHTML(row, col)}</td>`;
     html += "</tr>";
   }
   const tb = $("tbody");
