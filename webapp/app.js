@@ -1133,8 +1133,7 @@ function buildWeights() {
     const [x, y] = at(i, R + 16), cos = Math.cos(ang(i)), sin = Math.sin(ang(i));
     const anchor = cos > 0.3 ? "start" : cos < -0.3 ? "end" : "middle";
     const dy = sin < -0.5 ? -14 : sin > 0.5 ? 6 : -4;
-    const words = c.label.length > 12 ? c.label.split(" ") : [c.label];
-    const name = words.map((wd, j) => `<tspan x="${f(x)}" dy="${j ? 12 : 0}">${wd}</tspan>`).join("");
+    const name = `<tspan x="${f(x)}">${c.radar || c.label}</tspan>`;   // one line: long names carry a short `radar` form
     return `<text class="wr-lab" data-i="${i}" x="${f(x)}" y="${f(y + dy)}" text-anchor="${anchor}"${tipAttr(c.help + " Click to switch on or off.")}>${name}`
       + `<tspan class="wr-pct" x="${f(x)}" dy="13" style="fill:${colColor(c.key)}"></tspan></text>`;
   }).join("");

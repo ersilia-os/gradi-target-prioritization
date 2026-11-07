@@ -111,7 +111,7 @@ const COMPONENTS = [
     help: "Rank of the predicted ClpP-activator susceptibility (ADEP4 and ONC212 models, trained on S. aureus screens, applied here). Within-species percentile; a ranking hypothesis for E. coli and K. pneumoniae." },
   { key: "essentiality_consensus", label: "Essentiality", short: "Ess", weight: 100, on: true,
     help: "Mean within-species percentile of three predictors. On E. coli it is partly circular (built from the same screens as the measured calls)." },
-  { key: "ligands_consensus", label: "Ligand precedence", short: "Lig", weight: 100, on: true,
+  { key: "ligands_consensus", label: "Ligand precedence", short: "Lig", radar: "Ligand prec.", weight: 100, on: true,
     help: "Potent ChEMBL ligands for this protein or a bacterial homolog. Zero for the ~97% nobody has screened; that is 'not looked', not 'undruggable'." },
   { key: "pockets_consensus", label: "Pockets", short: "Pkt", weight: 100, on: true,
     help: "Predicted and observed pockets on their own 0-1 scales; a ligand seen in the protein's own PDB structure counts at least 0.8. Tracks protein length (rho about 0.65): use with care." },
