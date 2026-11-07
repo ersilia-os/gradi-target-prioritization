@@ -417,7 +417,7 @@ function renderThead() {
   };
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("gene", "Protein", { tip: LEADING_COL_DESC.name, cls: "colgene" })
-    + (showWeighted() ? th("__c", "Weighted", { tip: weightMix() + ". " + LEADING_COL_DESC.__c, cls: "ar" }) : "");
+    + (showWeighted() ? th("__c", "Weighted", { tip: weightMix() + ". " + LEADING_COL_DESC.__c, cls: "ar colw" }) : "");
   // a group's headline score needs no label while the group is collapsed: the band above already names it
   const headLabel = (c) => !c.key.endsWith("_consensus") ? c.label : state.expanded.includes(c.group) ? "Score" : "";
   // a column with no data for this species keeps its place (same columns on both) but fades
@@ -433,7 +433,7 @@ function renderThead() {
   }
   let band = `<th class="gband gband-empty gband-corner" colspan="2"></th>`;
   for (const r of runs) {
-    if (!r.group) { band += `<th class="gband gband-empty" colspan="${r.span}"></th>`; continue; }
+    if (!r.group) { band += `<th class="gband gband-empty${r === runs[0] && showWeighted() ? " gband-w" : ""}" colspan="${r.span}"></th>`; continue; }
     const open = state.expanded.includes(r.group);
     // a collapsed group is one column wide: long names take their short form there
     const label = (!open && r.group.length > 14 && GROUP_DISPLAY[r.group]) || r.group;
@@ -445,6 +445,7 @@ function renderThead() {
   const W = colWidths();
   const widths = [W.rank, W.gene, ...(showWeighted() ? [W.data] : []), ...cols.map((c) => (c.key === "length" && window.innerWidth <= 700) ? W.data : colW(c, W))];
   document.documentElement.style.setProperty("--rankw", W.rank + "px");
+  document.documentElement.style.setProperty("--genew", W.gene + "px");   // the weighted column pins right after Protein
   const tbl = $("table");
   let cg = tbl.querySelector("colgroup");
   if (!cg) { cg = document.createElement("colgroup"); tbl.insertBefore(cg, tbl.firstChild); }
@@ -532,7 +533,7 @@ function renderPage() {
       + `<div class="genehead">${row.gene ? `<span class="gene">${esc(row.gene)}</span>` : ""}`
       + `<span class="acc${row.gene ? "" : " accsolo"}">${row.uniprot_accession}</span></div>`
       + (pdesc ? `<div class="pdesc">${esc(pdesc)}</div>` : "") + `</td>`
-      + (showWeighted() ? `<td class="rc ar${sk === "__c" ? " sortcol" : ""}">${cellHTML({ __c: cc }, { key: "__c", type: "score", heat: true })}</td>` : "");
+      + (showWeighted() ? `<td class="rc ar colw${sk === "__c" ? " sortcol" : ""}">${cellHTML({ __c: cc }, { key: "__c", type: "score", heat: true })}</td>` : "");
     for (const col of cols) html += `<td class="rc ${alignOf(col)}${col.key === sk ? " sortcol" : ""}">${cellHTML(row, col)}</td>`;
     html += "</tr>";
   }

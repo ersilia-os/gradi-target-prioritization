@@ -526,3 +526,9 @@ th.nodata .hl{color:var(--border)}
 tbody td.sortcol{background:color-mix(in srgb,var(--brand) 4%,var(--surface))}
 th[data-sort]:hover .arrow:empty::after{content:"\2195";color:var(--faint);font-weight:400}
 thead th[data-sort]:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+/* the weighted score stays in view while scrolling sideways (desktop; on phones the Protein column is enough) */
+@media (min-width:701px){
+  .colw{position:sticky;left:calc(var(--rankw,44px) + var(--genew,240px));z-index:3;border-right:1px solid var(--border)}
+  thead th.colw,thead .bandrow th.gband-w{position:sticky;left:calc(var(--rankw,44px) + var(--genew,240px));z-index:8;background:var(--surface)}
+  thead .bandrow th.gband-w{border-right:1px solid var(--border)}
+}
