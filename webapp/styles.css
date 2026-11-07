@@ -29,10 +29,11 @@ b{font-weight:600}
 .toplinks a:hover,.linkbtn:hover{color:var(--brand);text-decoration:none}
 .linkbtn{font-size:12.5px;color:var(--brand)}
 .iconbtn{display:none}
-.seg{position:relative;display:inline-grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+.seg{position:relative;display:inline-grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--surface)}
 .seg::before{content:"";position:absolute;top:0;bottom:0;left:0;width:calc(100% / var(--n,2));background:var(--brand);transform:translateX(calc(var(--i,0) * 100%));transition:transform .28s cubic-bezier(.3,.9,.3,1)}
 .seg button{position:relative;z-index:1;border:0;background:none;padding:6px 12px;font-size:13px;color:var(--muted);cursor:pointer;border-right:1px solid var(--border);transition:color .2s}
 .seg button:last-child{border-right:0}
+.seg button{white-space:nowrap}
 .seg button:hover{color:var(--ink)}
 .seg button[aria-selected="true"]{color:#fff;border-right-color:transparent}
 .seg button[data-org]::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;background:var(--tangerine)}
@@ -220,6 +221,12 @@ td.emptyrow{height:auto;white-space:normal}
 .cmptable thead th{position:sticky;top:0;background:var(--surface);z-index:5}
 .cmptable .cml,.cmptable .cmlh{position:sticky;left:0;background:var(--surface);text-align:left;color:var(--muted);font-size:12px;border-right:1px solid var(--border);z-index:4}
 .cmptable thead .gene{font-weight:600;font-style:italic}
+.cmpopen{border:0;background:none;padding:2px 6px;border-radius:6px;cursor:pointer;color:inherit;font:inherit}
+.cmpopen:hover{background:var(--surface-2)}
+.cmpx{position:absolute;top:3px;right:3px;width:18px;height:18px;border:0;border-radius:50%;background:none;color:var(--faint);font-size:10px;line-height:18px;padding:0;cursor:pointer;opacity:0;transition:opacity .15s}
+.cmptable thead th:hover .cmpx,.cmpx:focus-visible{opacity:1}
+.cmpx:hover{background:var(--surface-2);color:var(--ink)}
+@media (hover:none){.cmpx{opacity:1}}
 .cmptable .sc{width:70px;margin:0 auto}
 
 /* map */
@@ -281,7 +288,8 @@ td.emptyrow{height:auto;white-space:normal}
   .top .seg button{flex:1;padding:6px 4px}
   .toolbar .lbl{display:none}
   .toolbar .viewswitch{flex:1}
-  .toolbar .viewswitch button{flex:1;padding:6px 4px}
+  .toolbar .viewswitch button{flex:1;padding:6px 4px;font-size:12.5px}
+  .viewswitch .ico{display:none}
   tbody td{height:46px}
   .gband .gl{font-size:11.5px;gap:5px}
   thead .bandrow th{padding:0 6px}
@@ -438,7 +446,7 @@ tbody tr{content-visibility:auto;contain-intrinsic-size:auto 46px}
 /* ligandability: any / has / none, then a slider over those that have evidence */
 /* localization as the cell: a quiet diagram in the Localization colour (green) */
 .locwrap{display:flex;align-items:center;gap:8px}
-.loccircle{width:80px;height:80px;flex:none}
+.loccircle{width:72px;height:72px;flex:none}
 .lr{fill:none;stroke:var(--lime);cursor:pointer;transition:opacity .2s,stroke .15s,fill .15s}
 .lr.disc{fill:var(--lime);stroke:none}
 .lr:hover,.lr.hov{stroke:#52a843}
@@ -461,7 +469,7 @@ tbody tr{content-visibility:auto;contain-intrinsic-size:auto 46px}
 .fsec .reset:hover{color:var(--brand)}
 /* function: named tiles in two columns, grouped */
 .locrow.empty{opacity:.4}
-.locrow{padding:5px 8px}
+.locrow{padding:5px 6px}
 
 /* sort arrow of a right-aligned or centred header hangs outside the label, so the label lines up with its values */
 th.ar .hc,th.ac .hc{position:relative}
@@ -521,7 +529,7 @@ th.ar .arrow,th.ac .arrow{position:absolute;left:100%;top:50%;transform:translat
 .pips.p2 i:nth-child(-n+2){background:#d9a21b}
 .pips.p3 i{background:#2f7d4f}
 .zero0{color:var(--border)}
-.locdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.locdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;flex:none}
 th.nodata .hl{color:var(--border)}
 tbody td.sortcol{background:color-mix(in srgb,var(--brand) 4%,var(--surface))}
 th[data-sort]:hover .arrow:empty::after{content:"\2195";color:var(--faint);font-weight:400}

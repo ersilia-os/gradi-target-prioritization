@@ -318,6 +318,20 @@ const CMP_KEYS = ["__c", "length", "degradability_consensus", "adep4_prob", "onc
   "essentiality_consensus", "essentiality_evidence", "deg_essential_any", "ligands_consensus", "ligands_evidence", "n_drugs",
   "pockets_consensus", "localization", "cytoplasmic_fraction", "has_human_ortholog", "bacterial_panel_orthologs",
   "studiedness_consensus", "cog"];
+// UniProt names trail their alternatives: "Peptide deformylase (PDF) (EC 3.5.1.88) (Polypeptide deformylase)".
+// The table cell shows the recommended name only; the full one is on hover and in the card.
+function shortName(n) {
+  let s = String(n || "").trim();
+  for (;;) {
+    const close = s[s.length - 1], open = close === ")" ? "(" : close === "]" ? "[" : null;
+    if (!open) break;
+    let d = 0, i = s.length - 1;
+    for (; i >= 0; i--) { if (s[i] === close) d++; else if (s[i] === open && --d === 0) break; }
+    if (i <= 0 || s[i - 1] !== " ") break;   // a name that is all brackets, or a bracket inside a word: keep
+    s = s.slice(0, i).trimEnd();
+  }
+  return s || String(n || "");
+}
 function renderCompare() {
   const wrap = $("cmpwrap");
   const rows = state.shortlist.map((a) => DATA.rows.find((r) => r.uniprot_accession === a)).filter(Boolean);
@@ -336,13 +350,16 @@ function renderCompare() {
     return cellHTML(r, byKey[k]);
   };
   let h = `<table class="cmptable"><thead><tr><th class="cmlh"></th>`
-    + rows.map((r) => `<th><div class="gene">${esc(r.gene || r.uniprot_accession)}</div><div class="acc">${esc(r.uniprot_accession)}</div></th>`).join("")
+    + rows.map((r) => `<th><button class="cmpx" data-acc="${r.uniprot_accession}" title="Remove from comparison" aria-label="Remove">✕</button>`
+      + `<button class="cmpopen" data-acc="${r.uniprot_accession}" title="Open card"><div class="gene">${esc(r.gene || r.uniprot_accession)}</div><div class="acc">${esc(r.uniprot_accession)}</div></button></th>`).join("")
     + `</tr></thead><tbody>`;
   for (const k of keys) {
     h += `<tr><td class="cml" style="--ac:${colColor(k)}">${label(k)}</td>`
       + rows.map((r) => `<td class="rc">${cell(r, k)}</td>`).join("") + `</tr>`;
   }
   wrap.innerHTML = h + `</tbody></table>`;
+  wrap.querySelectorAll(".cmpx").forEach((b) => b.onclick = () => toggleStar(b.dataset.acc));
+  wrap.querySelectorAll(".cmpopen").forEach((b) => b.onclick = () => { const r = rows.find((x) => x.uniprot_accession === b.dataset.acc); if (r) openDrawer(r); });
 }
 // segmented controls slide a thumb behind the selected button
 function syncSeg(host) {
@@ -353,7 +370,7 @@ function syncSeg(host) {
 }
 function buildViewSwitch() {
   const host = $("viewSwitch");
-  const tabs = [{ view: "table", label: "Table" }, { view: "compare", label: "⇄ Compare" }, { view: "map", label: "◵ Map" }];
+  const tabs = [{ view: "table", label: "Table" }, { view: "compare", label: '<span class="ico">⇄ </span>Compare' }, { view: "map", label: '<span class="ico">◵ </span>Map' }];
   host.innerHTML = tabs.map((t) =>
     `<button role="tab" data-view="${t.view}" aria-selected="${state.view === t.view}">${t.label}</button>`).join("");
   host.querySelectorAll("button").forEach((b) => b.onclick = () => applyView(b.dataset.view));
@@ -531,13 +548,13 @@ function renderPage() {
   for (let i = start; i < end; i++) {
     const row = filtered[i];
     const cc = isNum(row.__c) ? row.__c : null;
-    const pdesc = row.name || "";
+    const pdesc = row.name || "", pshort = shortName(pdesc);
     html += `<tr data-acc="${row.uniprot_accession}"${row.uniprot_accession === state._sel ? ' class="sel"' : ""}>`
       + `<td class="colrank rank">${i + 1}</td>`
       + `<td class="colgene"${pdesc ? ` title="${pdesc.replace(/"/g, "&quot;")}"` : ""}>${starHTML(row.uniprot_accession)}`
       + `<div class="genehead">${row.gene ? `<span class="gene">${esc(row.gene)}</span>` : ""}`
       + `<span class="acc${row.gene ? "" : " accsolo"}">${row.uniprot_accession}</span></div>`
-      + (pdesc ? `<div class="pdesc">${esc(pdesc)}</div>` : "") + `</td>`
+      + (pdesc ? `<div class="pdesc">${esc(pshort)}</div>` : "") + `</td>`
       + (showWeighted() ? `<td class="rc ar colw${sk === "__c" ? " sortcol" : ""}">${cellHTML({ __c: cc }, { key: "__c", type: "score", heat: true })}</td>` : "");
     for (const col of cols) html += `<td class="rc ${alignOf(col)}${col.key === sk ? " sortcol" : ""}">${cellHTML(row, col)}</td>`;
     html += "</tr>";
@@ -999,7 +1016,7 @@ function buildLocCircle() {
   };
   host.innerHTML = `<div class="locwrap"><svg class="loccircle" viewBox="-50 -50 100 100" role="group" aria-label="Localization">${LOC_ORDER.slice().reverse().map(ring).join("")}`
     + `<g class="mem" fill="none">${[22, 29, 37, 43].map((r) => `<circle r="${r}"/>`).join("")}</g></svg>`
-    + `<div class="loclegend">${LOC_ORDER.map((k) => `<button class="locrow" data-k="${k}" aria-pressed="false"><span>${LOC_LABEL[k]}</span></button>`).join("")}</div></div>`;
+    + `<div class="loclegend">${LOC_ORDER.map((k) => `<button class="locrow" data-k="${k}" aria-pressed="false"><span><i class="locdot" style="background:${LOC_COLOR[k]}"></i>${LOC_LABEL[k]}</span><b></b></button>`).join("")}</div></div>`;
   const toggle = (k) => { if (sel.has(k)) sel.delete(k); else sel.add(k); paintLoc(); save(); recompute(); };
   host.querySelectorAll(".lr").forEach((c) => c.addEventListener("click", () => toggle(c.dataset.k)));
   host.querySelectorAll(".locrow").forEach((b) => { b.addEventListener("click", () => toggle(b.dataset.k));
@@ -1022,6 +1039,7 @@ function paintLoc() {
   });
   host.querySelectorAll(".locrow").forEach((b) => {
     const k = b.dataset.k; b.setAttribute("aria-pressed", String(sel.has(k)));
+    b.querySelector("b").textContent = (counts[k] || 0).toLocaleString();
     b.classList.toggle("empty", (counts[k] || 0) === 0 && !sel.has(k));   // nothing left in this compartment
   });
 }

@@ -25,7 +25,7 @@ bash webapp/serve.sh        # PORT=8080 by default
 
 ## What is on the page
 
-- **One table.** Each axis is a column group (degradability, essentiality, ligand precedence, pockets, localization, function, orthology, studiedness), with length as the last column. Collapsed, a group shows its score (and, for some, a headline flag); click its coloured header to expand all its columns. Both species show exactly the same columns; a column with no data for a species is faded and blank. Compare (starred proteins) and Map (t-SNE of ESM-C) are the only other modes.
+- **One table.** Each axis is a column group (degradability, essentiality, ligand precedence, pockets, localization, function, orthology, studiedness), with length as the last column. Collapsed, a group shows its score (and, for some, a headline flag); click its coloured header to expand all its columns. Both species show exactly the same columns; a column with no data for a species is faded and blank. Compare (starred proteins side by side; ✕ removes one, its name opens its card) and Map (t-SNE of ESM-C) are the only other modes. The table shows the recommended protein name; the full UniProt name is on hover and in the card.
 - **Filters**: range sliders with both ends for each score and for length (log scale, histogram behind each), localization drawn as the cell, a "No human ortholog" on/off switch, and Function (COG) as compact chips, all on by default. Search covers gene names, UniProt accessions and protein names.
 - **Weighted score (yours)**: a radar right after Localization. Drag each axis's dot along its spoke (centre = off);
   the default is Degradability, Essentiality, Ligand precedence and Pockets equally, with Novelty (1 − studiedness) off.
