@@ -150,6 +150,7 @@ td.colgene{position:sticky}
 .numcell{font-variant-numeric:tabular-nums}
 .na{color:var(--border)}
 .yes{color:var(--good);font-weight:700}
+.liab{color:color-mix(in srgb,var(--crimson) 75%,#fff);font-weight:700}
 .txt{font-size:12.5px}
 .celltext{font-size:12px;color:var(--muted)}
 .cog{display:inline-block;min-width:24px;text-align:center;font-size:12px;font-weight:600;color:var(--periwinkle);background:color-mix(in srgb,var(--periwinkle) 10%,#fff);border-radius:4px;padding:1px 5px}

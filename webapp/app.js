@@ -386,7 +386,7 @@ function visibleColumns() {
   for (const g of GROUP_ORDER) {
     const open = state.expanded.includes(g);
     for (const c of TABLE_COLUMNS) {
-      if (c.group !== g || !DATA.columns.includes(c.key) || !colHasData(c.key)) continue;
+      if (c.group !== g || !DATA.columns.includes(c.key)) continue;   // same columns on both species; empty ones show blanks
       if (open || c.summary) out.push(c);
     }
   }
@@ -481,10 +481,12 @@ function classBadgeHTML(v) {
 function cellHTML(row, c) {
   const v = row[c.key];
   const NA = '<span class="na">–</span>';
-  if (v === null || v === undefined || v === "") return NA;
+  if (v === null || v === undefined || v === "")
+    return colHasData(c.key) ? NA : `<span class="na" title="No data for ${esc((ORGANISM_META[state.org] || {}).name || "this species")}">–</span>`;
   if (c.type === "bool" || c.type === "binary01") {
     const yes = v === true || v === 1 || (typeof v === "number" && v >= 0.5);
-    if (c.key === "has_human_ortholog") return yes ? '<span class="txt">yes</span>' : '<span class="na">no</span>';
+    // a human ortholog is a selectivity liability: a muted red cross marks it, a faint dash means none
+    if (c.key === "has_human_ortholog") return yes ? '<span class="liab" title="Has a human ortholog (selectivity liability)">✕</span>' : '<span class="na" title="No human ortholog">–</span>';
     return yes ? '<span class="yes">✓</span>' : '<span class="na">–</span>';
   }
   if (c.type === "class") return classBadgeHTML(v);
