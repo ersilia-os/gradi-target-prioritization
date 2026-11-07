@@ -836,7 +836,7 @@ function openDrawer(row) {
     <div class="dhead">
       <button class="close" id="drawerClose" aria-label="Close">×</button>
       <div class="cnav"><button id="cardPrev" aria-label="Previous protein" title="Previous (↑)">↑</button><span id="cardPos"></span><button id="cardNext" aria-label="Next protein" title="Next (↓)">↓</button></div>
-      <div class="idrow">${starHTML(row.uniprot_accession)}<span class="gene">${esc(row.gene || row.uniprot_accession)}</span>${fcPill}</div>
+      <div class="idrow">${starHTML(row.uniprot_accession)}<span class="gene${row.gene ? "" : " nogene"}">${esc(row.gene || row.uniprot_accession)}</span>${fcPill}</div>
       <div class="submeta">
         <button class="accbtn" id="accCopy" title="Copy accession">${esc(row.uniprot_accession)} <span class="cpi">⧉</span></button>
         <span class="org"><span class="odot odot-${state.org}"></span>${ORGANISM_META[state.org].name} ${ORGANISM_META[state.org].strain}</span>
@@ -1655,7 +1655,7 @@ function renderMapLegend() {
   const prov = isProvisional(state.mapColorBy) ? ` <span class="provtag">provisional</span>` : "";
   $("maplegend").innerHTML = `<div class="lt">${lbl}${prov}</div>`
     + `<div class="ramp" style="background:linear-gradient(90deg,color-mix(in srgb,${col} 14%,#fff),${col})"></div>`
-    + `<div class="sc"><span>0</span><span>1</span></div>`;
+    + `<div class="rampsc"><span>0</span><span>1</span></div>`;
 }
 function nearestPt(mx, my) {
   let best = null, bd = 100;
@@ -1722,8 +1722,10 @@ function initMap() {
     if (p) {
       const r = p.row, v = r[state.mapColorBy];
       const cl = (MAP_COLORS.find((m) => m.key === state.mapColorBy) || {}).label;
-      tip.innerHTML = `<div class="g">${r.gene || r.uniprot_accession}</div>`
-        + `<div class="a">${r.uniprot_accession}</div>`
+      const nm = shortName(r.name);
+      tip.innerHTML = (r.gene ? `<div class="g">${esc(r.gene)}</div><div class="a">${r.uniprot_accession}</div>`
+                              : `<div class="a solo">${r.uniprot_accession}</div>`)
+        + (nm ? `<div class="n">${esc(nm)}</div>` : "")
         + `<div class="m">${cl}: <b>${isNum(v) ? v.toFixed(2) : (v == null ? "–" : catLabel(state.mapColorBy, v))}</b></div>`;
       tip.hidden = false;
       let lx = p.sx + 14; if (lx + tip.offsetWidth + 12 > wrap.clientWidth) lx = p.sx - tip.offsetWidth - 14;
