@@ -56,12 +56,10 @@
 
       <div class="fsec" data-sec="weights">
         <div class="fs-title">Weighted score <button class="reset" id="resetWeights">reset</button></div>
-        <p class="fs-note">Optional. Mixes the ranks in your browser only; never exported.</p>
+        <p class="fs-note">Drag a dot along its spoke; the centre is off. In your browser only; never exported.</p>
         <div class="wpresets" id="weightPresets">
+          <button data-wp="default" title="Degradability 1/3, Essentiality 1/3, Ligand precedence 1/6, Pockets 1/6">Default</button>
           <button data-wp="degradability">Degradability</button>
-          <button data-wp="deg_ess">Deg + Ess</button>
-          <button data-wp="deg_ess_lig">Deg + Ess + Lig</button>
-          <button data-wp="neglected">Neglected</button>
           <button id="weightsOff">Off</button>
         </div>
         <div id="weights"></div>

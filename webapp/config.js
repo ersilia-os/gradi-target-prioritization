@@ -102,20 +102,19 @@ const COG_GROUPS = [
 ];
 const FC_BY_ID = Object.fromEntries(FUNCTIONAL_CLASSES.map((c) => [c.id, c]));
 
-// ---- weight sliders ----------------------------------------------------------
-// Keys are the v2 consensus columns. `invert` uses 1 - value (a LOW studiedness is "neglected").
-// All OFF by default: the table opens sorted by one axis, with no combined number.
+// ---- weighted score (radar) ---------------------------------------------------
+// Keys are the v2 consensus columns; `weight` is the default spoke length (0-100). Default mix:
+// Degradability 1/3, Essentiality 1/3, Ligand precedence 1/6, Pockets 1/6. `invert` (1 - value) is supported.
+
 const COMPONENTS = [
-  { key: "degradability_consensus", label: "Degradability", short: "Deg", weight: 0, on: false,
+  { key: "degradability_consensus", label: "Degradability", short: "Deg", weight: 100, on: true,
     help: "Rank of the predicted ClpP-activator susceptibility (ADEP4 and ONC212 models, trained on S. aureus screens, applied here). Within-species percentile; a ranking hypothesis for E. coli and K. pneumoniae." },
-  { key: "essentiality_consensus", label: "Essentiality", short: "Ess", weight: 0, on: false,
+  { key: "essentiality_consensus", label: "Essentiality", short: "Ess", weight: 100, on: true,
     help: "Mean within-species percentile of three predictors. On E. coli it is partly circular (built from the same screens as the measured calls)." },
-  { key: "ligands_consensus", label: "Ligand precedence", short: "Lig", weight: 0, on: false,
+  { key: "ligands_consensus", label: "Ligand precedence", short: "Lig", weight: 50, on: true,
     help: "Potent ChEMBL ligands for this protein or a bacterial homolog. Zero for the ~97% nobody has screened; that is 'not looked', not 'undruggable'." },
-  { key: "pockets_consensus", label: "Pockets", short: "Pkt", weight: 0, on: false,
+  { key: "pockets_consensus", label: "Pockets", short: "Pkt", weight: 50, on: true,
     help: "Predicted and observed pockets on their own 0-1 scales; a ligand seen in the protein's own PDB structure counts at least 0.8. Tracks protein length (rho about 0.65): use with care." },
-  { key: "studiedness_consensus", label: "Neglectedness", short: "Neg", weight: 0, on: false, invert: true,
-    help: "1 minus the literature rank. High = fewer papers on this protein or its closest curated homolog." },
 ];
 
 // ---- table columns -----------------------------------------------------------
@@ -232,7 +231,7 @@ const TABLE_COLUMNS = [
 const LEADING_COL_DESC = {
   rank: "Row rank under the current filters and sort.",
   name: "Gene name (italic) and UniProt accession, the canonical identifier.",
-  __c: "Weighted score (yours): the mean of the enabled sliders' consensus columns, renormalised over the axes that have a value. NOT a project score and never exported. Off until you enable at least one slider; the table is sorted by a single axis meanwhile.",
+  __c: "Weighted score (yours): the weighted mean of the radar's axes (default Degradability 1/3, Essentiality 1/3, Ligand precedence 1/6, Pockets 1/6), renormalised over the axes that have a value. NOT a project score and never exported. Switch it off in the sidebar to sort by a single axis.",
   __conf: "Evidence support for essentiality and ligand precedence: dots reflect the evidence levels (3 = full, 2 = partial, 1 = none). Provenance, not outcome.",
 };
 

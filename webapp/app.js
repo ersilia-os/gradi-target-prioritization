@@ -23,7 +23,7 @@ const state = {
   shortlist: [],          // starred accessions (basket)
   shortlistOnly: false,   // filter table to the shortlist
   mapSel: null,           // Set of accessions box-selected on the map (or null)
-  sort: { key: "degradability_consensus", dir: -1 },
+  sort: { key: "__c", dir: -1 },          // the weighted score is on by default (falls back to degradability)
 };
 
 const cache = {};         // org -> parsed json
@@ -272,7 +272,8 @@ function passFilters(row, skipKey) {
 }
 let _sorted = null, _sortSig = "";
 function sortedRows() {
-  const { key, dir } = state.sort;
+  const { dir } = state.sort;
+  const key = state.sort.key === "__c" && !showWeighted() ? "degradability_consensus" : state.sort.key;
   const sig = `${state.org}|${key}|${dir}|${DATA.__ver || 0}`;
   if (_sorted && sig === _sortSig) return _sorted;
   _sorted = DATA.rows.slice().sort((a, b) => {
@@ -1098,114 +1099,93 @@ function buildRangePanel() {
 }
 
 // ---------- sidebar builders ----------------------------------------------
-// ---- weighted-scheme: the enabled axes always sum to 100 -------------------
-function enabledWeightKeys() {
-  return COMPONENTS.filter((c) => AVAIL[c.key] && state.weights[c.key] && state.weights[c.key].on)
-    .map((c) => c.key);
-}
-// integer allocation of `total` across `keys` proportional to rawMap[k] (largest-remainder;
-// equal split when the raw weights are all zero) — guarantees the parts sum to exactly `total`
-function allocInt(rawMap, keys, total) {
-  const out = {};
-  if (!keys.length) return out;
-  const sum = keys.reduce((s, k) => s + Math.max(0, rawMap[k] || 0), 0);
-  const rema = []; let floorSum = 0;
-  for (const k of keys) {
-    const share = sum > 0 ? total * Math.max(0, rawMap[k] || 0) / sum : total / keys.length;
-    const f = Math.floor(share);
-    out[k] = f; floorSum += f; rema.push([k, share - f]);
-  }
-  const left = total - floorSum;
-  rema.sort((a, b) => b[1] - a[1]);
-  for (let i = 0; i < left; i++) out[rema[i % rema.length][0]] += 1;
-  return out;
-}
-// pin `key` at its current weight; distribute the remaining budget over the other enabled axes
-// in proportion to their current weights (preserves their relative emphasis)
-function rebalanceDrag(key) {
-  const w = state.weights, keys = enabledWeightKeys();
-  if (!keys.includes(key)) return;                       // off axis: excluded from the 100
-  const others = keys.filter((k) => k !== key);
-  if (!others.length) { w[key].weight = 100; return; }   // only one enabled -> locked at 100
-  w[key].weight = Math.max(0, Math.min(100, w[key].weight));
-  const raw = {}; for (const k of others) raw[k] = w[k].weight;
-  const alloc = allocInt(raw, others, 100 - w[key].weight);
-  for (const k of others) w[k].weight = alloc[k];
-}
-// after enabling/disabling an axis, re-establish the sum-100 invariant over the enabled set
-function rebalanceToggle(key, nowOn) {
-  const w = state.weights, keys = enabledWeightKeys();
-  if (!keys.length) return;                              // all off -> weights irrelevant
-  if (nowOn) {                                           // give the new axis a fair share, then fill the rest
-    const others = keys.filter((k) => k !== key);
-    w[key].weight = others.length ? Math.round(100 / keys.length) : 100;
-    const raw = {}; for (const k of others) raw[k] = w[k].weight;
-    const alloc = allocInt(raw, others, 100 - w[key].weight);
-    for (const k of others) w[k].weight = alloc[k];
-  } else {                                               // renormalise whoever is left back up to 100
-    const raw = {}; for (const k of keys) raw[k] = w[k].weight;
-    const alloc = allocInt(raw, keys, 100);
-    for (const k of keys) w[k].weight = alloc[k];
-  }
-}
-// enforce the invariant on the current enabled set (init / reset / preset / migrating old state)
-function enforceWeightSum() {
-  const keys = enabledWeightKeys();
-  if (!keys.length) return;
-  const raw = {}; for (const k of keys) raw[k] = state.weights[k].weight;
-  const alloc = allocInt(raw, keys, 100);
-  for (const k of keys) state.weights[k].weight = alloc[k];
-}
-// push current state.weights values back onto every slider + number, and the running total
-function syncWeightSliders() {
-  document.querySelectorAll("#weights .weight").forEach((div) => {
-    const key = div.dataset.key, w = state.weights[key];
-    if (!w) return;
-    const rng = div.querySelector("input[type=range]"), wv = div.querySelector(".wv");
-    if (rng) rng.value = w.weight;
-    if (wv) wv.textContent = w.weight;
-  });
-  const keys = enabledWeightKeys();
-  const el = $("wsumval");
-  if (el) el.textContent = keys.length ? keys.reduce((s, k) => s + state.weights[k].weight, 0) : "—";
-}
-function buildWeights() {
-  const host = $("weights");
-  host.innerHTML = "";
+// ---- weighted score as a radar ---------------------------------------------------------
+// One spoke per axis. A weight is the handle's distance from the centre (0-100, steps of 5); the centre is
+// "off". Weights are independent: the score divides by their sum, and each tip shows its share in percent.
+const WSTEP = 5;
+// legacy state: `on:false` meant "ignore this weight"; now a weight of 0 says that
+function tidyWeights() {
   for (const c of COMPONENTS) {
-    const avail = AVAIL[c.key];
-    if (!state.weights[c.key]) state.weights[c.key] = { on: c.on, weight: c.weight };
-    const w = state.weights[c.key];
-    const div = document.createElement("div");
-    div.className = "weight" + (!avail ? " disabled" : (w.on ? "" : " off"));
-    div.dataset.key = c.key;
-    div.style.setProperty("--wc", colColor(c.key));
-    div.innerHTML = `
-      <div class="wtop">
-        <input type="checkbox" class="sw" ${w.on && avail ? "checked" : ""} ${avail ? "" : "disabled"} aria-label="Enable ${c.label} in composite">
-        <span class="lab">${c.label}${c.binary ? ` <span class="btag" title="Binary axis: value is 0 or 1. The weight is added only to targets scoring 1.">0/1</span>` : ""}</span>
-        ${avail ? `<span class="wv">${w.weight}</span>` : `<span class="soon">soon</span>`}
-      </div>
-      ${avail ? `<input type="range" min="0" max="100" step="1" value="${w.weight}" aria-label="${c.label} weight">` : ""}
-      <div class="help">${c.help}</div>`;
-    if (avail) {
-      const sw = div.querySelector(".sw"), rng = div.querySelector("input[type=range]");
-      // live during drag: pin this axis, rebalance the others, reflect on every slider (no recompute yet)
-      rng.oninput = () => { w.weight = +rng.value; rebalanceDrag(c.key); syncWeightSliders(); };
-      rng.onchange = () => { weightsDirty = true; save(); recompute(); };
-      sw.onchange = () => {
-        w.on = sw.checked; div.classList.toggle("off", !w.on);
-        rebalanceToggle(c.key, w.on); syncWeightSliders();
-        weightsDirty = true; save(); recompute();
-      };
-    }
-    host.appendChild(div);
+    const w = state.weights[c.key] || { on: c.on, weight: c.weight };
+    let v = w.on && isNum(w.weight) ? w.weight : 0;
+    v = Math.max(0, Math.min(100, Math.round(v / WSTEP) * WSTEP));
+    state.weights[c.key] = { on: v > 0, weight: v };
   }
-  const foot = document.createElement("div");
-  foot.className = "wsum";
-  foot.innerHTML = `Enabled weights total <b id="wsumval">100</b> / 100`;
-  host.appendChild(foot);
-  syncWeightSliders();
+}
+function setWeights(map) {   // { key: 0-100 }; missing keys -> 0
+  for (const c of COMPONENTS) { const v = map[c.key] || 0; state.weights[c.key] = { on: v > 0, weight: v }; }
+  weightsDirty = true; buildWeights(); save(); recompute();
+}
+const DEFAULT_WEIGHTS = () => Object.fromEntries(COMPONENTS.map((c) => [c.key, c.weight]));
+function buildWeights() {
+  const host = $("weights"); if (!host) return;
+  host.innerHTML = "";
+  tidyWeights();
+  const axes = COMPONENTS.filter((c) => AVAIL[c.key]);
+  if (!axes.length) return;
+  const W = 260, H = 226, cx = 130, cy = 112, R = 70, n = axes.length;
+  const ang = (i) => -Math.PI / 2 + i * 2 * Math.PI / n;
+  const at = (i, r) => [cx + r * Math.cos(ang(i)), cy + r * Math.sin(ang(i))];
+  const f = (x) => x.toFixed(1);
+  const rings = [0.25, 0.5, 0.75, 1].map((t) => `<circle class="wr-ring" cx="${cx}" cy="${cy}" r="${R * t}"/>`).join("");
+  const spokes = axes.map((c, i) => { const [x, y] = at(i, R); return `<line class="wr-spoke" x1="${cx}" y1="${cy}" x2="${f(x)}" y2="${f(y)}"/>`; }).join("");
+  const labels = axes.map((c, i) => {
+    const [x, y] = at(i, R + 16), cos = Math.cos(ang(i)), sin = Math.sin(ang(i));
+    const anchor = cos > 0.3 ? "start" : cos < -0.3 ? "end" : "middle";
+    const dy = sin < -0.5 ? -14 : sin > 0.5 ? 6 : -4;
+    const words = c.label.length > 12 ? c.label.split(" ") : [c.label];
+    const name = words.map((wd, j) => `<tspan x="${f(x)}" dy="${j ? 12 : 0}">${wd}</tspan>`).join("");
+    return `<text class="wr-lab" data-i="${i}" x="${f(x)}" y="${f(y + dy)}" text-anchor="${anchor}"${tipAttr(c.help + " Click to switch on or off.")}>${name}`
+      + `<tspan class="wr-pct" x="${f(x)}" dy="13" style="fill:${colColor(c.key)}"></tspan></text>`;
+  }).join("");
+  const handles = axes.map((c, i) => `<circle class="wr-h" data-i="${i}" r="6.5" tabindex="0" role="slider" aria-label="${c.label} weight" aria-valuemin="0" aria-valuemax="100" style="--hc:${colColor(c.key)}"/>`).join("");
+  host.innerHTML = `<svg class="wradar" viewBox="0 0 ${W} ${H}" role="group" aria-label="Weighted score: drag each dot along its spoke">`
+    + rings + spokes + `<polygon class="wr-poly"/>` + `<text class="wr-empty" x="${cx}" y="${cy + 4}" text-anchor="middle">drag a spoke</text>`
+    + handles + labels + `</svg>`;
+  const svg = host.querySelector("svg"), poly = svg.querySelector(".wr-poly"), empty = svg.querySelector(".wr-empty");
+  const hs = [...svg.querySelectorAll(".wr-h")], pcts = [...svg.querySelectorAll(".wr-pct")];
+  const wOf = (i) => state.weights[axes[i].key].weight;
+  const paint = () => {
+    const tot = axes.reduce((s, c, i) => s + wOf(i), 0);
+    poly.setAttribute("points", axes.map((c, i) => at(i, R * wOf(i) / 100).map(f).join(",")).join(" "));
+    poly.style.display = tot ? "" : "none";
+    empty.style.display = tot ? "none" : "";
+    hs.forEach((h, i) => {
+      const v = wOf(i), [x, y] = at(i, v ? R * v / 100 : 9);
+      h.setAttribute("cx", f(x)); h.setAttribute("cy", f(y));
+      h.classList.toggle("zero", !v);
+      h.setAttribute("aria-valuenow", v);
+      pcts[i].textContent = tot && v ? Math.round(100 * v / tot) + "%" : "off";
+      pcts[i].classList.toggle("off", !v);
+    });
+  };
+  const set = (i, v) => { v = Math.max(0, Math.min(100, Math.round(v / WSTEP) * WSTEP)); state.weights[axes[i].key] = { on: v > 0, weight: v }; paint(); };
+  const commit = () => { weightsDirty = true; save(); recompute(); };
+  // pointer -> (spoke, weight): the spoke is the handle grabbed, else the nearest by angle
+  const local = (e) => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse()); return [p.x - cx, p.y - cy]; };
+  const nearest = (dx, dy) => { let best = 0, bd = Infinity; axes.forEach((c, i) => { const d = Math.abs(Math.atan2(Math.sin(Math.atan2(dy, dx) - ang(i)), Math.cos(Math.atan2(dy, dx) - ang(i)))); if (d < bd) { bd = d; best = i; } }); return best; };
+  const valueOn = (i, dx, dy) => 100 * Math.max(0, dx * Math.cos(ang(i)) + dy * Math.sin(ang(i))) / R;
+  let drag = null;
+  svg.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".wr-lab")) return;
+    const [dx, dy] = local(e);
+    if (Math.hypot(dx, dy) > R + 14) return;
+    const h = e.target.closest(".wr-h");
+    drag = h ? +h.dataset.i : nearest(dx, dy);
+    svg.setPointerCapture(e.pointerId); svg.classList.add("dragging");
+    set(drag, valueOn(drag, dx, dy)); e.preventDefault();
+  });
+  svg.addEventListener("pointermove", (e) => { if (drag === null) return; const [dx, dy] = local(e); set(drag, valueOn(drag, dx, dy)); });
+  const end = () => { if (drag === null) return; drag = null; svg.classList.remove("dragging"); commit(); };
+  svg.addEventListener("pointerup", end); svg.addEventListener("pointercancel", end);
+  hs.forEach((h, i) => h.addEventListener("keydown", (e) => {
+    const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+    if (!d) return; e.preventDefault(); set(i, wOf(i) + d * WSTEP); commit();
+  }));
+  svg.querySelectorAll(".wr-lab").forEach((t) => t.addEventListener("click", () => {
+    const i = +t.dataset.i; set(i, wOf(i) ? 0 : (axes[i].weight || 50)); commit();
+  }));
+  paint();
 }
 function distinct(key) {
   const s = new Set();
@@ -1305,19 +1285,12 @@ function applyPreset() {
 }
 // weighting-scheme presets (set the composite sliders)
 const WEIGHT_PRESETS = {
+  default:       null,                                     // COMPONENTS' own weights: 1/3 · 1/3 · 1/6 · 1/6
   degradability: { degradability_consensus: 100 },
-  deg_ess:       { degradability_consensus: 60, essentiality_consensus: 40 },
-  deg_ess_lig:   { degradability_consensus: 50, essentiality_consensus: 30, ligands_consensus: 20 },
-  neglected:     { degradability_consensus: 50, studiedness_consensus: 50 },
 };
 function applyWeightPreset(name) {
-  const p = WEIGHT_PRESETS[name];
-  if (!p) return;
-  for (const c of COMPONENTS) {
-    if (p[c.key] != null) state.weights[c.key] = { on: true, weight: p[c.key] };
-    else if (state.weights[c.key]) state.weights[c.key].on = false;
-  }
-  enforceWeightSum(); weightsDirty = true; buildWeights(); save(); recompute();
+  if (!(name in WEIGHT_PRESETS)) return;
+  setWeights(WEIGHT_PRESETS[name] || DEFAULT_WEIGHTS());
 }
 // same-gene ortholog in the other organism (gene-symbol match; needs the other org cached)
 function orthologInOther(row) {
@@ -1400,7 +1373,7 @@ async function loadOrg(org) {
   // seed visible columns from the active table view (fall back to overview)
   $("genInfo").textContent = `${ORGANISM_META[org].name} ${ORGANISM_META[org].strain} · UniProt ${DATA.proteome_id} · exported ${DATA.generated_at}`;
   buildViewSwitch();
-  enforceWeightSum(); buildWeights(); buildRangePanel();
+  buildWeights(); buildRangePanel();
   buildFilterBar();
   stashEssentiality(); applyTransferMode();
   closeDrawer();
@@ -1781,17 +1754,11 @@ function init() {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => { save(); recompute(); }, 70);
   };
-  $("resetWeights").onclick = () => {
-    for (const c of COMPONENTS) state.weights[c.key] = { on: c.on, weight: c.weight };
-    enforceWeightSum(); weightsDirty = true; buildWeights(); save(); recompute();
-  };
+  $("resetWeights").onclick = () => setWeights(DEFAULT_WEIGHTS());
   $("sbClear").onclick = () => applyPreset("reset");
   $("weightPresets").querySelectorAll("button[data-wp]").forEach((b) =>
     b.onclick = () => applyWeightPreset(b.dataset.wp));
-  $("weightsOff").onclick = () => {
-    for (const c of COMPONENTS) state.weights[c.key] = { on: false, weight: 0 };
-    weightsDirty = true; buildWeights(); save(); recompute();
-  };
+  $("weightsOff").onclick = () => setWeights({});
   $("exportBtn").onclick = exportCSV;
   $("filtersBtn").onclick = () => document.body.classList.toggle("sbopen");
   $("sbScrim").onclick = () => document.body.classList.remove("sbopen");
