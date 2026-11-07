@@ -109,7 +109,7 @@ const FC_BY_ID = Object.fromEntries(FUNCTIONAL_CLASSES.map((c) => [c.id, c]));
 const COMPONENTS = [
   { key: "degradability_consensus", label: "Degradability", short: "Deg", weight: 100, on: true,
     help: "Rank of the predicted ClpP-activator susceptibility (ADEP4 and ONC212 models, trained on S. aureus screens, applied here). Within-species percentile; a ranking hypothesis for E. coli and K. pneumoniae." },
-  { key: "essentiality_consensus", label: "Essentiality", short: "Ess", weight: 100, on: true,
+  { key: "essentiality_consensus", label: "Essentiality", short: "Ess", radar: "Essent.", weight: 100, on: true,
     help: "Mean within-species percentile of three predictors. On E. coli it is partly circular (built from the same screens as the measured calls)." },
   { key: "ligands_consensus", label: "Ligand precedence", short: "Lig", radar: "Ligand prec.", weight: 100, on: true,
     help: "Potent ChEMBL ligands for this protein or a bacterial homolog. Zero for the ~97% nobody has screened; that is 'not looked', not 'undruggable'." },
