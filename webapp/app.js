@@ -446,6 +446,8 @@ function renderThead() {
   const widths = [W.rank, W.gene, ...(showWeighted() ? [W.data] : []), ...cols.map((c) => (c.key === "length" && window.innerWidth <= 700) ? W.data : colW(c, W))];
   document.documentElement.style.setProperty("--rankw", W.rank + "px");
   document.documentElement.style.setProperty("--genew", W.gene + "px");   // the weighted column pins right after Protein
+  // everything pinned at the left; a group's name sticks just right of it while its columns scroll
+  document.documentElement.style.setProperty("--pinw", (W.rank + W.gene + (showWeighted() && window.innerWidth > 700 ? W.data : 0)) + "px");
   const tbl = $("table");
   let cg = tbl.querySelector("colgroup");
   if (!cg) { cg = document.createElement("colgroup"); tbl.insertBefore(cg, tbl.firstChild); }
