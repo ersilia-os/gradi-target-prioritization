@@ -85,15 +85,6 @@ b{font-weight:600}
 .wpresets{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
 .wpresets button{border:1px solid var(--border);background:var(--surface);border-radius:var(--r);padding:3px 8px;font-size:11.5px;cursor:pointer}
 .wpresets button:hover{border-color:var(--brand);color:var(--brand)}
-.weight{margin-bottom:10px;--wc:var(--brand)}
-.weight .wtop{display:flex;align-items:center;gap:8px}
-.weight .lab{flex:1;font-size:12.5px}
-.weight .wv{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted)}
-.weight.off{opacity:.55}
-.weight input[type=range]{width:100%;accent-color:var(--brand);margin:4px 0 0}
-.weight .sw{accent-color:var(--brand)}
-.weight .help{display:none}
-.wsum{font-size:11.5px;color:var(--faint)}
 .footnote{margin:16px 0 0;font-size:11.5px;color:var(--faint)}
 .sbdone,.sbscrim{display:none}
 
@@ -470,7 +461,6 @@ tbody tr{content-visibility:auto;contain-intrinsic-size:auto 46px}
 .fs-note{margin:-2px 0 6px;font-size:11.5px;color:var(--faint)}
 .fsec .reset{margin-left:auto;font-size:11.5px;font-weight:400;color:var(--faint);background:none;border:0;cursor:pointer}
 .fsec .reset:hover{color:var(--brand)}
-[data-sec="weights"] .weight .help{display:none}
 /* function: named tiles in two columns, grouped */
 .locrow.empty{opacity:.4}
 .locrow{padding:5px 8px}
@@ -509,3 +499,19 @@ th.ar .arrow,th.ac .arrow{position:absolute;left:100%;top:50%;transform:translat
 .cogall{border:0;background:none;padding:0 0 0 4px;font-size:11.5px;color:var(--brand);cursor:pointer}
 .cogall:hover{text-decoration:underline}
 @media (max-width:900px){.cogt{padding:5px 11px;font-size:12.5px}}
+
+/* weighted score radar */
+.wradar{display:block;width:100%;max-width:300px;margin:2px auto 0;touch-action:none;user-select:none;cursor:crosshair;overflow:visible}
+.wr-ring{fill:none;stroke:var(--line)}
+.wr-spoke{stroke:var(--border);stroke-dasharray:2 3}
+.wr-poly{fill:color-mix(in srgb,var(--brand) 14%,transparent);stroke:var(--brand);stroke-width:1.6;stroke-linejoin:round;transition:all .12s ease}
+.wradar.dragging .wr-poly{transition:none}
+.wr-h{fill:var(--hc);stroke:#fff;stroke-width:2;cursor:grab;filter:drop-shadow(0 1px 1.5px rgba(29,33,39,.3));transition:r .12s ease}
+.wr-h:hover,.wr-h:focus-visible{r:8;outline:none}
+.wradar.dragging .wr-h{cursor:grabbing}
+.wr-h.zero{fill:var(--surface);stroke:var(--hc);stroke-width:1.5;filter:none}
+.wr-lab{font-size:11px;fill:var(--ink);font-weight:600;cursor:pointer}
+.wr-lab:hover{fill:var(--brand)}
+.wr-pct{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.wr-pct.off{fill:var(--faint)!important;font-weight:500}
+.wr-empty{font-size:11px;fill:var(--faint);pointer-events:none}
