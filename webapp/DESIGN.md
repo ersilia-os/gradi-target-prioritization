@@ -103,7 +103,7 @@ Inter throughout, sentence case, no letter-spaced capitals, no monospace except 
 
 ## Layout
 
-A slim header (title, species switch, Methods, Ersilia, Code) over a left filter column and one table. The filter column is built for dragging, not clicking: **range sliders with both ends** for every score and for length (log scale), each with a small histogram of the species' values behind it; localization drawn as the cell itself (a quiet diagram in the Localization green, click a ring or its row, shade follows the other filters); ligandability as any / has / none plus a slider over the proteins that have evidence; a three-way human ortholog switch; Function as a grid of named COG tiles in their four groups, and Evidence level as 1-3 range sliders; nothing in the sidebar is collapsed or hidden. Search matches gene names, UniProt accessions and protein names only. The table has a sticky header and sticky Protein column. Each axis is a group of columns: collapsed it shows one column (its rank, or its class or flag), open it shows all of them, one group at a time. Length is its own always-visible column. Below 900px the filters become a drawer; below 700px the table keeps only a thin number column and the Protein column.
+A slim header (title, species switch, Methods, Ersilia, Code) over a left filter column and one table. The filter column is built for dragging, not clicking: **range sliders with both ends** for every score and for length (log scale), each with a small histogram of the species' values behind it; localization drawn as the cell itself (a quiet diagram in the Localization green, click a ring or its row, shade follows the other filters); the weighted-score radar right after it; a "No human ortholog" on/off switch; Function as compact COG chips in their four groups, all on by default (click toggles, double-click shows only that one); nothing in the sidebar is collapsed or hidden. Search matches gene names, UniProt accessions and protein names only. The table has a sticky header and sticky Protein column. Each axis is a group of columns: collapsed it shows one column (its score, or its class or flag) with no second-row label, since the group header names it; open it shows all of them, one group at a time. Length is the last, always-visible column. Both species show the same columns. Below 900px the filters become a drawer; below 700px the table keeps only a thin number column and the Protein column.
 
 ## Elevation & Depth
 
@@ -120,17 +120,18 @@ Short, springy-eased (cubic-bezier .22,1,.36,1) and always opacity or transform,
 ## Components
 
 - **Value cell**: the number, right-aligned, over a soft bar in the axis colour that fills in proportion to the value. A missing value is a dash.
-- **Evidence**: a plain 1, 2 or 3, green when 3, amber when 2, grey when 1. Provenance, not outcome.
+- **Evidence**: three small dots filled to the level: green when 3, amber when 2, grey when 1. Provenance, not outcome.
+- **Flags**: a green check for measured essential; a muted red cross for a human ortholog (a liability). Zero counts are faint.
 - **Group header**: name with a chevron on a tint of the axis colour, underlined in it; hover shows the group's one-line caveat.
 - **Gene card**: the AlphaFold model, then the same groups as the table, with its own open section (using the card never changes the table behind it). Up/down arrows (or keys) step through the filtered list without closing it; the table does not scroll or change page.
-- **Weighted score**: optional, collapsed, in the sidebar; adds one column while on; never exported.
+- **Weighted score**: a radar in the sidebar (one spoke per axis, centre = off, shares shown at the tips); on by default with four axes equal and Novelty off; adds one column, the default sort; never exported.
 
 ## Do's and Don'ts
 
-- Do keep rank beside evidence wherever both are shown, and say "not measured" rather than showing zero.
-- Do keep ranks within one species.
+- Do keep the score beside evidence wherever both are shown, and say "not measured" rather than showing zero.
+- Do keep scores within one species.
 - Don't add banners, pills, emoji, shadows or gradients (the header strip is the one exception).
-- Don't add a combined score other than the optional, labelled, browser-only weighted one.
+- Don't add a combined score other than the labelled, browser-only weighted one.
 - Don't show measured essentiality for K. pneumoniae: there is none.
 - Don't use axis colours for decoration, or put long explanations in the interface.
 - Do keep every control reachable with a thumb: 36px minimum on touch screens.

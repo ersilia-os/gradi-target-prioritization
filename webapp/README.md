@@ -25,9 +25,11 @@ bash webapp/serve.sh        # PORT=8080 by default
 
 ## What is on the page
 
-- **One table.** Each axis is a column group (degradability, essentiality, ligandability, pockets, localization, orthology, studiedness, function). Collapsed, a group shows its rank and evidence level; click its coloured header to expand all its columns, or use **Expand all**. Compare (starred proteins) and Map (t-SNE of ESM-C) are the only other modes.
-- **Filters**: range sliders with both ends for each score and for length (log scale, histogram behind each), localization chips, a human-ortholog switch, and collapsed Function (COG) and Evidence-level sections. Search covers gene names, UniProt accessions and protein names.
-- **Weighted score (yours)**: optional, **off by default**, combines the rank columns in the browser only. It is the
+- **One table.** Each axis is a column group (degradability, essentiality, ligand precedence, pockets, localization, function, orthology, studiedness), with length as the last column. Collapsed, a group shows its score (and, for some, a headline flag); click its coloured header to expand all its columns. Both species show exactly the same columns; a column with no data for a species is faded and blank. Compare (starred proteins) and Map (t-SNE of ESM-C) are the only other modes.
+- **Filters**: range sliders with both ends for each score and for length (log scale, histogram behind each), localization drawn as the cell, a "No human ortholog" on/off switch, and Function (COG) as compact chips, all on by default. Search covers gene names, UniProt accessions and protein names.
+- **Weighted score (yours)**: a radar right after Localization. Drag each axis's dot along its spoke (centre = off);
+  the default is Degradability, Essentiality, Ligand precedence and Pockets equally, with Novelty (1 − studiedness) off.
+  The table opens sorted by it. It is computed in the browser only. It is the
   owner's single exception to the project's "no composite" rule, is labelled as the reader's own, and is never exported
   or written to the data files.
 - **Gene card**: the AlphaFold model (live from the AlphaFold DB, coloured by pLDDT) and the same column groups as the table, each section opening on its own; the table behind never moves.

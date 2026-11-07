@@ -175,14 +175,6 @@ function fmt(type, v) {
     default: return String(v);
   }
 }
-function heatStyle(v, color) {
-  if (!isNum(v)) return "";
-  const c = color || "var(--brand)";
-  const amt = Math.max(0, Math.min(100, Math.round(12 + v * 78)));
-  return `background:color-mix(in srgb,${c} ${amt}%,#fff);`
-       + (amt >= 58 ? "color:#fff;" : "color:var(--ink);")
-       + (v === 0 ? "box-shadow:inset 0 0 0 1px var(--border);color:var(--faint);" : "");  // true zero ≠ no data
-}
 function badgeHTML(type, v, key) {
   if (v === null || v === undefined || v === "") return "–";
   const pfx = type === "sel" ? "sel-" : type === "pop" ? "pop-" : type === "loc" ? "loc-" : "tier-";
@@ -202,6 +194,11 @@ function showWeighted() { return enabledComponents().length > 0; }
 function enabledComponents() {
   return COMPONENTS.filter((c) => AVAIL[c.key] && state.weights[c.key] && state.weights[c.key].on
     && state.weights[c.key].weight > 0);
+}
+// the current mix in words, e.g. "Degradability 25% · Essentiality 25% · ..."
+function weightMix() {
+  const comps = enabledComponents(), tot = comps.reduce((s, c) => s + state.weights[c.key].weight, 0);
+  return comps.map((c) => `${c.label} ${Math.round(100 * state.weights[c.key].weight / tot)}%`).join(" · ");
 }
 function computeAll() {
   const comps = enabledComponents();
@@ -330,10 +327,11 @@ function renderCompare() {
   }
   const byKey = Object.fromEntries(TABLE_COLUMNS.map((c) => [c.key, c]));
   const label = (k) => k === "__c" ? "Weighted (yours)" : !byKey[k] ? k
-    : (["Rank", "Evidence", "Class", "Measured"].includes(byKey[k].label) ? `${byKey[k].group} ${byKey[k].label.toLowerCase()}` : byKey[k].label);
+    : k.endsWith("_consensus") ? byKey[k].group                         // a group's headline score: just its name
+    : (["Evidence", "Class", "Measured"].includes(byKey[k].label) ? `${byKey[k].group} ${byKey[k].label.toLowerCase()}` : byKey[k].label);
   const keys = CMP_KEYS.filter((k) => (k === "__c" && showWeighted()) || (k !== "__c" && byKey[k] && DATA.columns.includes(k)));
   const cell = (r, k) => {
-    if (k === "__c") return `<span class="heat" style="${heatStyle(isNum(r.__c) ? r.__c : null, AXIS_COLORS.composite)}">${isNum(r.__c) ? r.__c.toFixed(2) : "–"}</span>`;
+    if (k === "__c") return cellHTML({ __c: isNum(r.__c) ? r.__c : null }, { key: "__c", type: "score", heat: true });   // same bar as the table
     return cellHTML(r, byKey[k]);
   };
   let h = `<table class="cmptable"><thead><tr><th class="cmlh"></th>`
@@ -386,7 +384,7 @@ function visibleColumns() {
   for (const g of GROUP_ORDER) {
     const open = state.expanded.includes(g);
     for (const c of TABLE_COLUMNS) {
-      if (c.group !== g || !DATA.columns.includes(c.key) || !colHasData(c.key)) continue;
+      if (c.group !== g || !DATA.columns.includes(c.key)) continue;   // same columns on both species; empty ones show blanks
       if (open || c.summary) out.push(c);
     }
   }
@@ -405,6 +403,7 @@ function colWidths() {
 }
 // a collapsed group is one column wide and its band carries the group name, so that column never goes below 116
 function colW(c, W) {
+  if (!colHasData(c.key)) return 72;   // kept for the same columns on both species, but narrow: it is all blanks here
   const base = c.w || (c.type === "text" ? W.wide : W.data);
   if (c.summary) return Math.max(base, 116);
   return Math.round(base * (c.w && W.k && c.key !== "length" ? W.k : 1));
@@ -419,10 +418,11 @@ function renderThead() {
   };
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("gene", "Protein", { tip: LEADING_COL_DESC.name, cls: "colgene" })
-    + (showWeighted() ? th("__c", "Weighted", { tip: LEADING_COL_DESC.__c, cls: "ar" }) : "");
+    + (showWeighted() ? th("__c", "Weighted", { tip: weightMix() + ". " + LEADING_COL_DESC.__c, cls: "ar colw" }) : "");
   // a group's headline score needs no label while the group is collapsed: the band above already names it
   const headLabel = (c) => !c.key.endsWith("_consensus") ? c.label : state.expanded.includes(c.group) ? "Score" : "";
-  for (const c of cols) h += th(c.key, headLabel(c), { tip: c.desc, cls: alignOf(c) });
+  // a column with no data for this species keeps its place (same columns on both) but fades
+  for (const c of cols) h += th(c.key, headLabel(c), { tip: c.desc, cls: alignOf(c) + (colHasData(c.key) ? "" : " nodata") });
 
   // group band: merge consecutive columns of one group; the untitled run (length, weighted) stays blank
   const runs = [];
@@ -434,7 +434,7 @@ function renderThead() {
   }
   let band = `<th class="gband gband-empty gband-corner" colspan="2"></th>`;
   for (const r of runs) {
-    if (!r.group) { band += `<th class="gband gband-empty" colspan="${r.span}"></th>`; continue; }
+    if (!r.group) { band += `<th class="gband gband-empty${r === runs[0] && showWeighted() ? " gband-w" : ""}" colspan="${r.span}"></th>`; continue; }
     const open = state.expanded.includes(r.group);
     // a collapsed group is one column wide: long names take their short form there
     const label = (!open && r.group.length > 14 && GROUP_DISPLAY[r.group]) || r.group;
@@ -446,6 +446,9 @@ function renderThead() {
   const W = colWidths();
   const widths = [W.rank, W.gene, ...(showWeighted() ? [W.data] : []), ...cols.map((c) => (c.key === "length" && window.innerWidth <= 700) ? W.data : colW(c, W))];
   document.documentElement.style.setProperty("--rankw", W.rank + "px");
+  document.documentElement.style.setProperty("--genew", W.gene + "px");   // the weighted column pins right after Protein
+  // everything pinned at the left; a group's name sticks just right of it while its columns scroll
+  document.documentElement.style.setProperty("--pinw", (W.rank + W.gene + (showWeighted() && window.innerWidth > 700 ? W.data : 0)) + "px");
   const tbl = $("table");
   let cg = tbl.querySelector("colgroup");
   if (!cg) { cg = document.createElement("colgroup"); tbl.insertBefore(cg, tbl.firstChild); }
@@ -455,12 +458,15 @@ function renderThead() {
   thead.innerHTML = `<tr class="bandrow">${band}</tr><tr>${h}</tr>`;
   thead.querySelectorAll("th.gtoggle").forEach((el) => { el.onclick = () => toggleGroup(el.dataset.group); });
   thead.querySelectorAll("th[data-sort]").forEach((el) => {
-    el.onclick = () => {
+    el.tabIndex = 0;   // sortable from the keyboard: Tab to a header, Enter or Space
+    el.onclick = (e) => {
       const k = el.dataset.sort;
       if (state.sort.key === k) state.sort.dir *= -1;
       else state.sort = { key: k, dir: (k === "gene") ? 1 : -1 };
       save(); recompute();
+      if (e && e.detail === 0) { const t = document.querySelector(`thead th[data-sort="${k}"]`); if (t) t.focus({ preventScroll: true }); }   // keyboard: keep focus
     };
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } };
   });
 }
 // numbers align right, short categorical marks centre, words left
@@ -476,26 +482,32 @@ const LOC_LABEL = { cytoplasm: "Cytoplasm", cytoplasmic_membrane: "Inner membran
 function classBadgeHTML(v) {
   if (!v || v === "none") return '<span class="na">–</span>';
   const m = FC_BY_ID[v];
-  return `<span class="cog" title="${esc(m ? m.label : String(v))}">${esc(v)}</span>`;
+  // the plain name (letters mean nothing to most readers); the letter and full name are in the tooltip
+  return `<span class="cog" title="${esc(v + ": " + (m ? m.label : ""))}">${esc(COG_SHORT[v] || v)}</span>`;
 }
 function cellHTML(row, c) {
   const v = row[c.key];
   const NA = '<span class="na">–</span>';
-  if (v === null || v === undefined || v === "") return NA;
+  if (v === null || v === undefined || v === "")
+    return colHasData(c.key) ? NA : `<span class="na" title="No data for ${esc((ORGANISM_META[state.org] || {}).name || "this species")}">–</span>`;
   if (c.type === "bool" || c.type === "binary01") {
     const yes = v === true || v === 1 || (typeof v === "number" && v >= 0.5);
-    if (c.key === "has_human_ortholog") return yes ? '<span class="txt">yes</span>' : '<span class="na">no</span>';
+    // a human ortholog is a selectivity liability: a muted red cross marks it, a faint dash means none
+    if (c.key === "has_human_ortholog") return yes ? '<span class="liab" title="Has a human ortholog (selectivity liability)">✕</span>' : '<span class="na" title="No human ortholog">–</span>';
     return yes ? '<span class="yes">✓</span>' : '<span class="na">–</span>';
   }
   if (c.type === "class") return classBadgeHTML(v);
-  if (c.type === "loc") return `<span class="txt" title="${esc(LOC_LABEL[v] || v)}">${esc(LOC_LABEL[v] || String(v).replace(/_/g, " "))}</span>`;
-  if (c.type === "tier") return `<span class="ev e${v}" title="Evidence level ${v} of 3">${v}</span>`;
+  // localization: a dot in the sidebar ring's colour, then the name
+  if (c.type === "loc") return `<span class="txt" title="${esc(LOC_LABEL[v] || v)}"><i class="locdot" style="background:${LOC_COLOR[v] || "var(--border)"}"></i>${esc(LOC_LABEL[v] || String(v).replace(/_/g, " "))}</span>`;
+  // evidence 1-3 as three pips, filled up to the level (3 green, 2 amber, 1 faint)
+  if (c.type === "tier") return `<span class="pips p${v}" title="Evidence level ${v} of 3" aria-label="Evidence level ${v} of 3"><i></i><i></i><i></i></span>`;
   if (c.type === "score" && c.heat && isNum(v))
     return `<span class="sc${v === 0 ? " zero" : ""}" style="--c:${colColor(c.key)};--v:${Math.round(Math.max(0, Math.min(1, v)) * 100)}%"><b>${v.toFixed(2)}</b></span>`;
   if (c.type === "text") {
     const full = String(v).replace(/;/g, "; ");
     return `<span class="celltext" title="${full.replace(/"/g, "&quot;")}">${esc(full)}</span>`;
   }
+  if (c.type === "int" && v === 0 && c.key !== "length") return '<span class="numcell zero0">0</span>';   // counts are mostly 0: keep them quiet
   return `<span class="numcell">${fmt(c.type === "int" && c.key === "length" ? "int" : c.type, v)}</span>`;
 }
 function pageCount() { return Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)); }
@@ -514,6 +526,7 @@ function renderPage() {
     frag.appendChild(tr);
   }
   let html = "";
+  const sk = state.sort.key;   // the sorted column gets a faint tint, so the eye finds it
   for (let i = start; i < end; i++) {
     const row = filtered[i];
     const cc = isNum(row.__c) ? row.__c : null;
@@ -524,8 +537,8 @@ function renderPage() {
       + `<div class="genehead">${row.gene ? `<span class="gene">${esc(row.gene)}</span>` : ""}`
       + `<span class="acc${row.gene ? "" : " accsolo"}">${row.uniprot_accession}</span></div>`
       + (pdesc ? `<div class="pdesc">${esc(pdesc)}</div>` : "") + `</td>`
-      + (showWeighted() ? `<td class="rc ar">${cellHTML({ __c: cc }, { key: "__c", type: "score", heat: true })}</td>` : "");
-    for (const col of cols) html += `<td class="rc ${alignOf(col)}">${cellHTML(row, col)}</td>`;
+      + (showWeighted() ? `<td class="rc ar colw${sk === "__c" ? " sortcol" : ""}">${cellHTML({ __c: cc }, { key: "__c", type: "score", heat: true })}</td>` : "");
+    for (const col of cols) html += `<td class="rc ${alignOf(col)}${col.key === sk ? " sortcol" : ""}">${cellHTML(row, col)}</td>`;
     html += "</tr>";
   }
   const tb = $("tbody");
@@ -663,6 +676,8 @@ function groupPanelsHTML(row) {
     let mv = "", mp = "", me = "";
     if (head && row[head.key] !== null && row[head.key] !== undefined) {
       mv = cellHTML(row, { ...head, heat: false });
+      if (head.key === "has_human_ortholog")   // a bare cross is cryptic in a card header: say it
+        mv = row[head.key] >= 0.5 ? `${mv}<span class="txt" style="margin-left:6px">human ortholog</span>` : '<span class="txt" style="color:var(--muted)">no human ortholog</span>';
       if (head.type === "score" && isNum(row[head.key])) {
         let pc = percentileOf(head.key, row[head.key]);
         if (pc !== null && tieShare(head.key, row[head.key]) > 0.25) pc = null;
@@ -1312,7 +1327,7 @@ function exportCSV() {
   a.href = URL.createObjectURL(blob);
   a.download = `gradi_${state.org === "kp" ? "kpneumoniae" : "ecoli"}_targets.csv`;
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);   // revoking at once can cancel the download (Safari, Firefox)
 }
 
 // ---------- organism loading ----------------------------------------------
@@ -1655,6 +1670,9 @@ function initMap() {
   const wrap = $("mapwrap");
   wrap.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
+    // the colour/threshold controls and the legend sit inside the map: a drag there is not a box-select
+    // (it used to select a box AND redraw, which snapped the threshold slider back to its old value)
+    if (e.target.closest(".mapctrl, .maplegend, input, select, button, label")) return;
     const rect = wrap.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
     _mapDrag = { x0: x, y0: y, x1: x, y1: y }; _mapDragged = false;
