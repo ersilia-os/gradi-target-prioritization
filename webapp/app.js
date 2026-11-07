@@ -326,9 +326,10 @@ function renderCompare() {
     return;
   }
   const byKey = Object.fromEntries(TABLE_COLUMNS.map((c) => [c.key, c]));
+  const gname = (g) => g === "Ligand precedence" ? "Ligand prec." : g;   // as in the table header and the radar
   const label = (k) => k === "__c" ? "Weighted (yours)" : !byKey[k] ? k
-    : k.endsWith("_consensus") ? byKey[k].group                         // a group's headline score: just its name
-    : (["Evidence", "Class", "Measured"].includes(byKey[k].label) ? `${byKey[k].group} ${byKey[k].label.toLowerCase()}` : byKey[k].label);
+    : k.endsWith("_consensus") ? gname(byKey[k].group)                  // a group's headline score: just its name
+    : (["Evidence", "Class", "Measured"].includes(byKey[k].label) ? `${gname(byKey[k].group)} ${byKey[k].label.toLowerCase()}` : byKey[k].label);
   const keys = CMP_KEYS.filter((k) => (k === "__c" && showWeighted()) || (k !== "__c" && byKey[k] && DATA.columns.includes(k)));
   const cell = (r, k) => {
     if (k === "__c") return cellHTML({ __c: isNum(r.__c) ? r.__c : null }, { key: "__c", type: "score", heat: true });   // same bar as the table
