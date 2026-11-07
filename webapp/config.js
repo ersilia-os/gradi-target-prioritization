@@ -371,9 +371,9 @@ const GROUP_NOTES = {
   Degradability: "Predicted from S. aureus ClpP-activator screens; a ranking hypothesis. Falls with length; membrane proteins are protected.",
   Essentiality: "Measured calls for E. coli K-12 only; the consensus is partly circular with them. None for K. pneumoniae.",
   "Ligand precedence": "Potent ChEMBL ligands. A zero means nobody looked, not undruggable.",
-  Pockets: "Largely a ranking by protein length.",
+  Pockets: "Predicted and observed pockets on their own scales; a PDB ligand counts at least 0.8. Tracks protein length.",
   Localization: "Sequence-based predictions, not experiments.",
-  Function: "First COG letter; none = no COG hit.",
+  Function: "First COG letter; a dash means no COG hit.",
   Orthology: "A human ortholog is a selectivity liability; conservation is a breadth benefit.",
   Studiedness: "Papers on the best curated donor; few papers can mean neglected or no donor.",
 };
