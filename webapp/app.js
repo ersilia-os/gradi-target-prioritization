@@ -422,7 +422,8 @@ function renderThead() {
     + (showWeighted() ? th("__c", "Weighted", { tip: LEADING_COL_DESC.__c, cls: "ar" }) : "");
   // a group's headline score needs no label while the group is collapsed: the band above already names it
   const headLabel = (c) => !c.key.endsWith("_consensus") ? c.label : state.expanded.includes(c.group) ? "Score" : "";
-  for (const c of cols) h += th(c.key, headLabel(c), { tip: c.desc, cls: alignOf(c) });
+  // a column with no data for this species keeps its place (same columns on both) but fades
+  for (const c of cols) h += th(c.key, headLabel(c), { tip: c.desc, cls: alignOf(c) + (colHasData(c.key) ? "" : " nodata") });
 
   // group band: merge consecutive columns of one group; the untitled run (length, weighted) stays blank
   const runs = [];
@@ -490,14 +491,17 @@ function cellHTML(row, c) {
     return yes ? '<span class="yes">✓</span>' : '<span class="na">–</span>';
   }
   if (c.type === "class") return classBadgeHTML(v);
-  if (c.type === "loc") return `<span class="txt" title="${esc(LOC_LABEL[v] || v)}">${esc(LOC_LABEL[v] || String(v).replace(/_/g, " "))}</span>`;
-  if (c.type === "tier") return `<span class="ev e${v}" title="Evidence level ${v} of 3">${v}</span>`;
+  // localization: a dot in the sidebar ring's colour, then the name
+  if (c.type === "loc") return `<span class="txt" title="${esc(LOC_LABEL[v] || v)}"><i class="locdot" style="background:${LOC_COLOR[v] || "var(--border)"}"></i>${esc(LOC_LABEL[v] || String(v).replace(/_/g, " "))}</span>`;
+  // evidence 1-3 as three pips, filled up to the level (3 green, 2 amber, 1 faint)
+  if (c.type === "tier") return `<span class="pips p${v}" title="Evidence level ${v} of 3" aria-label="Evidence level ${v} of 3"><i></i><i></i><i></i></span>`;
   if (c.type === "score" && c.heat && isNum(v))
     return `<span class="sc${v === 0 ? " zero" : ""}" style="--c:${colColor(c.key)};--v:${Math.round(Math.max(0, Math.min(1, v)) * 100)}%"><b>${v.toFixed(2)}</b></span>`;
   if (c.type === "text") {
     const full = String(v).replace(/;/g, "; ");
     return `<span class="celltext" title="${full.replace(/"/g, "&quot;")}">${esc(full)}</span>`;
   }
+  if (c.type === "int" && v === 0 && c.key !== "length") return '<span class="numcell zero0">0</span>';   // counts are mostly 0: keep them quiet
   return `<span class="numcell">${fmt(c.type === "int" && c.key === "length" ? "int" : c.type, v)}</span>`;
 }
 function pageCount() { return Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)); }
