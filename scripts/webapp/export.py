@@ -7,7 +7,7 @@ Reads    only the `src/` loaders -- nothing is read by path and nothing is recom
 `pages.yml` are left alone; the new site lives in `webapp/` until the owner decides how to publish it.
 
 One row per protein, in the canonical proteome order, keyed on `uniprot_ac`. Every axis is exported
-as the axis ships it: its `<axis>_consensus` (within-species percentile, never comparable across
+as the axis ships it: its `<axis>_consensus` (within-species 0-1 score, never comparable across
 species) beside its `<axis>_evidence` (1-3). **No composite is written** -- the site's weight sliders
 combine the consensus columns in the browser only.
 
