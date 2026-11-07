@@ -29,13 +29,16 @@ Added **2026-10-04**; the deliverable is now **9 columns**.
 
 #### `pockets_consensus` — read the confound before using it
 
+**How it is built (since 2026-11-07).** The mean of the four inputs on their own 0–1 scales — `p2rank_score` and `fpocket_score` as they are, `n_ligands_pdb` and `n_ligands_alphafill` as n/(n+1) — with any protein carrying a drug-like ligand in its **own** PDB structures floored at 0.8 (`PDB_LIGAND_FLOOR`). It replaced the mean of percentile ranks, whose average-rank ties put the zero blocks mid-scale so the column could never go below ~0.24. The new column reaches 0, is right-skewed (median Kp 0.26 / Ec 0.28) and keeps nearly the same order (Spearman 0.99 / 0.98 against the old one). It does **not** change the length confound below: ρ with length is +0.663 Kp / +0.627 Ec.
+
 **This column is substantially a ranking by protein length.**
 
 | | Kp | Ec | Sa |
 |---|---|---|---|
 | ρ(`p2rank_score`, length) | **+0.723** | +0.693 | +0.736 |
 | ρ(`fpocket_score`, length) | +0.385 | +0.379 | +0.317 |
-| ρ(**`pockets_consensus`**, length) | **+0.663** | +0.638 | +0.654 |
+| ρ(**`pockets_consensus`**, length), percentile version | **+0.663** | +0.638 | +0.654 |
+| ρ(**`pockets_consensus`**, length), current version | **+0.663** | +0.627 | not yet re-measured |
 | AUROC vs a measured PDB ligand — `p2rank_score` | 0.615 | 0.659 | 0.702 |
 | AUROC vs a measured PDB ligand — **length alone** | **0.673** | 0.652 | 0.657 |
 | `p2rank_score` **within** length deciles | **0.494** | 0.561 | 0.619 |

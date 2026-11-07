@@ -88,6 +88,10 @@ CONSENSUS_COLUMNS = ("p2rank_score", "fpocket_score", "n_ligands_pdb", "n_ligand
 # endorsement -- see `consensus()`.
 MAX_LENGTH_RHO = 0.75
 
+# `pockets_consensus` floor for a protein with a drug-like ligand in its OWN PDB structures: a
+# measurement outranks the predicted pocket scores it is averaged with. See `consensus()`.
+PDB_LIGAND_FLOOR = 0.8
+
 
 def _check(species: str) -> None:
     if species not in SPECIES:
@@ -126,18 +130,41 @@ def load(species: str) -> pd.DataFrame:
     return d[COLUMNS]
 
 
+def _saturate(n: pd.Series) -> pd.Series:
+    """A ligand count on a 0-1 scale: n / (n + 1). 0 -> 0, 1 -> 0.5, 3 -> 0.75, saturating."""
+    return n / (n + 1)
+
+
 def consensus(df: pd.DataFrame) -> pd.Series:
     """`pockets_consensus`: structural ligandability, 0-1, within-species.
 
-    Mean percentile rank over `CONSENSUS_COLUMNS`; see that constant for what is left out and why.
-    Plain `consensus.percentile_consensus` -- no zero-floor, unlike ligands: P2Rank reads exactly 0
-    on 22.2% (Kp) / 19.4% (Ec) / 26.1% (Sa) of a proteome, large but nothing like the 97% that
-    forced that deviation.
+    **Mean of the four `CONSENSUS_COLUMNS` on their own 0-1 scales** (see that constant for what is
+    left out and why), not percentile ranks -- changed on the owner's instruction, 2026-11-07:
 
-    **THIS COLUMN IS SUBSTANTIALLY A RANKING BY PROTEIN LENGTH. READ THIS BEFORE USING IT.**
+        p2rank_score, fpocket_score         as is (already 0-1: a calibrated probability and a
+                                            druggability score)
+        n_ligands_pdb, n_ligands_alphafill  saturated, n / (n + 1)
+        then: any protein with a drug-like ligand in its OWN PDB structures is floored at
+        `PDB_LIGAND_FLOOR` (0.8) -- a measurement outranks the predictions.
+
+    **Why not percentiles any more.** Average-rank ties put the zero blocks mid-scale
+    (`n_ligands_pdb` is 0 on ~95% of a proteome, so its zero block ranked ~0.49), and the old
+    column could never go below ~0.24: its histogram started a quarter of the way in, and in the
+    browser's weighted ranking the axis was silently down-weighted against the full-range ones.
+    The native-scale mean reaches 0, keeps the expected shape -- most proteins low, a thin tail of
+    strong pockets (median Kp 0.26 / Ec 0.28) -- and its order is close to the old one (Spearman
+    0.99 Kp / 0.98 Ec against the percentile column).
+
+    NA pocket scores (no model: Kp `irp1`, Sa `ebh`) are skipped row-wise, so those two rest on the
+    count columns alone. **Never `fillna(0)` the pocket scores** -- see the module docstring.
+
+    **THIS COLUMN IS SUBSTANTIALLY A RANKING BY PROTEIN LENGTH. READ THIS BEFORE USING IT.** The
+    combination rule does not change that: the confound lives in the inputs, not in how they are
+    averaged (rho with length was +0.663 / +0.638 under percentiles, +0.663 / +0.627 under this rule
+    on Kp / Ec, measured 2026-11-07 on the shipped browser payload; Sa not yet re-measured).
 
         rho(p2rank_score, length)        Kp +0.723  Ec +0.693  Sa +0.736
-        rho(THIS COLUMN, length)         Kp +0.663  Ec +0.638  Sa +0.654
+        rho(old percentile column, len)  Kp +0.663  Ec +0.638  Sa +0.654
         AUROC vs a measured PDB ligand -- p2rank_score   0.615 / 0.659 / 0.702
         AUROC vs a measured PDB ligand -- LENGTH ALONE   0.673 / 0.652 / 0.657
         p2rank_score WITHIN length deciles               0.494 / 0.561 / 0.619
@@ -162,11 +189,22 @@ def consensus(df: pd.DataFrame) -> pd.Series:
     does not make the confound go away, which is why the confound is quoted here.
 
     **NEVER VALIDATE THIS AGAINST `n_ligands_pdb`**: that column is one of its inputs, so the 0.958
-    AUROC such a check returns is circular and means nothing. The honest external comparison is the
-    length row above.
+    AUROC such a check returns is circular and means nothing -- doubly so now that a PDB ligand
+    sets a floor. The honest external comparison is the length row above.
     """
-    from src import consensus as consensus_mod
-    return consensus_mod.percentile_consensus(df, list(CONSENSUS_COLUMNS))
+    missing = [c for c in CONSENSUS_COLUMNS if c not in df.columns]
+    if missing:
+        raise KeyError(f"pockets_consensus needs {missing}; present: {list(df.columns)}")
+    num = lambda c: pd.to_numeric(df[c], errors="coerce")
+    parts = pd.DataFrame({
+        "p2rank_score": num("p2rank_score"),
+        "fpocket_score": num("fpocket_score"),
+        "n_ligands_pdb": _saturate(num("n_ligands_pdb")),
+        "n_ligands_alphafill": _saturate(num("n_ligands_alphafill")),
+    }, index=df.index)
+    score = parts.mean(axis=1, skipna=True)
+    has_pdb_ligand = num("n_ligands_pdb").fillna(0) > 0      # counts are never NA upstream
+    return score.where(~has_pdb_ligand, score.clip(lower=PDB_LIGAND_FLOOR)).astype(float)
 
 
 def evidence(df: pd.DataFrame) -> pd.Series:
@@ -190,7 +228,7 @@ def evidence(df: pd.DataFrame) -> pd.Series:
     caught it.
 
     Their `pockets_consensus` rests on the two COUNT columns alone, since
-    `percentile_consensus` skips NaN row-wise -- two inputs instead of four, for two proteins.
+    `consensus()` skips NaN row-wise -- two inputs instead of four, for two proteins.
 
     **It grades PROVENANCE, not outcome** -- the pattern `ligands_evidence` set, which is what keeps
     it independent of the consensus. Measured: within L2/L3 the two correlate NEGATIVELY (-0.37 Kp
