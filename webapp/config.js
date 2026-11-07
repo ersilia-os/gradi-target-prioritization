@@ -315,11 +315,11 @@ function externalLinks(row) {
 
 // ---- projection map: which fields you can colour points by -------------------------
 const MAP_COLORS = [
-  { key: "degradability_consensus", label: "Degradability rank" },
-  { key: "essentiality_consensus", label: "Essentiality rank" },
-  { key: "ligands_consensus", label: "Ligand precedence rank" },
-  { key: "pockets_consensus", label: "Pocket score" },
-  { key: "studiedness_consensus", label: "Studiedness rank" },
+  { key: "degradability_consensus", label: "Degradability" },
+  { key: "essentiality_consensus", label: "Essentiality" },
+  { key: "ligands_consensus", label: "Ligand precedence" },
+  { key: "pockets_consensus", label: "Pockets" },
+  { key: "studiedness_consensus", label: "Studiedness" },
   { key: "cytoplasmic_fraction", label: "Cytoplasmic fraction" },
   { key: "__c", label: "Weighted score (yours)" },
   { key: "cog", label: "Function (COG)" },

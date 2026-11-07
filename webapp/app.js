@@ -175,14 +175,6 @@ function fmt(type, v) {
     default: return String(v);
   }
 }
-function heatStyle(v, color) {
-  if (!isNum(v)) return "";
-  const c = color || "var(--brand)";
-  const amt = Math.max(0, Math.min(100, Math.round(12 + v * 78)));
-  return `background:color-mix(in srgb,${c} ${amt}%,#fff);`
-       + (amt >= 58 ? "color:#fff;" : "color:var(--ink);")
-       + (v === 0 ? "box-shadow:inset 0 0 0 1px var(--border);color:var(--faint);" : "");  // true zero ≠ no data
-}
 function badgeHTML(type, v, key) {
   if (v === null || v === undefined || v === "") return "–";
   const pfx = type === "sel" ? "sel-" : type === "pop" ? "pop-" : type === "loc" ? "loc-" : "tier-";
@@ -330,10 +322,11 @@ function renderCompare() {
   }
   const byKey = Object.fromEntries(TABLE_COLUMNS.map((c) => [c.key, c]));
   const label = (k) => k === "__c" ? "Weighted (yours)" : !byKey[k] ? k
-    : (["Rank", "Evidence", "Class", "Measured"].includes(byKey[k].label) ? `${byKey[k].group} ${byKey[k].label.toLowerCase()}` : byKey[k].label);
+    : k.endsWith("_consensus") ? byKey[k].group                         // a group's headline score: just its name
+    : (["Evidence", "Class", "Measured"].includes(byKey[k].label) ? `${byKey[k].group} ${byKey[k].label.toLowerCase()}` : byKey[k].label);
   const keys = CMP_KEYS.filter((k) => (k === "__c" && showWeighted()) || (k !== "__c" && byKey[k] && DATA.columns.includes(k)));
   const cell = (r, k) => {
-    if (k === "__c") return `<span class="heat" style="${heatStyle(isNum(r.__c) ? r.__c : null, AXIS_COLORS.composite)}">${isNum(r.__c) ? r.__c.toFixed(2) : "–"}</span>`;
+    if (k === "__c") return cellHTML({ __c: isNum(r.__c) ? r.__c : null }, { key: "__c", type: "score", heat: true });   // same bar as the table
     return cellHTML(r, byKey[k]);
   };
   let h = `<table class="cmptable"><thead><tr><th class="cmlh"></th>`
@@ -670,6 +663,8 @@ function groupPanelsHTML(row) {
     let mv = "", mp = "", me = "";
     if (head && row[head.key] !== null && row[head.key] !== undefined) {
       mv = cellHTML(row, { ...head, heat: false });
+      if (head.key === "has_human_ortholog")   // a bare cross is cryptic in a card header: say it
+        mv = row[head.key] >= 0.5 ? `${mv}<span class="txt" style="margin-left:6px">human ortholog</span>` : '<span class="txt" style="color:var(--muted)">no human ortholog</span>';
       if (head.type === "score" && isNum(row[head.key])) {
         let pc = percentileOf(head.key, row[head.key]);
         if (pc !== null && tieShare(head.key, row[head.key]) > 0.25) pc = null;
