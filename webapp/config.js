@@ -339,6 +339,7 @@ const MAP_CATEGORICAL = {
 function catLabel(field, v) {
   if (field === "cog") return (FC_BY_ID[v] && FC_BY_ID[v].label) || String(v);
   if (/_evidence$/.test(field)) return `evidence ${v}`;
+  if (field === "localization" && typeof LOC_LABEL !== "undefined" && LOC_LABEL[v]) return LOC_LABEL[v];   // as the sidebar and table say it
   return String(v).replace(/_/g, " ");
 }
 
