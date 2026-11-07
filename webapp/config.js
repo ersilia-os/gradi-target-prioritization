@@ -42,12 +42,12 @@ function isProvisional() { return false; }
 
 // ---- table sections (grouped header band) ------------------------------------
 const COLUMN_GROUPS = {
-  Weighted: "var(--brand)", Essentiality: "var(--crimson)", Ligandability: "var(--cobalt)",
+  Weighted: "var(--brand)", Essentiality: "var(--crimson)", "Ligand precedence": "var(--cobalt)",
   Degradability: "var(--amber)", Localization: "var(--lime)", Orthology: "var(--turquoise)",
   Studiedness: "var(--orchid)", Function: "var(--periwinkle)", Pockets: "var(--cobalt)",
 };
 const AXIS_GROUP_LABEL = {
-  composite: "", essentiality: "Essentiality", ligandability: "Ligandability", degradability: "Degradability",
+  composite: "", essentiality: "Essentiality", ligandability: "Ligand precedence", degradability: "Degradability",
   localization: "Localization", orthology: "Orthology", studiedness: "Studiedness", function: "Function",
 };
 function columnGroup(col) {
@@ -55,7 +55,7 @@ function columnGroup(col) {
   return AXIS_GROUP_LABEL[axisOf(col.key)] || "";
 }
 function groupColor(name) { return COLUMN_GROUPS[name] || "var(--faint)"; }
-const GROUP_DISPLAY = { Degradability: "Degrad.", Ligandability: "Ligand.", Studiedness: "Studied", Localization: "Localiz." };
+const GROUP_DISPLAY = { Degradability: "Degrad.", "Ligand precedence": "Ligand prec.", Studiedness: "Studied", Localization: "Localiz." };
 function groupDisplay(name) { return GROUP_DISPLAY[name] || name; }
 
 // ---- function classes = first COG letter (vocabulary: data/source/cdd/cog_func_category.tsv) ----
@@ -108,10 +108,10 @@ const COMPONENTS = [
     help: "Rank of the predicted ClpP-activator susceptibility (ADEP4 and ONC212 models, trained on S. aureus screens, applied here). Within-species percentile; a ranking hypothesis for E. coli and K. pneumoniae." },
   { key: "essentiality_consensus", label: "Essentiality", short: "Ess", weight: 0, on: false,
     help: "Mean within-species percentile of three predictors. On E. coli it is partly circular (built from the same screens as the measured calls)." },
-  { key: "ligands_consensus", label: "Ligandability", short: "Lig", weight: 0, on: false,
+  { key: "ligands_consensus", label: "Ligand precedence", short: "Lig", weight: 0, on: false,
     help: "Potent ChEMBL ligands for this protein or a bacterial homolog. Zero for the ~97% nobody has screened; that is 'not looked', not 'undruggable'." },
   { key: "pockets_consensus", label: "Pockets", short: "Pkt", weight: 0, on: false,
-    help: "Predicted and observed pockets. Largely a ranking by protein length (rho about 0.65): use with care." },
+    help: "Predicted and observed pockets on their own 0-1 scales; a ligand seen in the protein's own PDB structure counts at least 0.8. Tracks protein length (rho about 0.65): use with care." },
   { key: "studiedness_consensus", label: "Neglectedness", short: "Neg", weight: 0, on: false, invert: true,
     help: "1 minus the literature rank. High = fewer papers on this protein or its closest curated homolog." },
 ];
@@ -152,27 +152,27 @@ const TABLE_COLUMNS = [
   { key: "geptop_ess", label: "Geptop", type: "score", heat: false, group: "Essentiality",
     desc: "Geptop 2.0 score (orthology to known essential genes). A 0 is a confident non-essential call when orthologs exist and none is essential, otherwise 'no orthologs'." },
 
-  // Ligandability
-  { key: "ligands_consensus", label: "Rank", type: "score", summary: true, heat: true, group: "Ligandability",
-    desc: "Ligandability consensus (0-1): percentile of potent ChEMBL ligand counts (own, bacterial homologs) and best potency, pinned to 0 for the ~97% with no evidence. Human ligands are excluded (a liability, not a benefit)." },
-  { key: "ligands_evidence", label: "Evidence", type: "tier", group: "Ligandability",
+  // Ligand precedence
+  { key: "ligands_consensus", label: "Rank", type: "score", summary: true, heat: true, group: "Ligand precedence",
+    desc: "Ligand precedence consensus (0-1): percentile of potent ChEMBL ligand counts (own, bacterial homologs) and best potency, pinned to 0 for the ~97% with no evidence. Human ligands are excluded (a liability, not a benefit)." },
+  { key: "ligands_evidence", label: "Evidence", type: "tier", group: "Ligand precedence",
     desc: "3 = somebody assayed this protein, or a drug is recorded against it; 2 = only a bacterial homolog was assayed; 1 = nothing in ChEMBL (an open question, not a negative)." },
-  { key: "n_drugs", label: "# drugs", type: "int", group: "Ligandability",
+  { key: "n_drugs", label: "# drugs", type: "int", group: "Ligand precedence",
     desc: "Drugs in ChEMBL's mechanism table whose target is this protein or one at least 95% identical. Target-level: a drug on a complex is credited to every member. 0 means none recorded, not undruggable." },
-  { key: "n_ligands_own", label: "# lig. own", type: "int", group: "Ligandability",
+  { key: "n_ligands_own", label: "# lig. own", type: "int", group: "Ligand precedence",
     desc: "Distinct potent (pChEMBL >= 6) ChEMBL molecules for this protein (species-level match)." },
-  { key: "n_ligands_bacterial", label: "# lig. bact.", type: "int", group: "Ligandability",
+  { key: "n_ligands_bacterial", label: "# lig. bact.", type: "int", group: "Ligand precedence",
     desc: "Distinct potent molecules over all true-bacterial homologs at >= 40% identity (unique molecules, not a per-target sum). The identity floor controls coverage, not transfer reliability." },
-  { key: "n_ligands_human", label: "# lig. human", type: "int", group: "Ligandability",
+  { key: "n_ligands_human", label: "# lig. human", type: "int", group: "Ligand precedence",
     desc: "Potent molecules against the closest human homolog: a selectivity liability, never added to the bacterial count." },
-  { key: "best_pactivity_bacterial", label: "Best pActivity", type: "num", group: "Ligandability",
+  { key: "best_pactivity_bacterial", label: "Best pActivity", type: "num", group: "Ligand precedence",
     desc: "Best potency among bacterial ligands (pChEMBL; 6 = 1 uM). Blank for about 97% of proteins." },
-  { key: "n_assayed_own", label: "# assayed", type: "int", group: "Ligandability",
+  { key: "n_assayed_own", label: "# assayed", type: "int", group: "Ligand precedence",
     desc: "Compounds assayed against this protein, active or not. 0 against 0 assayed is an open question; 0 potent against many assayed is a measured discouragement." },
 
   // Pockets / structure
-  { key: "pockets_consensus", label: "Rank", type: "score", summary: true, heat: true, group: "Pockets",
-    desc: "Pockets consensus (0-1) of P2Rank, fpocket, PDB ligands and AlphaFill transplants. Largely a ranking by protein length (rho about 0.65); within length deciles P2Rank is near chance on E. coli." },
+  { key: "pockets_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Pockets",
+    desc: "Pockets score (0-1): mean of the P2Rank probability, the fpocket druggability and the PDB and AlphaFill ligand counts (each as n/(n+1)); any protein with a drug-like ligand in its own PDB structures is floored at 0.8. Tracks protein length (rho about 0.65); within length deciles P2Rank is near chance." },
   { key: "pockets_evidence", label: "Evidence", type: "tier", group: "Pockets",
     desc: "3 = this protein has its own PDB structure; 2 = an AlphaFill transplant and no structure; 1 = pocket scores only." },
   { key: "p2rank_score", label: "P2Rank", type: "num", group: "Pockets",
@@ -231,7 +231,7 @@ const LEADING_COL_DESC = {
   rank: "Row rank under the current filters and sort.",
   name: "Gene name (italic) and UniProt accession, the canonical identifier.",
   __c: "Weighted score (yours): the mean of the enabled sliders' consensus columns, renormalised over the axes that have a value. NOT a project score and never exported. Off until you enable at least one slider; the table is sorted by a single axis meanwhile.",
-  __conf: "Evidence support for essentiality and ligandability: dots reflect the evidence levels (3 = full, 2 = partial, 1 = none). Provenance, not outcome.",
+  __conf: "Evidence support for essentiality and ligand precedence: dots reflect the evidence levels (3 = full, 2 = partial, 1 = none). Provenance, not outcome.",
 };
 
 // ---- methods / provenance panel ------------------------------------------------
@@ -251,8 +251,8 @@ const METHODS = [
       ["DEG, Database of Essential Genes", "http://origin.tubic.org/deg/public/index.php"],
       ["ProteomeLM", "https://github.com/Bitbol-Lab/ProteomeLM"],
     ] },
-  { title: "Ligandability and pockets", color: "var(--cobalt)", body:
-    "Counts potent (pChEMBL 6 or more) ChEMBL molecules for the protein or bacterial homologs, plus recorded drugs. About 97% have none because nobody screened them. The pocket rank (P2Rank, fpocket, PDB and AlphaFill ligands) is largely a ranking by length.",
+  { title: "Ligand precedence and pockets", color: "var(--cobalt)", body:
+    "Counts potent (pChEMBL 6 or more) ChEMBL molecules for the protein or bacterial homologs, plus recorded drugs. About 97% have none because nobody screened them. The pocket score averages P2Rank, fpocket, PDB and AlphaFill ligands on their own scales, with a measured PDB ligand counting at least 0.8; it tracks protein length.",
     refs: [
       ["ChEMBL", "https://www.ebi.ac.uk/chembl/"],
       ["AlphaFold DB", "https://alphafold.ebi.ac.uk/"],
@@ -314,8 +314,8 @@ function externalLinks(row) {
 const MAP_COLORS = [
   { key: "degradability_consensus", label: "Degradability rank" },
   { key: "essentiality_consensus", label: "Essentiality rank" },
-  { key: "ligands_consensus", label: "Ligandability rank" },
-  { key: "pockets_consensus", label: "Pocket rank" },
+  { key: "ligands_consensus", label: "Ligand precedence rank" },
+  { key: "pockets_consensus", label: "Pocket score" },
   { key: "studiedness_consensus", label: "Studiedness rank" },
   { key: "cytoplasmic_fraction", label: "Cytoplasmic fraction" },
   { key: "__c", label: "Weighted score (yours)" },
@@ -347,7 +347,7 @@ const VIEW_FILTERS = {};
 const RANGE_FILTERS = [
   { key: "degradability_consensus", label: "Degradability", min: 0, max: 1, step: 0.01, color: "var(--amber)" },
   { key: "essentiality_consensus",  label: "Essentiality",  min: 0, max: 1, step: 0.01, color: "var(--crimson)" },
-  { key: "ligands_consensus",       label: "Ligandability", min: 0, max: 1, step: 0.01, color: "var(--cobalt)" },
+  { key: "ligands_consensus",       label: "Ligand precedence", min: 0, max: 1, step: 0.01, color: "var(--cobalt)" },
   { key: "pockets_consensus",       label: "Pockets",       min: 0, max: 1, step: 0.01, color: "var(--cobalt)" },
   { key: "studiedness_consensus",   label: "Studiedness",   min: 0, max: 1, step: 0.01, color: "var(--orchid)" },
   { key: "length",                  label: "Length (aa)",   step: 1, scale: "log", color: "var(--periwinkle)" },
@@ -362,12 +362,12 @@ const ORGANISM_META = {
 // ---- one single table; each group of columns expands and collapses ------------------
 // Collapsed, a group shows its `summary` columns (its rank and evidence, or its headline flag);
 // expanded, it shows every column. Click a group's header band to toggle it.
-const GROUP_ORDER = ["Degradability", "Essentiality", "Ligandability", "Pockets", "Localization", "Function", "Orthology", "Studiedness"];
+const GROUP_ORDER = ["Degradability", "Essentiality", "Ligand precedence", "Pockets", "Localization", "Function", "Orthology", "Studiedness"];
 // caveat shown above the table for every expanded group
 const GROUP_NOTES = {
   Degradability: "Predicted from S. aureus ClpP-activator screens; a ranking hypothesis. Falls with length; membrane proteins are protected.",
   Essentiality: "Measured calls for E. coli K-12 only; the consensus is partly circular with them. None for K. pneumoniae.",
-  Ligandability: "Potent ChEMBL ligands. A zero means nobody looked, not undruggable.",
+  "Ligand precedence": "Potent ChEMBL ligands. A zero means nobody looked, not undruggable.",
   Pockets: "Largely a ranking by protein length.",
   Localization: "Sequence-based predictions, not experiments.",
   Function: "First COG letter; none = no COG hit.",

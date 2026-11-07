@@ -433,8 +433,10 @@ function renderThead() {
   for (const r of runs) {
     if (!r.group) { band += `<th class="gband gband-empty" colspan="${r.span}"></th>`; continue; }
     const open = state.expanded.includes(r.group);
+    // a collapsed group is one column wide: long names take their short form there
+    const label = (!open && r.group.length > 14 && GROUP_DISPLAY[r.group]) || r.group;
     band += `<th class="gband gtoggle${open ? " open" : ""}" data-group="${r.group}" colspan="${r.span}" style="--gc:${groupColor(r.group)}"`
-      + tipAttr(GROUP_NOTES[r.group]) + ` role="button" aria-expanded="${open}"><span class="gl"><i class="chev"></i>${r.group}</span></th>`;
+      + tipAttr(GROUP_NOTES[r.group]) + ` role="button" aria-expanded="${open}"><span class="gl"><i class="chev"></i>${label}</span></th>`;
   }
 
   // explicit column widths (table-layout: fixed reads only the first row, which has a colspan)
