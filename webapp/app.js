@@ -403,6 +403,7 @@ function colWidths() {
 }
 // a collapsed group is one column wide and its band carries the group name, so that column never goes below 116
 function colW(c, W) {
+  if (!colHasData(c.key)) return 72;   // kept for the same columns on both species, but narrow: it is all blanks here
   const base = c.w || (c.type === "text" ? W.wide : W.data);
   if (c.summary) return Math.max(base, 116);
   return Math.round(base * (c.w && W.k && c.key !== "length" ? W.k : 1));
