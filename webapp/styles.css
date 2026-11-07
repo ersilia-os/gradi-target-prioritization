@@ -433,7 +433,6 @@ tbody td{transition:background-color .14s ease}
 .rs.compact .rs-label{font-weight:500;color:var(--muted);font-size:12px}
 .rs.compact .rs-val{order:3;text-align:right;font-size:11.5px}
 .rs.compact .rs-track{order:2}
-#bodyEvid{padding-top:2px}
 @media (max-width:900px){.rs-thumb{width:20px;height:20px;margin-left:-10px;top:-1px}.rs-track{height:24px}.rs-track::before,.rs-fill{top:10px}.rs-hist{height:24px}}
 
 .rs{padding:5px 0 6px}

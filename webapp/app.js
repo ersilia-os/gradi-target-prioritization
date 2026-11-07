@@ -1092,11 +1092,6 @@ function buildRangePanel() {
     const host = $("rangePanel"); if (!host) return;
     host.innerHTML = "";
     for (const f of RANGE_SPECS()) host.appendChild(makeRange(f, false));
-    const ev = $("bodyEvid");
-    if (ev) {
-      ev.innerHTML = "";
-      for (const [k, label] of EVID_FILTERS) if (has_(k)) ev.appendChild(makeRange({ key: k, label, min: 1, max: 3, step: 1, color: colColor(k) }, true));
-    }
     updateAccCounts();
     refreshHists();
   });
@@ -1270,8 +1265,6 @@ function chipRow(host, key, { label, short, order, text, inline } = {}) {
   }
   host.appendChild(row);
 }
-const EVID_FILTERS = [["essentiality_evidence", "Essentiality"], ["ligands_evidence", "Ligands"], ["pockets_evidence", "Pockets"],
-  ["localization_evidence", "Localization"], ["orthology_evidence", "Orthology"], ["studiedness_evidence", "Studiedness"], ["function_evidence", "Function"]];
 function keepSidebarScroll(fn) {
   const sb = $("sidebar"), y = sb ? sb.scrollTop : 0;
   fn();
@@ -1295,7 +1288,6 @@ function updateAccCounts() {
   if (cogT) cogT.innerHTML = cogN ? `${cogN} of ${cogChips().length} <button class="cogall" type="button">show all</button>` : "";
   const ca = cogT && cogT.querySelector(".cogall"); if (ca) ca.onclick = () => setCog(new Set());
   set("accOrth", (state.filters.bools.has_human_ortholog || "any") !== "any" ? 1 : 0);
-  set("accEvid", EVID_FILTERS.filter(([k]) => state.filters.ranges[k]).length);
   const b = $("sbClear"); if (b) b.hidden = !(anyFilterActive() || !!state.filters.search);
 }
 function buildFilterBar() { buildCatPanel(); }
