@@ -167,8 +167,7 @@ was only checked as far as the sidebar stacking.
 
 ## Gaps and not done
 
-- **Not committed, not deployed.** `webapp/`, `scripts/webapp/`, `tools/check_design_md.py`, `docs/webapp.md` and the CLAUDE.md section are
-  untracked or uncommitted. Publishing needs a decision: a new Pages path, a staging branch, or replacing `app/`.
+- **Committed and deployed** since 2026-11-06 (PRs #1 to #7); the site is at the Pages root and v1 at `/v1/`.
 - **3D viewer** fetches AlphaFold DB models live (`alphafold.ebi.ac.uk`); it was not exercised in the browser check (needs the network).
   The 32 E. coli ESMFold-modelled proteins and 1 K. pneumoniae protein have no AFDB model and show a message. v2 has pocket
   **scores** only, so the v1 pocket-residue overlay is gone.
@@ -189,3 +188,7 @@ was removed; `/v1/` is still deployed by `pages.yml`.
 ## Revision 19 (2026-11-06): social preview
 
 `index.html` now carries Open Graph and Twitter card tags (absolute URLs, `summary_large_image`) and a `description`. The card is `webapp/social-preview.png` (1200x630), rendered by `scripts/webapp/social_preview.py` (env `gradi`), which reads the protein counts from `webapp/data/*.json` so the card cannot disagree with the site. Text stays inside a 90 px safe margin and was checked at 320 px wide, the size chat apps show on a phone. Re-run the script if the payload size changes. Link scrapers cache the image, so a changed card may take time to refresh after a deploy.
+
+## Revision 20 (2026-11-07): v2.0.1
+
+Release `v2.0.1` bundles revisions 18 and 19 with PR #3 (laptop layout: sticky search block, column widths, arrow alignment, gene-card meta slots, the `.top`/`.wtop` class clash) and PR #4 (the band-row corner cell pinned over the gene column). Phone width is now checked beyond the sidebar stacking. **Pages deploy flakiness:** four runs failed with "Deployment failed, try again later" (stuck in `syncing_files` or `deployment_queued`) on a payload identical to one that had deployed; a manual `workflow_dispatch` after a pause succeeded. It is a GitHub backend issue, not size and not the workflow. Branches are deleted after merge; only `main` remains.
