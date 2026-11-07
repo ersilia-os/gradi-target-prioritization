@@ -1285,7 +1285,7 @@ function applyPreset() {
 }
 // weighting-scheme presets (set the composite sliders)
 const WEIGHT_PRESETS = {
-  default:       null,                                     // COMPONENTS' own weights: 1/3 · 1/3 · 1/6 · 1/6
+  default:       null,                                     // COMPONENTS' own weights: four axes equal, Novelty off
   degradability: { degradability_consensus: 100 },
 };
 function applyWeightPreset(name) {
