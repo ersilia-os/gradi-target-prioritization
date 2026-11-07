@@ -1184,24 +1184,26 @@ function distinct(key) {
   for (const r of DATA.rows) if (r[key] !== null && r[key] !== undefined && r[key] !== "") s.add(r[key]);
   return [...s].sort();
 }
-// One tri-state boolean as an inline filter-bar element.
-function boolFilterEl(key) {
-  const f = BOOL_FILTERS.find((x) => x.key === key) || { key, label: key };
-  if (!state.filters.bools[key]) state.filters.bools[key] = "any";
-  const mode = state.filters.bools[key];
-  const div = document.createElement("div");
-  div.className = "fgroup bool-filter";
-  div.innerHTML = `<span class="flabel">${f.label}</span><div class="tristate">`
-    + ["any", "yes", "no"].map((m) => `<button data-m="${m}" aria-pressed="${mode === m}">${m}</button>`).join("")
-    + `</div>`;
-  div.querySelectorAll("button").forEach((b) => {
-    b.onclick = () => {
-      state.filters.bools[key] = b.dataset.m;
-      div.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
-      save(); recompute();
-    };
-  });
-  return div;
+// "No human ortholog" as one switch: on keeps only proteins without one (a human ortholog is a
+// selectivity liability), off shows everything. A saved "yes" from the old any/yes/no control reads as off.
+function noHumanSwitch() {
+  const key = "has_human_ortholog";
+  if (state.filters.bools[key] !== "no") delete state.filters.bools[key];
+  const btn = document.createElement("button");
+  btn.className = "switch";
+  btn.setAttribute("role", "switch");
+  btn.setAttribute("aria-label", "Only proteins with no human ortholog");
+  btn.title = "Hide proteins with a human ortholog (OrthoFinder or reciprocal best hit)";
+  const sync = () => btn.setAttribute("aria-checked", String(state.filters.bools[key] === "no"));
+  const flip = () => {
+    if (state.filters.bools[key] === "no") delete state.filters.bools[key]; else state.filters.bools[key] = "no";
+    sync(); save(); recompute(); updateAccCounts();
+  };
+  btn.addEventListener("click", flip);
+  const title = document.querySelector("#accOrth .fs-title");
+  if (title && !title._wired) { title._wired = true; title.addEventListener("click", () => btn.click()); }
+  sync();
+  return btn;
 }
 function anyFilterActive() {
   const f = state.filters;
@@ -1246,7 +1248,7 @@ function buildCatPanel() { keepSidebarScroll(buildCatPanelNow); }
 function buildCatPanelNow() {
   const fill = (id) => { const e = $(id); if (e) e.innerHTML = ""; return e; };
   buildLocCircle();
-  const og = fill("bodyOrth"); if (og && has_("has_human_ortholog")) og.appendChild(boolFilterEl("has_human_ortholog"));
+  const og = fill("bodyOrth"); if (og && has_("has_human_ortholog")) og.appendChild(noHumanSwitch());
   buildCogGrid();
   updateAccCounts();
 }
