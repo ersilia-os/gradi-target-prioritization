@@ -1407,7 +1407,7 @@ the run log are in `docs/<task>.md`** — named at the end of each entry, and th
   at **≥95% identity / ≥50% subject coverage** to the three screened Kp strains reaches **4,725
   (82.5%), 4,390 in 2+ strains**. **It is a FLAG, NOT A LABEL TRANSFER** — the measured call never
   enters the consensus, so the rejected label-transfer stays rejected. **Kp reaches level 3 for
-  3,973 proteins and NOT ONE is measured on HS11286**; `evidence/strain_homologs_<species>.tsv`
+  3,974 proteins and NOT ONE is measured on HS11286**; `evidence/strain_homologs_<species>.tsv`
   records which strains covered each, so that stays checkable.
 
   **`essentiality`/`essentiality_source` were dropped** (owner's call, 2026-10-03), so **which
