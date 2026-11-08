@@ -652,8 +652,7 @@ function diagramHTML() {
 }
 function methodsHero(roc) {
   const a = roc && roc.adep4, o = roc && roc.onc212;
-  return `<section class="mhero"><h3>Targeted protein degradation</h3>`
-    + `<p>A degrader joins a target protein to a bacterial protease, so the cell destroys the target. This browser ranks every protein of <i>E. coli</i> and <i>K. pneumoniae</i> as a candidate target.</p>`
+  return `<section class="mhero"><h3>Prediction-first approach</h3>`
     + diagramHTML()
     + (roc ? `<figure class="mroc">${rocSVG(roc)}<figcaption><span class="rk"><i style="background:var(--amber)"></i>ADEP4 <b>AUROC ${a.auc.toFixed(2)}</b></span>`
       + `<span class="rk"><i style="background:var(--cobalt)"></i>ONC212 <b>AUROC ${o.auc.toFixed(2)}</b></span>`
@@ -668,9 +667,9 @@ function openMethods() {
       ? `<a href="${url}" target="_blank" rel="noopener">${txt} ↗</a>` : txt}</li>`).join("") + `</ul>`;
   const draw = () => {
     m.innerHTML = `<div class="modalhead"><h2>Methods</h2><button class="close" id="methodsClose" aria-label="Close">×</button></div>`
-      + `<div class="modalbody">` + methodsHero(_roc)
+      + `<div class="modalbody">`
       + METHODS.map((x) => `<section class="mrow" style="--pc:${x.color}"><h3>${x.title}</h3><p>${x.body}</p>${refsHTML(x.refs)}</section>`).join("")
-      + `</div>`;
+      + methodsHero(_roc) + `</div>`;
     $("methodsClose").onclick = closeMethods;
   };
   draw();
