@@ -123,7 +123,7 @@ Short, springy-eased (cubic-bezier .22,1,.36,1) and always opacity or transform,
 - **Evidence**: three small dots filled to the level: green when 3, amber when 2, grey when 1. Provenance, not outcome.
 - **Flags**: a green check for measured essential; a muted red cross for a human ortholog (a liability). Zero counts are faint.
 - **Group header**: name with a chevron on a tint of the axis colour, underlined in it; hover shows the group's one-line caveat.
-- **Gene card**: the AlphaFold model, then the same groups as the table, with its own open section (using the card never changes the table behind it). Up/down arrows (or keys) step through the filtered list without closing it; the table does not scroll or change page.
+- **Gene card**: key-fact chips (green strength, red liability, grey context; each is one column read aloud, never a new score), then a profile of the same groups as the table (any number of sections open; using the card never changes the table behind it), then a small AlphaFold model that can be enlarged, then the nearest proteins on the map. Up/down arrows (or keys) step through the filtered list without closing it; the table does not scroll or change page.
 - **Weighted score**: a radar in the sidebar (one spoke per axis, centre = off, shares shown at the tips); on by default with four axes equal and Novelty off; adds one column, the default sort; never exported.
 
 ## Do's and Don'ts

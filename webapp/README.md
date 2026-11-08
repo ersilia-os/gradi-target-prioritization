@@ -32,7 +32,7 @@ bash webapp/serve.sh        # PORT=8080 by default
   The table opens sorted by it. It is computed in the browser only. It is the
   owner's single exception to the project's "no composite" rule, is labelled as the reader's own, and is never exported
   or written to the data files.
-- **Gene card**: the AlphaFold model (live from the AlphaFold DB, coloured by pLDDT) and the same column groups as the table, each section opening on its own; the table behind never moves.
+- **Gene card**: key facts as plain statements (each read straight off one column; green helps a degrader target, red is a liability, grey is context), a profile of every axis (score bar, place in the proteome, evidence dots; click a row for its details, with plain labels, COG and GO-slim names; any number open), the AlphaFold model (live from the AlphaFold DB, coloured by pLDDT; can be enlarged) and the six nearest proteins on the map. No new score is computed; the table behind never moves.
 
 ## Caveats the site states
 

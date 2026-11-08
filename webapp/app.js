@@ -681,44 +681,169 @@ function compRank(row) {
   for (const x of DATA.rows) if (isNum(x.__c) && x.__c > c) r++;
   return r;
 }
-// ---- gene card: the same column groups as the table, same open/closed state --------------------
-function groupPanelsHTML(row) {
+// ---- gene card ------------------------------------------------------------------------------------
+// Four blocks, top to bottom: key facts (plain statements, each read straight off one column, coloured by
+// whether it helps or hurts a degrader target), the profile (every axis at a glance, click a row for its
+// details; any number open), the AlphaFold model (small, can be enlarged) and the protein's nearest
+// neighbours on the map. No new score is computed here: every number is a column already in the table.
+const CARD_LABELS = {
+  adep4_prob: "ADEP4 model probability", onc212_prob: "ONC212 model probability",
+  adep4_ortholog_hit: "S. aureus ortholog, ADEP4 screen", onc212_ortholog_hit: "S. aureus ortholog, ONC212 screen",
+  nn_similarity: "Nearest S. aureus protein (cosine)",
+  deg_essential_any: "Essential in a DEG screen (this strain)", deg_essential_all: "Essential in every DEG screen",
+  screens_ess_mean: "Screen-trained models (mean)", proteomelm_ess: "ProteomeLM-Ess", geptop_ess: "Geptop 2.0",
+  n_drugs: "Drugs recorded (ChEMBL)", n_ligands_own: "Potent ligands, this protein", n_ligands_bacterial: "Potent ligands, bacterial homologs",
+  n_ligands_human: "Potent ligands, human homolog", best_pactivity_bacterial: "Best potency (pChEMBL)", n_assayed_own: "Compounds assayed, this protein",
+  p2rank_score: "P2Rank pocket score", fpocket_score: "fpocket druggability", n_ligands_pdb: "Drug-like ligands, own PDB structures",
+  n_ligands_alphafill: "Ligands transplanted by AlphaFill", n_pdb_structures: "PDB structures of this protein", af_plddt: "AlphaFold confidence (pLDDT)",
+  localization: "DeepLocPro class", cytoplasmic_fraction: "Cytoplasmic fraction (TMbed)",
+  has_human_ortholog: "Human ortholog", bacterial_panel_orthologs: "Conserved across 28 bacteria",
+  n_papers_uniprot_prokaryotic: "Papers, best-cited homolog (UniProt)", n_papers_uniprot_own: "Papers, this protein (UniProt)",
+  n_papers_pubtator_prokaryotic: "Papers, PubTator", proteomes_evidence: "Identity of the UniProt entry",
+};
+// what each evidence level means, per axis (short; the full rule is on hover in the table header)
+const EVID_MEANING = {
+  essentiality_evidence: { 3: "two or more screens agree, and the consensus agrees", 2: "one screen, or screens that conflict", 1: "no measurement" },
+  ligands_evidence: { 3: "assayed directly, or a drug is recorded", 2: "only a bacterial homolog was assayed", 1: "nothing in ChEMBL (an open question)" },
+  pockets_evidence: { 3: "its own PDB structure", 2: "an AlphaFill transplant, no structure", 1: "pocket predictions only" },
+  localization_evidence: { 3: "both predictors and a curated GO term agree", 2: "partial agreement", 1: "predictors disagree or a GO term contradicts" },
+  function_evidence: { 3: "curated GO and an informative COG", 2: "annotated, not corroborated", 1: "no annotation" },
+  orthology_evidence: { 3: "OrthoFinder and RBH agree", 2: "grouped, not corroborated", 1: "in no grouping" },
+  studiedness_evidence: { 3: "its own curated literature", 2: "literature of a homolog (>= 40%)", 1: "nothing similar in SwissProt" },
+};
+const GO_ASPECT = { P: "Process", F: "Molecular function", C: "Component" };
+const nz = (v) => isNum(v) && v > 0;
+const isYes = (v) => v === true || (isNum(v) && v >= 0.5);     // flags arrive as booleans or 0/1
+const isNo = (v) => v === false || (isNum(v) && v < 0.5);
+const fmtN = (n) => Number(n).toLocaleString();
+const plural = (n, one, many) => `${fmtN(n)} ${n === 1 ? one : (many || one + "s")}`;
+
+// key facts: [tone, text, source column]; tone good | bad | info
+function cardFacts(row) {
+  const f = [], sp = (ORGANISM_META[state.org] || {}).name || "";
+  // essentiality
+  if (isNum(row.deg_n_datasets) && row.deg_n_datasets > 0) {
+    if (nz(row.deg_n_essential)) f.push(["good", `Essential in ${row.deg_n_essential} of ${row.deg_n_datasets} DEG screens on this strain`, "deg_essential_any"]);
+    else f.push(["bad", `Not essential in ${plural(row.deg_n_datasets, "DEG screen")} on this strain`, "deg_essential_any"]);
+  } else if (isNum(row.essentiality_consensus) && row.essentiality_consensus >= 0.9) f.push(["good", "Predicted essential (top 10%; not measured on this strain)", "essentiality_consensus"]);
+  // degradability
+  const oh = [row.adep4_ortholog_hit, row.onc212_ortholog_hit];
+  if (oh.some(isYes)) f.push(["good", `S. aureus ortholog degraded in the ${["ADEP4", "ONC212"].filter((_, i) => isYes(oh[i])).join(" and ")} screen`, "adep4_ortholog_hit"]);
+  else if (oh.some(isNo)) f.push(["bad", "S. aureus ortholog measured, not degraded", "adep4_ortholog_hit"]);
+  if (isNum(row.degradability_consensus)) {
+    if (row.degradability_consensus >= 0.9) f.push(["good", "Top 10% predicted degradability", "degradability_consensus"]);
+    else if (row.degradability_consensus <= 0.1) f.push(["bad", "Bottom 10% predicted degradability", "degradability_consensus"]);
+  }
+  // ligands and structures
+  if (nz(row.n_drugs)) f.push(["good", `${plural(row.n_drugs, "drug")} recorded against it`, "n_drugs"]);
+  if (nz(row.n_ligands_own)) f.push(["good", `${plural(row.n_ligands_own, "potent ChEMBL ligand")}`, "n_ligands_own"]);
+  else if (nz(row.n_ligands_bacterial)) f.push(["good", `${plural(row.n_ligands_bacterial, "potent ligand")} on bacterial homologs`, "n_ligands_bacterial"]);
+  if (!nz(row.n_ligands_own) && isNum(row.n_assayed_own) && row.n_assayed_own >= 10) f.push(["bad", `${fmtN(row.n_assayed_own)} compounds assayed, none potent`, "n_assayed_own"]);
+  if (nz(row.n_ligands_pdb)) f.push(["good", `${plural(row.n_ligands_pdb, "drug-like ligand")} in its own PDB structures`, "n_ligands_pdb"]);
+  else if (nz(row.n_pdb_structures)) f.push(["info", `${plural(row.n_pdb_structures, "PDB structure")}`, "n_pdb_structures"]);
+  else if (isNum(row.n_pdb_structures)) f.push(["info", "No experimental structure", "n_pdb_structures"]);
+  if (isNum(row.af_plddt) && row.af_plddt < 50) f.push(["bad", `Mostly disordered model (pLDDT ${Math.round(row.af_plddt)})`, "af_plddt"]);
+  // localization: membrane proteins never present a soluble chain to ClpP
+  const loc = row.localization;
+  if (loc === "cytoplasm") f.push(["good", "Cytoplasmic", "localization"]);
+  else if (loc === "cytoplasmic_membrane" || loc === "outer_membrane") f.push(["bad", `${LOC_LABEL[loc]} protein`, "localization"]);
+  else if (loc) f.push(["info", LOC_LABEL[loc] || loc, "localization"]);
+  // selectivity
+  if (isYes(row.has_human_ortholog)) f.push(["bad", "Has a human ortholog", "has_human_ortholog"]);
+  else if (isNo(row.has_human_ortholog)) f.push(["good", "No human ortholog", "has_human_ortholog"]);
+  if (nz(row.n_ligands_human)) f.push(["bad", `${plural(row.n_ligands_human, "potent ligand")} on the human homolog`, "n_ligands_human"]);
+  if (isNum(row.bacterial_panel_orthologs) && row.bacterial_panel_orthologs >= 0.9) f.push(["info", `Conserved in ${Math.round(row.bacterial_panel_orthologs * 100)}% of 28 bacteria`, "bacterial_panel_orthologs"]);
+  // studiedness
+  if (isNum(row.n_papers_uniprot_prokaryotic) && row.n_papers_uniprot_prokaryotic >= 30) f.push(["info", `Well studied (${fmtN(row.n_papers_uniprot_prokaryotic)} papers)`, "n_papers_uniprot_prokaryotic"]);
+  else if (row.studiedness_evidence === 1) f.push(["info", "Nothing similar in SwissProt (unexplored)", "studiedness_evidence"]);
+  return f;
+}
+function factsHTML(row) {
+  const f = cardFacts(row);
+  if (!f.length) return "";
+  const byKey = Object.fromEntries(TABLE_COLUMNS.map((c) => [c.key, c]));
+  const order = { good: 0, bad: 1, info: 2 };
+  return `<div class="facts">` + f.sort((a, b) => order[a[0]] - order[b[0]]).map(([t, txt, k]) =>
+    `<span class="fact ${t}"${tipAttr(byKey[k] && byKey[k].desc)}><i></i>${esc(txt)}</span>`).join("") + `</div>`;
+}
+// one profile row per axis: name, a bar of the score in the axis colour, the value, where it sits in the proteome, evidence
+function profileRow(row, g, cols) {
+  const head = cols.find((c) => c.summary), evid = cols.find((c) => c.type === "tier" && /_evidence$/.test(c.key) && c.key !== "proteomes_evidence");
+  const v = head ? row[head.key] : null;
+  let val = "", where = "";
+  if (head && head.type === "score" && isNum(v)) {
+    val = `<span class="sc${v === 0 ? " zero" : ""}" style="--c:${groupColor(g)};--v:${Math.round(Math.max(0, Math.min(1, v)) * 100)}%"><b>${v.toFixed(2)}</b></span>`;
+    percentileOf(head.key, v);   // fills the sorted cache tieShare reads
+    const tie = tieShare(head.key, v), pc = percentileOf(head.key, v);
+    where = tie > 0.25 ? `shared by ${Math.round(tie * 100)}%` : pc !== null ? `${ordinal(pc)} pct` : "";
+  } else if (g === "Localization" && row.localization) {
+    val = cellHTML(row, head);
+    if (isNum(row.cytoplasmic_fraction)) where = `${Math.round(row.cytoplasmic_fraction * 100)}% cytopl.`;
+  } else if (g === "Function") {
+    const fc = row.cog && row.cog !== "none" ? FC_BY_ID[row.cog] : null;
+    val = fc ? `<span class="ptext" title="${esc(fc.label)}">${esc(COG_SHORT[row.cog] || fc.label)}</span>` : '<span class="ptext none">No COG hit</span>';
+  } else if (g === "Orthology") {
+    val = isYes(row.has_human_ortholog) ? '<span class="ptext bad"><span class="liab">✕</span> Human ortholog</span>'
+      : isNo(row.has_human_ortholog) ? '<span class="ptext">No human ortholog</span>' : '<span class="na">–</span>';
+    if (isNum(row.bacterial_panel_orthologs)) where = `${Math.round(row.bacterial_panel_orthologs * 28)}/28 bacteria`;
+  } else val = '<span class="na">–</span>';
+  const ev = evid && isNum(row[evid.key]) ? row[evid.key] : null;
+  const evHTML = ev ? `<span class="pips p${ev}" data-tip="Evidence ${ev} of 3: ${esc((EVID_MEANING[evid.key] || {})[ev] || "")}"><i></i><i></i><i></i></span>` : `<span class="pips none"></span>`;
+  return { val, where, evHTML };
+}
+function detailRowsHTML(row, g, cols) {
+  const head = cols.find((c) => c.summary);
   let h = "";
+  if (g === "Essentiality" && !(isNum(row.deg_n_datasets) && row.deg_n_datasets > 0))
+    h += `<p class="gcnote">Not measured on this strain; every value here is a prediction.</p>`;
+  if (g === "Degradability")
+    h += `<p class="gchint">Predicted from two S. aureus ClpP-activator screens; no Gram-negative measurement exists. Short proteins score higher.</p>`;
+  const evid = cols.find((c) => c.type === "tier" && /_evidence$/.test(c.key) && c.key !== "proteomes_evidence");
+  if (evid && isNum(row[evid.key])) h += `<p class="gchint">Evidence ${row[evid.key]} of 3: ${esc((EVID_MEANING[evid.key] || {})[row[evid.key]] || "")}.</p>`;
+  const rowsOf = cols.filter((c) => c !== evid && !(head && head.type === "score" && c === head) && c.key !== "goslim_terms" && c.key !== "cog");
+  const line = (label, valHTML, tip) => `<div class="gcrow"${tipAttr(tip)}><span class="gck">${esc(label)}</span><span class="gcv">${valHTML}</span></div>`;
+  h += `<div class="gcrows">`;
+  for (const c of rowsOf) {
+    const v = row[c.key];
+    let out;
+    if (v === null || v === undefined || v === "") out = '<span class="na">–</span>';
+    else if (/_ortholog_hit$/.test(c.key)) out = isYes(v) ? '<span class="yes">degraded</span>' : '<span class="txt">not degraded</span>';
+    else if (c.key === "deg_essential_any" || c.key === "deg_essential_all") out = isYes(v) ? '<span class="yes">yes</span>' : '<span class="txt">no</span>';
+    else if (c.key === "has_human_ortholog") out = isYes(v) ? '<span class="liab">✕</span> yes' : "no";
+    else if (c.key === "best_pactivity_bacterial" && isNum(v)) out = `${v.toFixed(1)} <span class="unit">(≈ ${fmtConc(v)})</span>`;
+    else if (c.type === "score" && isNum(v)) out = `<span class="sc" style="--c:${groupColor(g)};--v:${Math.round(Math.max(0, Math.min(1, v)) * 100)}%"><b>${v.toFixed(2)}</b></span>`;
+    else out = cellHTML(row, c);
+    h += line(CARD_LABELS[c.key] || c.label, out, c.desc);
+  }
+  if (g === "Function") {
+    const letters = String(row.cog_categories || "").split(";").filter(Boolean);
+    h += line("COG categories", letters.length ? letters.map((l) => `<span class="cogname">${esc((FC_BY_ID[l] || {}).label || l)} <span class="unit">${esc(l)}</span></span>`).join("") : '<span class="na">–</span>');
+    const terms = String(row.goslim_terms || "").split(";").filter(Boolean);
+    if (terms.length) {
+      const by = { F: [], P: [], C: [] };
+      for (const t of terms) { const m = GO_SLIM[t]; (by[m ? m[1] : "P"]).push(m ? m[0] : t); }
+      for (const a of ["F", "P", "C"]) if (by[a].length)
+        h += line(`GO slim: ${GO_ASPECT[a].toLowerCase()}`, by[a].map((n) => `<span class="goterm">${esc(n)}</span>`).join(""));
+    } else h += line("GO slim", '<span class="na">not annotated</span>');
+  }
+  return h + `</div>`;
+}
+function fmtConc(p) {   // pChEMBL -> molar concentration, readable
+  const nm = Math.pow(10, 9 - p);
+  return nm >= 1000 ? `${+(nm / 1000).toPrecision(2)} µM` : nm >= 1 ? `${+nm.toPrecision(2)} nM` : `${+(nm * 1000).toPrecision(2)} pM`;
+}
+function groupPanelsHTML(row) {
+  let h = `<div class="profile"><div class="profhead"><span>Profile</span><span class="profkey" data-tip="Evidence: how well each axis is backed for this protein (provenance, not outcome). Hover the dots for what the level means.">evidence <span class="pips p3"><i></i><i></i><i></i></span> strong <span class="pips p2"><i></i><i></i><i></i></span> partial <span class="pips p1"><i></i><i></i><i></i></span> none</span></div>`;
   for (const g of GROUP_ORDER) {
     const cols = TABLE_COLUMNS.filter((c) => c.group === g && DATA.columns.includes(c.key) && colHasData(c.key));
     if (!cols.length) continue;
     const open = state.cardOpen.includes(g);
-    const head = cols.find((c) => c.summary);
-    const evid = cols.find((c) => c.type === "tier" && /_evidence$/.test(c.key));
-    // three fixed slots (value, percentile, evidence) so the right edge of every group header lines up
-    let mv = "", mp = "", me = "";
-    if (head && row[head.key] !== null && row[head.key] !== undefined) {
-      mv = cellHTML(row, { ...head, heat: false });
-      if (head.key === "has_human_ortholog")   // a bare cross is cryptic in a card header: say it
-        mv = row[head.key] >= 0.5 ? `${mv}<span class="txt" style="margin-left:6px">human ortholog</span>` : '<span class="txt" style="color:var(--muted)">no human ortholog</span>';
-      if (head.type === "score" && isNum(row[head.key])) {
-        let pc = percentileOf(head.key, row[head.key]);
-        if (pc !== null && tieShare(head.key, row[head.key]) > 0.25) pc = null;
-        if (pc !== null) mp = `<span class="pctnote">${ordinal(pc)} percentile</span>`;
-      }
-    }
-    if (evid && row[evid.key] != null) me = `<span class="evlab">evidence</span>${cellHTML(row, evid)}`;
-    const meta = `<span class="mv">${mv}</span><span class="mp">${mp}</span><span class="me">${me}</span>`;
-    let body = "";
-    if (open) {
-      if (g === "Essentiality" && !(isNum(row.deg_n_datasets) && row.deg_n_datasets > 0))
-        body += `<p class="gcnote">Not measured on this strain; every value here is a prediction.</p>`;
-      body += `<div class="gcrows">` + cols.filter((c) => c !== head && c !== evid).map((c) => {   // the header line already shows these two
-        const empty = row[c.key] === null || row[c.key] === undefined || row[c.key] === "";
-        return `<div class="gcrow"${tipAttr(c.desc)}><span class="gck">${esc(c.label)}</span><span class="gcv">${empty ? '<span class="na">–</span>' : cellHTML(row, c)}</span></div>`;
-      }).join("") + `</div>`;
-      if (g === "Function" && row.cog_categories) body += `<div class="gcrow"><span class="gck">COG categories</span><span class="gcv">`
-        + String(row.cog_categories).split(";").filter(Boolean).map((l) => `<span class="cog" title="${esc((FC_BY_ID[l] || {}).label || "")}">${esc(l)}</span>`).join(" ") + `</span></div>`;
-    }
+    const { val, where, evHTML } = profileRow(row, g, cols);
     h += `<section class="gcard${open ? " open" : ""}" style="--pc:${groupColor(g)}"><button class="gchead" data-group="${g}" aria-expanded="${open}">`
-      + `<i class="chev"></i><span class="gctitle">${g}</span><span class="gcmeta">${meta}</span></button>${body}</section>`;
+      + `<i class="chev"></i><span class="gctitle">${g}</span><span class="pval">${val}</span><span class="pwhere">${where}</span>${evHTML}</button>`
+      + (open ? detailRowsHTML(row, g, cols) : "") + `</section>`;
   }
-  return h;
+  return h + `</div>`;
 }
 function has_(k) { return DATA.columns.includes(k); }
 function renderGroupPanels(row) {
@@ -726,9 +851,30 @@ function renderGroupPanels(row) {
   if (!host) return;
   host.innerHTML = groupPanelsHTML(row);
   host.querySelectorAll(".gchead").forEach((b) => b.onclick = () => {
-    state.cardOpen = state.cardOpen[0] === b.dataset.group ? [] : [b.dataset.group];
-    renderGroupPanels(row);   // only the card changes
+    const g = b.dataset.group, i = state.cardOpen.indexOf(g);
+    if (i >= 0) state.cardOpen.splice(i, 1); else state.cardOpen.push(g);   // any number open, so axes can be read side by side
+    renderGroupPanels(row);
   });
+}
+// nearest proteins on the map (t-SNE of ESM-C, this species): often the only lead for an uncharacterised protein
+function neighboursHTML(row, k = 6) {
+  if (!isNum(row.tsne_x) || !isNum(row.tsne_y)) return "";
+  const near = [];
+  for (const r of DATA.rows) {
+    if (r === row || !isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
+    const d = (r.tsne_x - row.tsne_x) ** 2 + (r.tsne_y - row.tsne_y) ** 2;
+    if (near.length < k || d < near[near.length - 1][0]) { near.push([d, r]); near.sort((a, b) => a[0] - b[0]); if (near.length > k) near.pop(); }
+  }
+  const useW = showWeighted();
+  const key = useW ? "__c" : "degradability_consensus";
+  const items = near.map(([, r]) => {
+    const v = r[key];
+    const bar = isNum(v) ? `<span class="sc" style="--c:${useW ? "var(--brand)" : groupColor("Degradability")};--v:${Math.round(v * 100)}%"><b>${v.toFixed(2)}</b></span>` : '<span class="na">–</span>';
+    const fc = r.cog && r.cog !== "none" ? FC_BY_ID[r.cog] : null;
+    return `<button class="nbr" data-acc="${r.uniprot_accession}"><span class="nbid"><span class="${r.gene ? "gene" : "acc"}">${esc(r.gene || r.uniprot_accession)}</span>`
+      + `<span class="nbname">${esc(shortName(r.name) || (fc ? fc.label : ""))}</span></span>${bar}</button>`;
+  }).join("");
+  return `<section class="cblock"><div class="cbhead"><span>Nearest on the map</span><span class="cbnote" data-tip="The ${k} closest proteins in this species on the t-SNE map of ESM-C embeddings: similar sequence features, not necessarily homologs. The bar is ${useW ? "your weighted score" : "degradability"}.">${useW ? "weighted score" : "degradability"}</span></div><div class="nbrs">${items}</div></section>`;
 }
 // ---- 3D structure viewer (3Dmol.js, lazy) --------------------------------
 let _3dmolP = null;       // promise: 3Dmol library loaded
@@ -814,8 +960,8 @@ async function renderStructure(row) {
     v.render();
     const cap = document.getElementById("pdbcap");
     if (cap) cap.innerHTML = (resids && resids.length)
-      ? `AlphaFold model · cartoon coloured by pLDDT. Drag to rotate, scroll to zoom.`
-      : `AlphaFold model · cartoon coloured by pLDDT. Drag to rotate, scroll to zoom.`;
+      ? `AlphaFold model, coloured by confidence (pLDDT). Drag to rotate, scroll to zoom.`
+      : `AlphaFold model, coloured by confidence (pLDDT). Drag to rotate, scroll to zoom.`;
   };
   requestAnimationFrame(paint);
 }
@@ -842,16 +988,26 @@ function openDrawer(row) {
         <span class="org"><span class="odot odot-${state.org}"></span>${ORGANISM_META[state.org].name} ${ORGANISM_META[state.org].strain}</span>
         ${isNum(row.length) ? `<span class="orglen" data-tip="Protein length (amino acids)">${row.length.toLocaleString()} aa</span>` : ""}
       </div>
-      ${row.name ? `<div class="pdesc">${esc(row.name)}</div>` : ""}
+      ${row.name ? `<div class="pdesc"${shortName(row.name) !== row.name ? ` title="${esc(row.name)}"` : ""}>${esc(shortName(row.name))}</div>` : ""}
       ${weighted}
       <div class="links">${links}</div>
       ${orthBtn ? `<div class="orthrow">${orthBtn}</div>` : ""}
     </div>
     <div class="dbody">
-      <section class="panel viewerpanel"><div class="pdbslot" id="pdbslot"><div class="pdbmsg">Loading 3D structure…</div></div><p class="pdbcap" id="pdbcap"></p></section>
+      ${factsHTML(row)}
       <div id="groupPanels"></div>
+      <section class="cblock viewerpanel${state.molBig ? " big" : ""}"><div class="cbhead"><span>Structure</span><button class="linkbtn" id="molSize">${state.molBig ? "smaller" : "larger"}</button></div>
+        <div class="pdbslot" id="pdbslot"><div class="pdbmsg">Loading 3D structure…</div></div><p class="pdbcap" id="pdbcap"></p></section>
+      ${neighboursHTML(row)}
     </div>`;
   renderGroupPanels(row);
+  $("molSize").onclick = () => {
+    state.molBig = !state.molBig;
+    $("drawer").querySelector(".viewerpanel").classList.toggle("big", state.molBig);
+    $("molSize").textContent = state.molBig ? "smaller" : "larger";
+    requestAnimationFrame(() => { if (_mol) { _mol.viewer.resize(); _mol.viewer.render(); } });
+  };
+  $("drawer").querySelectorAll(".nbr").forEach((b) => b.onclick = () => { const r = DATA.rows.find((x) => x.uniprot_accession === b.dataset.acc); if (r) openDrawer(r); });
   $("drawerClose").onclick = closeDrawer;
   const pos = filtered.indexOf(row);
   $("cardPos").textContent = pos >= 0 ? `${(pos + 1).toLocaleString()} of ${filtered.length.toLocaleString()}` : "";
