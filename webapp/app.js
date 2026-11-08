@@ -516,6 +516,7 @@ function cellHTML(row, c) {
   if (c.type === "bool" || c.type === "binary01") {
     const yes = v === true || v === 1 || (typeof v === "number" && v >= 0.5);
     // a human ortholog is a selectivity liability: a muted red cross marks it, a faint dash means none
+    if (c.key === "has_human_ortholog" && !yes && row.orthology_evidence === 1) return '<span class="na" title="Not placed in any orthogroup, so the human call could not be made">?</span>';
     if (c.key === "has_human_ortholog") return yes ? '<span class="liab" title="Has a human ortholog (selectivity liability)">✕</span>' : '<span class="na" title="No human ortholog">–</span>';
     return yes ? '<span class="yes">✓</span>' : '<span class="na">–</span>';
   }
@@ -534,6 +535,7 @@ function cellHTML(row, c) {
     const full = String(v).replace(/;/g, "; ");
     return `<span class="celltext" title="${full.replace(/"/g, "&quot;")}">${esc(full)}</span>`;
   }
+  if (c.key === "n_papers_uniprot_prokaryotic" && v === 0 && row.studiedness_evidence === 1) return '<span class="na" title="No similar curated protein, so no literature count could be made">–</span>';
   if (c.type === "int" && v === 0 && c.key !== "length") return '<span class="numcell zero0">0</span>';   // counts are mostly 0: keep them quiet
   return `<span class="numcell">${fmt(c.type === "int" && c.key === "length" ? "int" : c.type, v)}</span>`;
 }
@@ -542,6 +544,7 @@ const capFirst = (t) => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 // one line for an evidence dot row: the level, its word, what it means for this axis (and, for essentiality, the measured calls)
 function evidTip(row, key, v) {
   let t = `Evidence ${v} of 3 (${EVID_WORD[v]}): ${capFirst((EVID_MEANING[key] || {})[v] || "")}`;
+  if (key === "ligands_evidence" && v === 3 && !nz(row.n_ligands_own) && !nz(row.n_drugs)) t += ". Assayed, none potent";
   if (key === "essentiality_evidence") {
     t += isNum(row.deg_n_datasets) && row.deg_n_datasets > 0
       ? `. DEG: essential in ${row.deg_n_essential || 0} of ${row.deg_n_datasets} screens on this strain`

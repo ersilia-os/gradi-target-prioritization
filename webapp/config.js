@@ -89,7 +89,7 @@ const FUNCTIONAL_CLASSES = [
 ];
 // plain-language names for the COG letters, grouped as the COG database groups them (the sidebar shows names, not letters)
 const COG_SHORT = { J: "Translation", A: "RNA processing", K: "Transcription", L: "Replication", B: "Chromatin",
-  D: "Cell division", V: "Defense", T: "Signaling", M: "Cell envelope", N: "Motility", U: "Secretion", O: "Chaperones", X: "Mobilome",
+  D: "Cell division", V: "Defense", T: "Signaling", M: "Cell envelope", N: "Motility", U: "Secretion", O: "Chaperones, turnover", X: "Mobilome",
   C: "Energy", G: "Carbohydrates", E: "Amino acids", F: "Nucleotides", H: "Coenzymes", I: "Lipids", P: "Ion transport", Q: "Secondary",
   R: "General", S: "Unknown", none: "No COG hit" };
 // one sidebar chip can stand for several codes: "Unknown" covers COG S (function unknown) and no COG hit at all
@@ -143,7 +143,7 @@ const TABLE_COLUMNS = [
   { key: "essentiality_consensus", label: "Score", head: "Ess. score", type: "score", summary: true, heat: true, group: "Essentiality",
     desc: "Essentiality consensus (0-1): mean within-species percentile of Geptop, ProteomeLM-Ess and the screen-trained models. Partly circular on E. coli." },
   { key: "essentiality_evidence", label: "Evidence", type: "tier", group: "Essentiality",
-    desc: "Measured essentiality. 3 = two or more independent screens agree with each other and with the consensus; 2 = one screen, or screens that conflict; 1 = no screen. Hover a dot row for the screens counted. E. coli counts its three K-12 screens (one strain lineage); K. pneumoniae counts screens of other strains (DEG has none on HS11286)." },
+    desc: "Measured essentiality. 3 = two or more independent screens agree with each other and with the consensus; 2 = one screen, or screens that conflict; 1 = no screen. Unanimous non-essential calls count, so most proteins reach 3. E. coli counts its three K-12 screens (one strain lineage); K. pneumoniae counts screens of other strains (DEG has none on HS11286)." },
   { key: "screens_ess_mean", label: "Screens mod.", type: "score", heat: false, group: "Essentiality",
     desc: "Mean probability of nine models trained on published screens (not nine independent votes: they read the same embedding). On E. coli this is not a validated prediction." },
   { key: "proteomelm_ess", label: "ProteomeLM", type: "score", heat: false, group: "Essentiality",
@@ -157,7 +157,7 @@ const TABLE_COLUMNS = [
   { key: "ligands_evidence", label: "Evidence", type: "tier", group: "Ligand precedence",
     desc: "3 = somebody assayed this protein, or a drug is recorded against it; 2 = only a bacterial homolog was assayed; 1 = nothing in ChEMBL (an open question, not a negative)." },
   { key: "n_drugs", label: "Drugs", type: "int", group: "Ligand precedence",
-    desc: "Drugs in ChEMBL's mechanism table whose target is this protein or one at least 95% identical. Target-level: a drug on a complex is credited to every member. 0 means none recorded, not undruggable." },
+    desc: "Drugs in ChEMBL's mechanism table whose target is this protein or one at least 95% identical. Target-level: a drug on a complex is credited to every member. 0 means none recorded, not undruggable. The 95% floor is strict between species: K. pneumoniae gyrA, parC, folA and ftsI (90-94% identical to E. coli) read 0." },
   { key: "n_ligands_own", label: "Lig. own", type: "int", group: "Ligand precedence",
     desc: "Distinct potent (pChEMBL >= 6) ChEMBL molecules for this protein (species-level match)." },
   { key: "n_ligands_bacterial", label: "Lig. bact.", type: "int", group: "Ligand precedence",
@@ -173,7 +173,7 @@ const TABLE_COLUMNS = [
   { key: "pockets_consensus", label: "Score", head: "Pocket score", type: "score", summary: true, heat: true, group: "Pockets",
     desc: "Pockets score (0-1): mean of the P2Rank probability, the fpocket druggability and the PDB and AlphaFill ligand counts (each as n/(n+1)); any protein with a drug-like ligand in its own PDB structures is floored at 0.8. Tracks protein length (rho about 0.65); within length deciles P2Rank is near chance." },
   { key: "pockets_evidence", label: "Evidence", type: "tier", group: "Pockets",
-    desc: "3 = this protein has its own PDB structure; 2 = an AlphaFill transplant and no structure; 1 = pocket scores only." },
+    desc: "Where the pocket information comes from. 3 = this protein has its own PDB structure; 2 = an AlphaFill transplant and no structure; 1 = predicted pockets only. Provenance, not pocket quality." },
   { key: "p2rank_score", label: "P2Rank", type: "num", group: "Pockets",
     desc: "Best P2Rank pocket probability-sum on the AlphaFold model (pLDDT >= 70 residues only)." },
   { key: "fpocket_score", label: "Fpocket", type: "num", group: "Pockets",
@@ -193,21 +193,21 @@ const TABLE_COLUMNS = [
   { key: "cytoplasmic_fraction", label: "Cytoplasmic", type: "score", heat: true, group: "Localization",
     desc: "TMbed: fraction of the chain predicted cytoplasmic (1 = soluble cytoplasmic). Prefer it over the DeepLocPro label where they disagree." },
   { key: "localization_evidence", label: "Evidence", type: "tier", group: "Localization",
-    desc: "3 = both predictors agree, DeepLocPro is confident (>= 0.7) and a curated GO cellular-component term agrees; 2 = one of those; 1 = neither or a GO term contradicts. Not experimental." },
+    desc: "3 = both predictors agree, DeepLocPro is confident (>= 0.7) and a curated GO cellular-component term agrees; 2 = one of those; 1 = neither or a GO term contradicts. Not experimental. Tracks GO annotation more than accuracy: 73% of E. coli inner-membrane proteins reach 3, 22% of cytoplasmic ones." },
 
   // Orthology
   { key: "has_human_ortholog", label: "Human ortholog", type: "binary01", w: 132, summary: true, group: "Orthology",
-    desc: "A human ortholog by either OrthoFinder or reciprocal best hit (union). Tick = has one (a selectivity liability)." },
+    desc: "A human ortholog by OrthoFinder or reciprocal best hit (either). A cross is a selectivity liability; a dash means none found; a question mark means the protein is in no orthogroup, so the call could not be made. Remote homologs count (E. coli yidC, gyrB sit near 25% identity); identity is in the project tables, not here. Sensitive to recall: E. coli secY has no human hit although Sec61a is its homolog." },
   { key: "bacterial_panel_orthologs", label: "Panel cons.", type: "ratio", group: "Orthology",
     desc: "Bacterial proteomes, out of 28, that have an ortholog (species counted, not proteins). Sorts as the fraction." },
   { key: "orthology_evidence", label: "Evidence", type: "tier", group: "Orthology",
-    desc: "3 = placed in a grouping, OrthoFinder and RBH both found a bacterial ortholog and do not conflict on the human call; 2 = placed but not corroborated; 1 = in no grouping (could not look)." },
+    desc: "Quality of the orthology calls. 3 = placed in an orthogroup, OrthoFinder and reciprocal best hit both found a bacterial ortholog, and they do not conflict on the human call; 2 = placed, but one method is missing or they conflict; 1 = in no orthogroup, so both calls beside it could not be made." },
 
   // Studiedness
   { key: "studiedness_consensus", label: "Score", head: "Stud. score", type: "score", summary: true, heat: true, group: "Studiedness",
     desc: "Studiedness consensus (0-1): mean percentile of three paper counts. High = well studied. Proteins with no donor literature are pinned to 0 (S. aureus only)." },
   { key: "studiedness_evidence", label: "Evidence", type: "tier", group: "Studiedness",
-    desc: "3 = a curated SwissProt donor at >= 95% identity (this protein's own literature); 2 = a donor at >= 40%; 1 = nothing in SwissProt resembles it." },
+    desc: "3 = a curated SwissProt entry at >= 95% identity (this protein's own literature); 2 = a homolog at >= 40%; 1 = nothing in SwissProt resembles it. Reflects the reference strain: 88% of E. coli K-12 reaches 3, 6% of K. pneumoniae HS11286, an uncurated proteome." },
   { key: "n_papers_uniprot_prokaryotic", label: "Papers", type: "int", group: "Studiedness",
     desc: "Curated UniProt references of the best-cited prokaryotic donor at >= 40% identity (the ranking count)." },
   { key: "n_papers_pubtator_prokaryotic", label: "PubTator", type: "int", group: "Studiedness",
@@ -217,7 +217,7 @@ const TABLE_COLUMNS = [
   { key: "cog", label: "COG", type: "class", summary: true, group: "Function",
     desc: "First COG category letter (COGclassifier 2.0 over CDD). 'none' = no hit (E. coli 84.5% classified, K. pneumoniae 79.1%). Multi-letter COGs (9-16%) are in the gene card." },
   { key: "function_evidence", label: "Evidence", type: "tier", group: "Function",
-    desc: "3 = both COG and GO-slim annotate it, the GO is UniProt-curated and the COG informative (not R or S); 2 = annotated but not corroborated; 1 = neither." },
+    desc: "3 = both COG and GO slim annotate it, the GO is UniProt-curated and the COG informative (not R or S); 2 = annotated but not corroborated; 1 = neither. 65-75% of proteins reach 3." },
   { key: "goslim_terms", label: "GO slim", type: "goslim", w: 360, group: "Function",
     desc: "GO-slim (prokaryote) terms by name. Empty = not annotated, never 'ruled out'." },
 ];
@@ -512,8 +512,8 @@ const FACT_RULES = [
     test: (r) => r.localization === "periplasm" || r.localization === "extracellular" ? LOC_LABEL[r.localization] : null },
   { id: "human_orth", tone: "bad", rule: "A human ortholog by OrthoFinder or reciprocal best hit",
     test: (r) => isYes(r.has_human_ortholog) ? "Human ortholog" : null },
-  { id: "no_human_orth", tone: "good", rule: "No human ortholog by either method",
-    test: (r) => isNo(r.has_human_ortholog) ? "No human ortholog" : null },
+  { id: "no_human_orth", tone: "good", rule: "Placed in an orthogroup and no human ortholog by either method",
+    test: (r) => isNo(r.has_human_ortholog) && r.orthology_evidence >= 2 ? "No human ortholog" : null },
   { id: "human_lig", tone: "bad", rule: "Potent ligands on the closest human homolog",
     test: (r) => nz(r.n_ligands_human) ? `${plural(r.n_ligands_human, "potent ligand")} on human homolog` : null },
   { id: "conserved", tone: "info", rule: "Ortholog in at least 90% of the 28 bacterial proteomes",
