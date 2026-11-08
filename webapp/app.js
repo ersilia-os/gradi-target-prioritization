@@ -17,6 +17,7 @@ const state = {
   mapColorBy: "degradability_consensus",
   mapThr: {},             // map: per colour-by field, the threshold the reader set (else a data-derived default)
   mapLabels: true,        // map: draw cluster labels in categorical colour modes
+  mapScope: "filtered",   // map: colour only the proteins passing the filters ("filtered") or every protein ("all")
   weights: {},            // key -> {on, weight}
   orthoTransfer: true,    // include ortholog-transferred knowledge (essentiality track)
   filters: { search: "", ranges: {}, cats: {}, bools: {} },
@@ -80,7 +81,7 @@ const cleanMapColor = (k) => (MAP_COLORS.some((m) => m.key === k) ? k : "degrada
 function save() {
   const s = {
     org: state.org, view: state.view, mapColorBy: state.mapColorBy,
-    mapThr: state.mapThr, mapLabels: state.mapLabels,
+    mapThr: state.mapThr, mapLabels: state.mapLabels, mapScope: state.mapScope,
     weights: state.weights, orthoTransfer: state.orthoTransfer,
     filters: { search: state.filters.search, ranges: state.filters.ranges,
       cats: Object.fromEntries(Object.entries(state.filters.cats).map(([k, v]) => [k, [...v]])),
@@ -102,6 +103,7 @@ function load() {
     state.mapColorBy = cleanMapColor(s.mapColorBy);
     state.mapThr = (s.mapThr && typeof s.mapThr === "object") ? s.mapThr : {};
     if (typeof s.mapLabels === "boolean") state.mapLabels = s.mapLabels;
+    if (s.mapScope === "all" || s.mapScope === "filtered") state.mapScope = s.mapScope;
     state.weights = cleanWeights(s.weights);
     if (typeof s.orthoTransfer === "boolean") state.orthoTransfer = s.orthoTransfer;
     if (s.filters) {
@@ -163,12 +165,14 @@ function applyHash() {
 // ---------- helpers --------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const isNum = (v) => typeof v === "number" && !Number.isNaN(v);
+const PANEL_SIZE = 28;   // bacterial proteomes in the orthology panel (26 comparators + 2 other anchors)
 
 function fmt(type, v) {
   if (v === null || v === undefined || v === "") return "–";
   switch (type) {
     case "score": return isNum(v) ? v.toFixed(2) : String(v);
     case "pct": return isNum(v) ? Math.round(v * 100) + "%" : String(v);
+    case "ratio": return isNum(v) ? `${Math.round(v * PANEL_SIZE)}/${PANEL_SIZE}` : String(v);
     case "plddt": return isNum(v) ? v.toFixed(0) : String(v);
     case "num": return isNum(v) ? (+v).toFixed(2) : String(v);
     case "int": return isNum(v) ? String(Math.round(v)) : String(v);
@@ -315,7 +319,7 @@ function renderActiveView() {
 }
 // side-by-side comparison of the shortlisted targets (metrics as rows, targets as columns)
 const CMP_KEYS = ["__c", "length", "degradability_consensus", "adep4_prob", "onc212_prob",
-  "essentiality_consensus", "essentiality_evidence", "deg_essential_any", "ligands_consensus", "ligands_evidence", "n_drugs",
+  "essentiality_consensus", "essentiality_evidence", "ligands_consensus", "ligands_evidence", "n_drugs",
   "pockets_consensus", "localization", "cytoplasmic_fraction", "has_human_ortholog", "bacterial_panel_orthologs",
   "studiedness_consensus", "cog"];
 // UniProt names trail their alternatives: "Peptide deformylase (PDF) (EC 3.5.1.88) (Polypeptide deformylase)".
@@ -341,7 +345,7 @@ function renderCompare() {
   }
   const byKey = Object.fromEntries(TABLE_COLUMNS.map((c) => [c.key, c]));
   const gname = (g) => g === "Ligand precedence" ? "Ligand prec." : g;   // as in the table header and the radar
-  const label = (k) => k === "__c" ? "Weighted (yours)" : !byKey[k] ? k
+  const label = (k) => k === "__c" ? "Weighted score" : !byKey[k] ? k
     : k.endsWith("_consensus") ? gname(byKey[k].group)                  // a group's headline score: just its name
     : (["Evidence", "Class", "Measured"].includes(byKey[k].label) ? `${gname(byKey[k].group)} ${byKey[k].label.toLowerCase()}` : byKey[k].label);
   const keys = CMP_KEYS.filter((k) => (k === "__c" && showWeighted()) || (k !== "__c" && byKey[k] && DATA.columns.includes(k)));
@@ -411,7 +415,7 @@ function visibleColumns() {
 function tipAttr(text) {
   return text ? ` data-tip="${String(text).replace(/"/g, "&quot;")}"` : "";
 }
-const ROTATE_TYPES = new Set(["score", "pct", "plddt", "num", "int", "bool", "binary01"]);
+const ROTATE_TYPES = new Set(["score", "pct", "ratio", "plddt", "num", "int", "bool", "binary01"]);
 function colWidths() {
   const w = window.innerWidth;
   if (w <= 700) return { rank: 34, gene: 150, data: 100, wide: 190 };
@@ -436,9 +440,8 @@ function renderThead() {
   };
   let h = th("", "#", { nosort: true, tip: LEADING_COL_DESC.rank, cls: "colrank" })
     + th("gene", "Protein", { tip: LEADING_COL_DESC.name, cls: "colgene" })
-    + (showWeighted() ? th("__c", "Weighted", { tip: weightMix() + ". " + LEADING_COL_DESC.__c, cls: "ar colw" }) : "");
-  // a group's headline score needs no label while the group is collapsed: the band above already names it
-  const headLabel = (c) => !c.key.endsWith("_consensus") ? c.label : state.expanded.includes(c.group) ? "Score" : "";
+    + (showWeighted() ? th("__c", 'Weighted<button class="hidew" id="hideW" title="Hide the weighted score" aria-label="Hide the weighted score">×</button>', { tip: weightMix() + ". " + LEADING_COL_DESC.__c, cls: "ar colw" }) : "");
+  const headLabel = (c) => c.head || c.label;
   // a column with no data for this species keeps its place (same columns on both) but fades
   for (const c of cols) h += th(c.key, headLabel(c), { tip: c.desc, cls: alignOf(c) + (colHasData(c.key) ? "" : " nodata") });
 
@@ -475,6 +478,8 @@ function renderThead() {
   const thead = document.querySelector("#table thead");
   thead.innerHTML = `<tr class="bandrow">${band}</tr><tr>${h}</tr>`;
   thead.querySelectorAll("th.gtoggle").forEach((el) => { el.onclick = () => toggleGroup(el.dataset.group); });
+  const hw = $("hideW");
+  if (hw) hw.onclick = (e) => { e.stopPropagation(); $("weightsOff").click(); };
   thead.querySelectorAll("th[data-sort]").forEach((el) => {
     el.tabIndex = 0;   // sortable from the keyboard: Tab to a header, Enter or Space
     el.onclick = (e) => {
@@ -489,7 +494,7 @@ function renderThead() {
 }
 // numbers align right, short categorical marks centre, words left
 function alignOf(c) {
-  if (["score", "pct", "plddt", "num", "int"].includes(c.type)) return "ar";
+  if (["score", "pct", "ratio", "plddt", "num", "int"].includes(c.type)) return "ar";
   if (["tier", "bool", "binary01", "class"].includes(c.type)) return "ac";
   return "al";
 }
@@ -518,15 +523,31 @@ function cellHTML(row, c) {
   // localization: a dot in the sidebar ring's colour, then the name
   if (c.type === "loc") return `<span class="txt" title="${esc(LOC_LABEL[v] || v)}"><i class="locdot" style="background:${LOC_COLOR[v] || "var(--border)"}"></i>${esc(LOC_LABEL[v] || String(v).replace(/_/g, " "))}</span>`;
   // evidence 1-3 as three pips, filled up to the level (3 green, 2 amber, 1 faint)
-  if (c.type === "tier") return `<span class="pips p${v}" title="Evidence level ${v} of 3" aria-label="Evidence level ${v} of 3"><i></i><i></i><i></i></span>`;
+  if (c.type === "tier") { const tip = evidTip(row, c.key, v); return `<span class="pips p${v}" title="${esc(tip)}" aria-label="${esc(tip)}"><i></i><i></i><i></i></span>`; }
   if (c.type === "score" && c.heat && isNum(v))
     return `<span class="sc${v === 0 ? " zero" : ""}" style="--c:${colColor(c.key)};--v:${Math.round(Math.max(0, Math.min(1, v)) * 100)}%"><b>${v.toFixed(2)}</b></span>`;
+  if (c.type === "goslim") {
+    const names = String(v).split(";").filter(Boolean).map((t) => (GO_SLIM[t] ? GO_SLIM[t][0] : t)).join(", ");
+    return `<span class="celltext" title="${esc(names)}">${esc(names)}</span>`;
+  }
   if (c.type === "text") {
     const full = String(v).replace(/;/g, "; ");
     return `<span class="celltext" title="${full.replace(/"/g, "&quot;")}">${esc(full)}</span>`;
   }
   if (c.type === "int" && v === 0 && c.key !== "length") return '<span class="numcell zero0">0</span>';   // counts are mostly 0: keep them quiet
   return `<span class="numcell">${fmt(c.type === "int" && c.key === "length" ? "int" : c.type, v)}</span>`;
+}
+const EVID_WORD = { 3: "Strong", 2: "Partial", 1: "None" };
+const capFirst = (t) => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+// one line for an evidence dot row: the level, its word, what it means for this axis (and, for essentiality, the measured calls)
+function evidTip(row, key, v) {
+  let t = `Evidence ${v} of 3 (${EVID_WORD[v]}): ${capFirst((EVID_MEANING[key] || {})[v] || "")}`;
+  if (key === "essentiality_evidence") {
+    t += isNum(row.deg_n_datasets) && row.deg_n_datasets > 0
+      ? `. DEG: essential in ${row.deg_n_essential || 0} of ${row.deg_n_datasets} screens on this strain`
+      : ". No DEG screen on this exact strain";
+  }
+  return t;
 }
 function pageCount() { return Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)); }
 let _renderTok = 0;
@@ -592,18 +613,72 @@ function renderPage() {
   setTopbarOffset();
 }
 // ---------- methods / provenance modal -------------------------------------
+// ROC of the two degradability models on the S. aureus proteins with a measured call (scripts/webapp/roc.py)
+function rocSVG(roc) {
+  const S = 220, P = 34, X = (v) => P + v * (S - P - 8), Y = (v) => S - P - v * (S - P - 8);
+  const line = (k, col) => `<polyline fill="none" stroke="${col}" stroke-width="2" points="${roc[k].fpr.map((f, i) => `${X(f).toFixed(1)},${Y(roc[k].tpr[i]).toFixed(1)}`).join(" ")}"/>`;
+  const ticks = [0, 0.5, 1].map((t) => `<text x="${X(t)}" y="${S - P + 14}" text-anchor="middle">${t}</text><text x="${P - 7}" y="${Y(t) + 3}" text-anchor="end">${t}</text>`).join("");
+  return `<svg viewBox="0 0 ${S} ${S}" class="rocsvg" role="img" aria-label="ROC curves of the ADEP4 and ONC212 degradability models">`
+    + `<rect x="${X(0)}" y="${Y(1)}" width="${X(1) - X(0)}" height="${Y(0) - Y(1)}" fill="none" stroke="var(--border)"/>`
+    + `<line x1="${X(0)}" y1="${Y(0)}" x2="${X(1)}" y2="${Y(1)}" stroke="var(--faint)" stroke-dasharray="3 3"/>`
+    + line("adep4", "var(--amber)") + line("onc212", "var(--cobalt)") + `<g class="rocticks">${ticks}`
+    + `<text x="${(X(0) + X(1)) / 2}" y="${S - 4}" text-anchor="middle">False positive rate</text>`
+    + `<text transform="translate(9 ${(Y(0) + Y(1)) / 2}) rotate(-90)" text-anchor="middle">True positive rate</text></g></svg>`;
+}
+// the AI-first approach (slide 3 of the project deck), redrawn inline so it follows the site's type and colours
+function diagramHTML() {
+  const star = (cx, cy) => { let d = ""; for (let i = 0; i < 10; i++) { const r = i % 2 ? 4 : 9, a = -Math.PI / 2 + i * Math.PI / 5; d += `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)} `; } return `<polygon class="dg-star" points="${d.trim()}"/>`; };
+  const stars = (x, y) => star(x, y) + star(x, y + 32) + star(x, y + 50);
+  const arrow = (d) => `<path class="dg-arr" d="${d}" marker-end="url(#dgHead)"/>`;
+  const defs = `<defs><marker id="dgHead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" class="dg-head"/></marker></defs>`;
+  const lbl = (x, y, a, b) => `<text x="${x}" y="${y}" text-anchor="middle">${a}</text>` + (b ? `<text x="${x}" y="${y + 17}" text-anchor="middle">${b}</text>` : "");
+  const A = `<svg viewBox="-26 0 326 150" class="dgsvg" role="img" aria-label="Option A: sequences go through an existing tool to give labels">${defs}`
+    + `<rect class="dg-seq" x="12" y="12" width="18" height="76"/><circle class="dg-tool" cx="130" cy="50" r="26"/><rect class="dg-lab" x="228" y="12" width="18" height="76"/>`
+    + arrow("M30 50 H100") + arrow("M156 50 H226") + stars(262, 20)
+    + lbl(21, 112, "Sequences") + lbl(130, 100, "Tool") + lbl(237, 112, "Labels") + `</svg>`;
+  const B = `<svg viewBox="0 0 470 290" class="dgsvg" role="img" aria-label="Option B: a model learned on labelled species A proteins is applied to the embeddings of species B to label them">${defs}`
+    + `<rect class="dg-seq" x="12" y="12" width="18" height="76"/><rect class="dg-emb" x="74" y="12" width="64" height="76"/><rect class="dg-lab" x="190" y="12" width="18" height="76"/><circle class="dg-tool" cx="318" cy="50" r="26"/>`
+    + arrow("M30 50 H72") + arrow("M138 50 H188") + arrow("M208 50 H290")
+    + `<rect class="dg-seq" x="12" y="160" width="18" height="76"/><rect class="dg-emb" x="74" y="160" width="64" height="76"/><rect class="dg-lab" x="418" y="160" width="18" height="76"/>`
+    + arrow("M30 198 H72") + arrow("M138 198 H416") + `<path class="dg-arr" d="M318 76 V198"/>` + stars(452, 168)
+    + lbl(21, 108, "Spp. A", "seqs.") + lbl(106, 108, "Embeddings") + lbl(199, 108, "Spp. A", "labels") + `<text x="352" y="55">Model</text>`
+    + lbl(21, 256, "Spp. B", "seqs.") + lbl(106, 256, "Embeddings") + lbl(427, 256, "Spp. B", "labels") + `</svg>`;
+  return `<div class="mdiagram"><div class="dgcol"><div class="dgttl">Option A: a tool exists</div>${A}</div>`
+    + `<div class="dgcol dgb"><div class="dgttl">Option B: in-house tool</div>${B}</div></div>`
+    + `<p class="dgnote">Here, species A is <i>S. aureus</i> (the ADEP4 and ONC212 ClpP-activator screens) and species B is <i>E. coli</i> and <i>K. pneumoniae</i>.</p>`;
+}
+function methodsHero(roc) {
+  const a = roc && roc.adep4, o = roc && roc.onc212;
+  return `<section class="mhero"><h3>Targeted protein degradation</h3>`
+    + `<p>A degrader joins a target protein to a bacterial protease, so the cell destroys the target. This browser ranks every protein of <i>E. coli</i> and <i>K. pneumoniae</i> as a candidate target.</p>`
+    + diagramHTML()
+    + (roc ? `<figure class="mroc">${rocSVG(roc)}<figcaption><span class="rk"><i style="background:var(--amber)"></i>ADEP4 <b>AUROC ${a.auc.toFixed(2)}</b></span>`
+      + `<span class="rk"><i style="background:var(--cobalt)"></i>ONC212 <b>AUROC ${o.auc.toFixed(2)}</b></span>`
+      + `<span class="rn">Degradability models on <i>S. aureus</i> proteins with a measured call (${a.n.toLocaleString()} and ${o.n.toLocaleString()}), out-of-fold scores.</span></figcaption></figure>` : "")
+    + `</section>`;
+}
+// every badge on the protein card, listed from the same FACT_RULES that draw them
+function badgesSection() {
+  const rows = FACT_RULES.map((f) => `<li class="${f.tone}"><i></i>${esc(f.rule)}</li>`).join("");
+  return `<section class="mrow" style="--pc:var(--brand)"><h3>Badges on the protein card</h3>`
+    + `<p>${FACT_RULES.length} fixed rules, each reading one column. Green helps a degrader target, red hurts, grey is context.</p><ul class="mbadges">${rows}</ul></section>`;
+}
+let _roc;
 function openMethods() {
   const m = $("methodsModal");
   const refsHTML = (refs) => !refs || !refs.length ? "" :
     `<ul class="mrefs">` + refs.map(([txt, url]) => `<li>${url
       ? `<a href="${url}" target="_blank" rel="noopener">${txt} ↗</a>` : txt}</li>`).join("") + `</ul>`;
-  m.innerHTML = `<div class="modalhead"><h2>How to read each axis</h2><button class="close" id="methodsClose" aria-label="Close">×</button></div>`
-    + `<div class="modalbody">`
-    + METHODS.map((s) => `<section class="mrow" style="--pc:${s.color}"><h3>${s.title}</h3><p>${s.body}</p>${refsHTML(s.refs)}</section>`).join("")
-    + `<p class="mfoot">Full axis specifications live in the project <code>docs/&lt;axis&gt;.md</code>. This is a preview built from the v2 tables.</p>`
-    + `</div>`;
+  const draw = () => {
+    m.innerHTML = `<div class="modalhead"><h2>Methods</h2><button class="close" id="methodsClose" aria-label="Close">×</button></div>`
+      + `<div class="modalbody">` + methodsHero(_roc)
+      + METHODS.map((x) => `<section class="mrow" style="--pc:${x.color}"><h3>${x.title}</h3><p>${x.body}</p>${refsHTML(x.refs)}</section>`).join("")
+      + badgesSection() + `</div>`;
+    $("methodsClose").onclick = closeMethods;
+  };
+  draw();
   m.hidden = false; $("methodsScrim").hidden = false;
-  $("methodsClose").onclick = closeMethods;
+  if (_roc === undefined) fetch("data/roc.json").then((r) => r.json()).then((j) => { _roc = j; if (!m.hidden) draw(); }).catch(() => { _roc = null; });
 }
 function closeMethods() { $("methodsModal").hidden = true; $("methodsScrim").hidden = true; }
 // ---------- shortlist / basket ---------------------------------------------
@@ -718,57 +793,21 @@ const isNo = (v) => v === false || (isNum(v) && v < 0.5);
 const fmtN = (n) => Number(n).toLocaleString();
 const plural = (n, one, many) => `${fmtN(n)} ${n === 1 ? one : (many || one + "s")}`;
 
-// key facts: [tone, text, source column]; tone good | bad | info
+// key facts: the badges on the card, one per rule in FACT_RULES (config.js); a rule reads one column
 function cardFacts(row) {
-  const f = [], sp = (ORGANISM_META[state.org] || {}).name || "";
-  // essentiality
-  if (isNum(row.deg_n_datasets) && row.deg_n_datasets > 0) {
-    if (nz(row.deg_n_essential)) f.push(["good", `Essential in ${row.deg_n_essential} of ${row.deg_n_datasets} DEG screens on this strain`, "deg_essential_any"]);
-    else f.push(["bad", `Not essential in ${plural(row.deg_n_datasets, "DEG screen")} on this strain`, "deg_essential_any"]);
-  } else if (isNum(row.essentiality_consensus) && row.essentiality_consensus >= 0.9) f.push(["good", "Predicted essential (top 10%; not measured on this strain)", "essentiality_consensus"]);
-  // degradability
-  const oh = [row.adep4_ortholog_hit, row.onc212_ortholog_hit];
-  if (oh.some(isYes)) f.push(["good", `S. aureus ortholog degraded in the ${["ADEP4", "ONC212"].filter((_, i) => isYes(oh[i])).join(" and ")} screen`, "adep4_ortholog_hit"]);
-  else if (oh.some(isNo)) f.push(["bad", "S. aureus ortholog measured, not degraded", "adep4_ortholog_hit"]);
-  if (isNum(row.degradability_consensus)) {
-    if (row.degradability_consensus >= 0.9) f.push(["good", "Top 10% predicted degradability", "degradability_consensus"]);
-    else if (row.degradability_consensus <= 0.1) f.push(["bad", "Bottom 10% predicted degradability", "degradability_consensus"]);
-  }
-  // ligands and structures
-  if (nz(row.n_drugs)) f.push(["good", `${plural(row.n_drugs, "drug")} recorded against it`, "n_drugs"]);
-  if (nz(row.n_ligands_own)) f.push(["good", `${plural(row.n_ligands_own, "potent ChEMBL ligand")}`, "n_ligands_own"]);
-  else if (nz(row.n_ligands_bacterial)) f.push(["good", `${plural(row.n_ligands_bacterial, "potent ligand")} on bacterial homologs`, "n_ligands_bacterial"]);
-  if (!nz(row.n_ligands_own) && isNum(row.n_assayed_own) && row.n_assayed_own >= 10) f.push(["bad", `${fmtN(row.n_assayed_own)} compounds assayed, none potent`, "n_assayed_own"]);
-  if (nz(row.n_ligands_pdb)) f.push(["good", `${plural(row.n_ligands_pdb, "drug-like ligand")} in its own PDB structures`, "n_ligands_pdb"]);
-  else if (nz(row.n_pdb_structures)) f.push(["info", `${plural(row.n_pdb_structures, "PDB structure")}`, "n_pdb_structures"]);
-  else if (isNum(row.n_pdb_structures)) f.push(["info", "No experimental structure", "n_pdb_structures"]);
-  if (isNum(row.af_plddt) && row.af_plddt < 50) f.push(["bad", `Mostly disordered model (pLDDT ${Math.round(row.af_plddt)})`, "af_plddt"]);
-  // localization: membrane proteins never present a soluble chain to ClpP
-  const loc = row.localization;
-  if (loc === "cytoplasm") f.push(["good", "Cytoplasmic", "localization"]);
-  else if (loc === "cytoplasmic_membrane" || loc === "outer_membrane") f.push(["bad", `${LOC_LABEL[loc]} protein`, "localization"]);
-  else if (loc) f.push(["info", LOC_LABEL[loc] || loc, "localization"]);
-  // selectivity
-  if (isYes(row.has_human_ortholog)) f.push(["bad", "Has a human ortholog", "has_human_ortholog"]);
-  else if (isNo(row.has_human_ortholog)) f.push(["good", "No human ortholog", "has_human_ortholog"]);
-  if (nz(row.n_ligands_human)) f.push(["bad", `${plural(row.n_ligands_human, "potent ligand")} on the human homolog`, "n_ligands_human"]);
-  if (isNum(row.bacterial_panel_orthologs) && row.bacterial_panel_orthologs >= 0.9) f.push(["info", `Conserved in ${Math.round(row.bacterial_panel_orthologs * 100)}% of 28 bacteria`, "bacterial_panel_orthologs"]);
-  // studiedness
-  if (isNum(row.n_papers_uniprot_prokaryotic) && row.n_papers_uniprot_prokaryotic >= 30) f.push(["info", `Well studied (${fmtN(row.n_papers_uniprot_prokaryotic)} papers)`, "n_papers_uniprot_prokaryotic"]);
-  else if (row.studiedness_evidence === 1) f.push(["info", "Nothing similar in SwissProt (unexplored)", "studiedness_evidence"]);
-  return f;
+  return FACT_RULES.map((f) => { const t = f.test(row); return t ? [f.tone, t, f.id] : null; }).filter(Boolean);
 }
 function factsHTML(row) {
   const f = cardFacts(row);
   if (!f.length) return "";
-  const byKey = Object.fromEntries(TABLE_COLUMNS.map((c) => [c.key, c]));
+  const byId = Object.fromEntries(FACT_RULES.map((r) => [r.id, r]));
   const order = { good: 0, bad: 1, info: 2 };
-  return `<div class="facts">` + f.sort((a, b) => order[a[0]] - order[b[0]]).map(([t, txt, k]) =>
-    `<span class="fact ${t}"${tipAttr(byKey[k] && byKey[k].desc)}><i></i>${esc(txt)}</span>`).join("") + `</div>`;
+  return `<div class="facts">` + f.sort((a, b) => order[a[0]] - order[b[0]]).map(([t, txt, id]) =>
+    `<span class="fact ${t}"${tipAttr(byId[id].rule)}><i></i>${esc(txt)}</span>`).join("") + `</div>`;
 }
 // one profile row per axis: name, a bar of the score in the axis colour, the value, where it sits in the proteome, evidence
 function profileRow(row, g, cols) {
-  const head = cols.find((c) => c.summary), evid = cols.find((c) => c.type === "tier" && /_evidence$/.test(c.key) && c.key !== "proteomes_evidence");
+  const head = cols.find((c) => c.summary), evid = cols.find((c) => c.type === "tier" && /_evidence$/.test(c.key));
   const v = head ? row[head.key] : null;
   let val = "", where = "";
   if (head && head.type === "score" && isNum(v)) {
@@ -788,18 +827,13 @@ function profileRow(row, g, cols) {
     if (isNum(row.bacterial_panel_orthologs)) where = `${Math.round(row.bacterial_panel_orthologs * 28)}/28 bacteria`;
   } else val = '<span class="na">–</span>';
   const ev = evid && isNum(row[evid.key]) ? row[evid.key] : null;
-  const evHTML = ev ? `<span class="pips p${ev}" data-tip="Evidence ${ev} of 3: ${esc((EVID_MEANING[evid.key] || {})[ev] || "")}"><i></i><i></i><i></i></span>` : `<span class="pips none"></span>`;
+  const evHTML = ev ? `<span class="pips p${ev}" data-tip="${esc(evidTip(row, evid.key, ev))}"><i></i><i></i><i></i></span>` : `<span class="pips none"></span>`;
   return { val, where, evHTML };
 }
 function detailRowsHTML(row, g, cols) {
   const head = cols.find((c) => c.summary);
   let h = "";
-  if (g === "Essentiality" && !(isNum(row.deg_n_datasets) && row.deg_n_datasets > 0))
-    h += `<p class="gcnote">Not measured on this strain; every value here is a prediction.</p>`;
-  if (g === "Degradability")
-    h += `<p class="gchint">Predicted from two S. aureus ClpP-activator screens; no Gram-negative measurement exists. Short proteins score higher.</p>`;
-  const evid = cols.find((c) => c.type === "tier" && /_evidence$/.test(c.key) && c.key !== "proteomes_evidence");
-  if (evid && isNum(row[evid.key])) h += `<p class="gchint">Evidence ${row[evid.key]} of 3: ${esc((EVID_MEANING[evid.key] || {})[row[evid.key]] || "")}.</p>`;
+  const evid = cols.find((c) => c.type === "tier" && /_evidence$/.test(c.key));
   const rowsOf = cols.filter((c) => c !== evid && !(head && head.type === "score" && c === head) && c.key !== "goslim_terms" && c.key !== "cog");
   const line = (label, valHTML, tip) => `<div class="gcrow"${tipAttr(tip)}><span class="gck">${esc(label)}</span><span class="gcv">${valHTML}</span></div>`;
   h += `<div class="gcrows">`;
@@ -833,7 +867,7 @@ function fmtConc(p) {   // pChEMBL -> molar concentration, readable
   return nm >= 1000 ? `${+(nm / 1000).toPrecision(2)} µM` : nm >= 1 ? `${+nm.toPrecision(2)} nM` : `${+(nm * 1000).toPrecision(2)} pM`;
 }
 function groupPanelsHTML(row) {
-  let h = `<div class="profile"><div class="profhead"><span>Profile</span><span class="profkey" data-tip="Evidence: how well each axis is backed for this protein (provenance, not outcome). Hover the dots for what the level means.">evidence <span class="pips p3"><i></i><i></i><i></i></span> strong <span class="pips p2"><i></i><i></i><i></i></span> partial <span class="pips p1"><i></i><i></i><i></i></span> none</span></div>`;
+  let h = `<div class="profile"><div class="profhead"><span>Profile</span><span class="profkey" data-tip="Evidence: how well each axis is backed for this protein (provenance, not outcome). Hover the dots for what the level means.">Evidence <span class="pips p3"><i></i><i></i><i></i></span> Strong <span class="pips p2"><i></i><i></i><i></i></span> Partial <span class="pips p1"><i></i><i></i><i></i></span> None</span></div>`;
   for (const g of GROUP_ORDER) {
     const cols = TABLE_COLUMNS.filter((c) => c.group === g && DATA.columns.includes(c.key) && colHasData(c.key));
     if (!cols.length) continue;
@@ -855,26 +889,6 @@ function renderGroupPanels(row) {
     if (i >= 0) state.cardOpen.splice(i, 1); else state.cardOpen.push(g);   // any number open, so axes can be read side by side
     renderGroupPanels(row);
   });
-}
-// nearest proteins on the map (t-SNE of ESM-C, this species): often the only lead for an uncharacterised protein
-function neighboursHTML(row, k = 6) {
-  if (!isNum(row.tsne_x) || !isNum(row.tsne_y)) return "";
-  const near = [];
-  for (const r of DATA.rows) {
-    if (r === row || !isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
-    const d = (r.tsne_x - row.tsne_x) ** 2 + (r.tsne_y - row.tsne_y) ** 2;
-    if (near.length < k || d < near[near.length - 1][0]) { near.push([d, r]); near.sort((a, b) => a[0] - b[0]); if (near.length > k) near.pop(); }
-  }
-  const useW = showWeighted();
-  const key = useW ? "__c" : "degradability_consensus";
-  const items = near.map(([, r]) => {
-    const v = r[key];
-    const bar = isNum(v) ? `<span class="sc" style="--c:${useW ? "var(--brand)" : groupColor("Degradability")};--v:${Math.round(v * 100)}%"><b>${v.toFixed(2)}</b></span>` : '<span class="na">–</span>';
-    const fc = r.cog && r.cog !== "none" ? FC_BY_ID[r.cog] : null;
-    return `<button class="nbr" data-acc="${r.uniprot_accession}"><span class="nbid"><span class="${r.gene ? "gene" : "acc"}">${esc(r.gene || r.uniprot_accession)}</span>`
-      + `<span class="nbname">${esc(shortName(r.name) || (fc ? fc.label : ""))}</span></span>${bar}</button>`;
-  }).join("");
-  return `<section class="cblock"><div class="cbhead"><span>Nearest on the map</span><span class="cbnote" data-tip="The ${k} closest proteins in this species on the t-SNE map of ESM-C embeddings: similar sequence features, not necessarily homologs. The bar is ${useW ? "your weighted score" : "degradability"}.">${useW ? "weighted score" : "degradability"}</span></div><div class="nbrs">${items}</div></section>`;
 }
 // ---- 3D structure viewer (3Dmol.js, lazy) --------------------------------
 let _3dmolP = null;       // promise: 3Dmol library loaded
@@ -977,7 +991,7 @@ function openDrawer(row) {
   const orth = orthologInOther(row);
   const orthBtn = orth ? `<button class="orthjump" id="orthJump">Same gene in ${ORGANISM_META[orth.org].name}: <i>${esc(orth.gene || orth.acc)}</i></button>` : "";
   const weighted = showWeighted() && isNum(row.__c)
-    ? `<div class="gcweighted">Weighted score (yours) <b>${row.__c.toFixed(2)}</b> · rank #${compRank(row).toLocaleString()} of ${DATA.rows.length.toLocaleString()}</div>` : "";
+    ? `<div class="gcweighted">Weighted score <b>${row.__c.toFixed(2)}</b> · rank #${compRank(row).toLocaleString()} of ${DATA.rows.length.toLocaleString()}</div>` : "";
   $("drawer").innerHTML = `
     <div class="dhead">
       <button class="close" id="drawerClose" aria-label="Close">×</button>
@@ -998,7 +1012,6 @@ function openDrawer(row) {
       <div id="groupPanels"></div>
       <section class="cblock viewerpanel${state.molBig ? " big" : ""}"><div class="cbhead"><span>Structure</span><button class="linkbtn" id="molSize">${state.molBig ? "smaller" : "larger"}</button></div>
         <div class="pdbslot" id="pdbslot"><div class="pdbmsg">Loading 3D structure…</div></div><p class="pdbcap" id="pdbcap"></p></section>
-      ${neighboursHTML(row)}
     </div>`;
   renderGroupPanels(row);
   $("molSize").onclick = () => {
@@ -1007,7 +1020,6 @@ function openDrawer(row) {
     $("molSize").textContent = state.molBig ? "smaller" : "larger";
     requestAnimationFrame(() => { if (_mol) { _mol.viewer.resize(); _mol.viewer.render(); } });
   };
-  $("drawer").querySelectorAll(".nbr").forEach((b) => b.onclick = () => { const r = DATA.rows.find((x) => x.uniprot_accession === b.dataset.acc); if (r) openDrawer(r); });
   $("drawerClose").onclick = closeDrawer;
   const pos = filtered.indexOf(row);
   $("cardPos").textContent = pos >= 0 ? `${(pos + 1).toLocaleString()} of ${filtered.length.toLocaleString()}` : "";
@@ -1453,13 +1465,19 @@ function buildCatPanelNow() {
 function updateAccCounts() {
   const set = (id, n) => { const e = document.querySelector(`#${id} .acount`); if (e) e.textContent = n ? String(n) : ""; };
   const size = (k) => (state.filters.cats[k] ? state.filters.cats[k].size : 0);
-  set("accLoc", size("localization"));
+  const locT = document.querySelector("#accLoc .acount");
+  if (locT) {
+    const n = size("localization");
+    locT.innerHTML = n ? `${n} <button class="cogall" type="button">clear</button>` : "";
+    const lb = locT.querySelector(".cogall");
+    if (lb) lb.onclick = (e) => { e.stopPropagation(); delete state.filters.cats.localization; paintLoc(); updateAccCounts(); save(); recompute(); };
+  }
   const cogSel = state.filters.cats.cog, cogT = document.querySelector("#accCog .acount");
   const cogN = cogSel && cogSel.size ? cogChips().filter((k) => chipCodes(k).some((c) => cogSel.has(c))).length : 0;
-  if (cogT) cogT.innerHTML = cogN ? `${cogN} of ${cogChips().length} <button class="cogall" type="button">show all</button>` : "";
+  if (cogT) cogT.innerHTML = cogN ? `${cogN} of ${cogChips().length} <button class="cogall" type="button">clear</button>` : "";
   const ca = cogT && cogT.querySelector(".cogall"); if (ca) ca.onclick = () => setCog(new Set());
   set("accOrth", (state.filters.bools.has_human_ortholog || "any") !== "any" ? 1 : 0);
-  const b = $("sbClear"); if (b) b.hidden = !(anyFilterActive() || !!state.filters.search);
+  const b = $("sbClear"); if (b) b.hidden = !(anyFilterActive() || !!state.filters.search || state.shortlistOnly || (state.mapSel && state.mapSel.size));
 }
 function buildFilterBar() { buildCatPanel(); }
 // ---------- presets --------------------------------------------------------
@@ -1469,7 +1487,7 @@ function applyPreset() {
   state.filters.ranges = {};
   state.filters.cats = {};
   state.filters.bools = {};
-  state.mapSel = null;
+  state.mapSel = null; state.shortlistOnly = false; updateShortlistBtn(); updateMapSelChip();
   buildRangePanel();
   buildFilterBar();
   save(); recompute();
@@ -1686,7 +1704,8 @@ function drawMap() {
   // highlight layer: passing rows, coloured by the chosen field
   let hi = 0;
   ctx.lineWidth = 0.6; ctx.strokeStyle = "rgba(255,255,255,0.85)";
-  for (const r of filtered) {
+  const shown = state.mapScope === "all" ? DATA.rows : filtered;
+  for (const r of shown) {
     if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
     let fill;
     if (colorBy === "family") {
@@ -1709,7 +1728,7 @@ function drawMap() {
   // cluster labels: name each category at its median position (categorical + toggle on)
   if (catMap && state.mapLabels !== false) {
     const groups = {};
-    for (const r of filtered) {
+    for (const r of shown) {
       const v = r[colorBy];
       if (!isNum(r.tsne_x) || !isNum(r.tsne_y) || v == null || v === "") continue;
       (groups[v] || (groups[v] = [])).push([X(r.tsne_x), Y(r.tsne_y)]);
@@ -1737,7 +1756,7 @@ function drawMap() {
     }
     ctx.restore();
   }
-  const cnt = $("mapHiCount"); if (cnt) cnt.textContent = `${hi.toLocaleString()} ${catMode ? "shown" : "highlighted"}`;
+  const cnt = $("mapHiCount"); if (cnt) cnt.textContent = `${hi.toLocaleString()} ${catMode ? "shown" : "highlighted"} of ${DATA.rows.length.toLocaleString()}`;
   drawMapOverlay();
   renderMapLegend();
 }
@@ -1753,12 +1772,18 @@ function drawMapOverlay() {
     ctx.beginPath(); ctx.arc(p.sx, p.sy, ring, 0, 6.283);
     ctx.lineWidth = 2; ctx.strokeStyle = `rgb(${acc.r},${acc.g},${acc.b})`; ctx.stroke();
   };
-  // ring shortlisted (starred) proteins in amber
+  // starred proteins: a black star (amber is the degradability colour, so a ring in it read as a score)
   if (state.shortlist && state.shortlist.length) {
-    ctx.lineWidth = 2; ctx.strokeStyle = "#FCBF49";
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "#fff"; ctx.fillStyle = "#111"; ctx.lineJoin = "round";
     for (const a of state.shortlist) {
       const p = mapPts.find((q) => q.row.uniprot_accession === a);
-      if (p) { ctx.beginPath(); ctx.arc(p.sx, p.sy, 6, 0, 6.283); ctx.stroke(); }
+      if (!p) continue;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 ? 4 : 9, ang = -Math.PI / 2 + i * Math.PI / 5;
+        ctx[i ? "lineTo" : "moveTo"](p.sx + r * Math.cos(ang), p.sy + r * Math.sin(ang));
+      }
+      ctx.closePath(); ctx.stroke(); ctx.fill();
     }
   }
   if (state._sel) mark(state._sel, 7);
@@ -1845,6 +1870,12 @@ function initMap() {
   };
   thr.ondblclick = () => { delete state.mapThr[state.mapColorBy]; syncMapSlider(); save(); if (state.view === "map") drawMap(); };   // double-click: back to the default
 
+  const sc = $("mapScope");
+  if (sc) {
+    const paint = () => { sc.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", b.dataset.s === state.mapScope)); syncSeg(sc); };
+    sc.querySelectorAll("button").forEach((b) => b.onclick = () => { state.mapScope = b.dataset.s; paint(); save(); if (state.view === "map") drawMap(); });
+    paint();
+  }
   const ml = $("mapLabels");
   if (ml) {
     ml.checked = state.mapLabels !== false;

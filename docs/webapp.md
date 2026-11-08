@@ -189,3 +189,10 @@ was removed; `/v1/` is still deployed by `pages.yml`.
 ## Revision 19 (2026-11-06): social preview
 
 `index.html` now carries Open Graph and Twitter card tags (absolute URLs, `summary_large_image`) and a `description`. The card is `webapp/social-preview.png` (1200x630), rendered by `scripts/webapp/social_preview.py` (env `gradi`), which reads the protein counts from `webapp/data/*.json` so the card cannot disagree with the site. Text stays inside a 90 px safe margin and was checked at 320 px wide, the size chat apps show on a phone. Re-run the script if the payload size changes. Link scrapers cache the image, so a changed card may take time to refresh after a deploy.
+
+## Revision 21 (2026-11-08): owner feedback round
+
+Table: every axis score has its own header ("Deg. score", "Ess. score", "Prec. score", "Pocket score", "Stud. score"), also when collapsed; headers are one line and carry no "#" ("Drugs", "Lig. own", "PDB lig.", "Fpocket", "Panel cons." shown as y/28, "Screens mod.", "ADEP4 orth."). Removed columns: measured essentiality (any / all, now only in the Evidence dots' tooltip and the card badge), "Papers (own)" (the ranking count "Papers" stays) and "Naming evid." (Function has one Evidence). GO slim shows term names in a wide trailing column. The weighted column has a hide control; each sidebar selection can be cleared where it was made.
+Card: "Nearest on the map" removed, no explanatory sentences, evidence key reads Strong / Partial / None, "Weighted score" without "(yours)". **Badges are now a fixed list**: `FACT_RULES` in `config.js` (24 rules, each one column and one threshold), listed in Methods from the same array, so they cannot drift.
+Map: Filtered / All switch, starred proteins are black stars (amber is the degradability colour), the weighted score is a colour option while the weights are on.
+Methods: retitled, opens with targeted protein degradation, the AI-first diagram (slide 3 of the project deck, redrawn as SVG) and the ROC curves of the two degradability models, from `scripts/webapp/roc.py` -> `webapp/data/roc.json` (reproduces the stated AUROC 0.88 / 0.77 on the fused out-of-fold scores).
