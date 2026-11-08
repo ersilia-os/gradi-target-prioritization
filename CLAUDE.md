@@ -1840,7 +1840,7 @@ stored or written to a data file**. Do not add any other combined score, star ra
 and the table hides them: do not "complete" them with zeros. And a layout rule learned the hard way: **nothing may move on click**; every animation is opacity or transform, a scripted
 before/after layout diff (toolbar, header, sidebar, table scroll) is how it was checked, and the `.app` entry fade must not keep `animation-fill-mode` (a retained opacity traps the filter drawer under the header).
 
-**Releases:** `v1.0.0` is the first prototype (main as of 2026-07-24), `v2.0.0` the per-axis pipeline, the shortlist and this browser.
+**Releases:** `v1.0.0` is the first prototype (main as of 2026-07-24), `v2.0.0` the per-axis pipeline, the shortlist and this browser. The header has no "Previous version" link (`/v1/` is still served, just unlinked). The link-preview card is `webapp/social-preview.png`, rendered by `scripts/webapp/social_preview.py` (env `gradi`); rerun it if the payload counts change. The browser's protein-card badges are one list, `FACT_RULES` in `webapp/config.js`, and the Methods ROC comes from `scripts/webapp/roc.py` (`webapp/data/roc.json`, env `gradi`). **GitHub Pages deploys flake:** `deploy-pages` can fail with "Deployment failed, try again later" on identical, valid payloads (not a size problem); wait a few minutes and rerun with `gh workflow run pages.yml`.
 
 ## Legacy
 

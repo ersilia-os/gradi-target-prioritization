@@ -8,7 +8,7 @@
 //    never comparable across species) beside `<axis>_evidence` (1-3, provenance not outcome).
 //  * The weighted-score radar is the owner's exception to the project's "no composite" rule: it combines
 //    the consensus columns IN THE BROWSER ONLY (on by default, four axes equally, Novelty off) and is
-//    never exported or stored in the data files. The result is labelled "weighted (yours)", not a project score.
+//    never exported or stored in the data files. The result is labelled "Weighted score", not a project score.
 //  * A missing value is "not annotated / could not look", never 0.
 
 // ---- axis colours -----------------------------------------------------------
@@ -126,29 +126,25 @@ const TABLE_COLUMNS = [
   { key: "length", label: "Length (aa)", type: "int", fixed: true, w: 116,
     desc: "Protein length in amino acids (UniProt reference proteome sequence). Degradability probabilities fall steeply with length (rho about -0.6 to -0.7), so read the degradability and pocket scores against it; the length bands in the filters keep proteins of similar size together." },
   // Degradability
-  { key: "degradability_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Degradability",
+  { key: "degradability_consensus", label: "Score", head: "Deg. score", type: "score", summary: true, heat: true, group: "Degradability",
     desc: "Degradability consensus (0-1): mean within-species percentile of the ADEP4 and ONC212 probabilities. Never compare across species. Tracks either probability at rho 0.97, so it adds little over them. Rows for E. coli and K. pneumoniae are predictions extrapolated from S. aureus screens." },
   { key: "adep4_prob", label: "ADEP4 prob.", type: "score", heat: true, group: "Degradability",
     desc: "Probability the protein is depleted by ADEP4-activated ClpP (TabPFN-3.5 on ESM-C and ProtT5 embeddings, trained on S. aureus; cluster-grouped CV AUROC 0.88). Strongly length-dependent: short proteins score higher." },
   { key: "onc212_prob", label: "ONC212 prob.", type: "score", heat: true, group: "Degradability",
     desc: "Same for the ONC212 screen (cluster-grouped CV AUROC 0.77). The two probabilities correlate at rho 0.89: one opinion, not two." },
-  { key: "adep4_ortholog_hit", label: "ADEP4 ortholog", type: "binary01", group: "Degradability",
+  { key: "adep4_ortholog_hit", label: "ADEP4 orth.", type: "binary01", group: "Degradability",
     desc: "A measured S. aureus ortholog is depleted by ADEP4 (tick) or measured and not depleted (cross). Blank = no measured ortholog (about 80% of proteins). Not independent of the model: the ortholog's label was training data." },
-  { key: "onc212_ortholog_hit", label: "ONC212 ortholog", type: "binary01", group: "Degradability",
+  { key: "onc212_ortholog_hit", label: "ONC212 orth.", type: "binary01", group: "Degradability",
     desc: "Same for ONC212. Blank = no measured S. aureus ortholog." },
   { key: "nn_similarity", label: "NN cosine", type: "score", heat: false, group: "Degradability",
     desc: "Cosine of the nearest S. aureus protein in ESM-C space. Raw cosine, not relatedness: random pairs reach a median of 0.78." },
 
   // Essentiality
-  { key: "essentiality_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Essentiality",
+  { key: "essentiality_consensus", label: "Score", head: "Ess. score", type: "score", summary: true, heat: true, group: "Essentiality",
     desc: "Essentiality consensus (0-1): mean within-species percentile of Geptop, ProteomeLM-Ess and the screen-trained models. Partly circular on E. coli." },
   { key: "essentiality_evidence", label: "Evidence", type: "tier", group: "Essentiality",
-    desc: "3 = two or more independent experimental sources, unanimous and agreeing with the consensus; 2 = one source, or several that conflict; 1 = no measurement. Provenance, not outcome. On K. pneumoniae a 3 rests on strains other than HS11286." },
-  { key: "deg_essential_any", label: "Measured", type: "binary01", summary: true, group: "Essentiality",
-    desc: "Called essential by at least one DEG screen on this exact strain (E. coli K-12 only). Blank on K. pneumoniae: DEG indexes no Klebsiella, so there is no measured call on HS11286." },
-  { key: "deg_essential_all", label: "All screens", type: "binary01", group: "Essentiality",
-    desc: "Called essential by every DEG screen on this strain. 'Any' and 'all' differ about 3.4-fold on E. coli. Blank on K. pneumoniae." },
-  { key: "screens_ess_mean", label: "Screens model", type: "score", heat: false, group: "Essentiality",
+    desc: "Measured essentiality. 3 = two or more independent screens agree with each other and with the consensus; 2 = one screen, or screens that conflict; 1 = no screen. Hover a dot row for the screens counted. E. coli counts its three K-12 screens (one strain lineage); K. pneumoniae counts screens of other strains (DEG has none on HS11286)." },
+  { key: "screens_ess_mean", label: "Screens mod.", type: "score", heat: false, group: "Essentiality",
     desc: "Mean probability of nine models trained on published screens (not nine independent votes: they read the same embedding). On E. coli this is not a validated prediction." },
   { key: "proteomelm_ess", label: "ProteomeLM", type: "score", heat: false, group: "Essentiality",
     desc: "p(essential) from the ProteomeLM essentiality head (E. coli K-12 is held out of its training set; K. pneumoniae is an unseen species). Comparable within a species only." },
@@ -156,37 +152,37 @@ const TABLE_COLUMNS = [
     desc: "Geptop 2.0 score (orthology to known essential genes). A 0 is a confident non-essential call when orthologs exist and none is essential, otherwise 'no orthologs'." },
 
   // Ligand precedence
-  { key: "ligands_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Ligand precedence",
+  { key: "ligands_consensus", label: "Score", head: "Prec. score", type: "score", summary: true, heat: true, group: "Ligand precedence",
     desc: "Ligand precedence consensus (0-1): percentile of potent ChEMBL ligand counts (own, bacterial homologs) and best potency, pinned to 0 for the ~97% with no evidence. Human ligands are excluded (a liability, not a benefit)." },
   { key: "ligands_evidence", label: "Evidence", type: "tier", group: "Ligand precedence",
     desc: "3 = somebody assayed this protein, or a drug is recorded against it; 2 = only a bacterial homolog was assayed; 1 = nothing in ChEMBL (an open question, not a negative)." },
-  { key: "n_drugs", label: "# drugs", type: "int", group: "Ligand precedence",
+  { key: "n_drugs", label: "Drugs", type: "int", group: "Ligand precedence",
     desc: "Drugs in ChEMBL's mechanism table whose target is this protein or one at least 95% identical. Target-level: a drug on a complex is credited to every member. 0 means none recorded, not undruggable." },
-  { key: "n_ligands_own", label: "# lig. own", type: "int", group: "Ligand precedence",
+  { key: "n_ligands_own", label: "Lig. own", type: "int", group: "Ligand precedence",
     desc: "Distinct potent (pChEMBL >= 6) ChEMBL molecules for this protein (species-level match)." },
-  { key: "n_ligands_bacterial", label: "# lig. bact.", type: "int", group: "Ligand precedence",
+  { key: "n_ligands_bacterial", label: "Lig. bact.", type: "int", group: "Ligand precedence",
     desc: "Distinct potent molecules over all true-bacterial homologs at >= 40% identity (unique molecules, not a per-target sum). The identity floor controls coverage, not transfer reliability." },
-  { key: "n_ligands_human", label: "# lig. human", type: "int", group: "Ligand precedence",
+  { key: "n_ligands_human", label: "Lig. human", type: "int", group: "Ligand precedence",
     desc: "Potent molecules against the closest human homolog: a selectivity liability, never added to the bacterial count." },
   { key: "best_pactivity_bacterial", label: "Best pActivity", type: "num", group: "Ligand precedence",
     desc: "Best potency among bacterial ligands (pChEMBL; 6 = 1 uM). Blank for about 97% of proteins." },
-  { key: "n_assayed_own", label: "# assayed", type: "int", group: "Ligand precedence",
+  { key: "n_assayed_own", label: "Assayed", type: "int", group: "Ligand precedence",
     desc: "Compounds assayed against this protein, active or not. 0 against 0 assayed is an open question; 0 potent against many assayed is a measured discouragement." },
 
   // Pockets / structure
-  { key: "pockets_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Pockets",
+  { key: "pockets_consensus", label: "Score", head: "Pocket score", type: "score", summary: true, heat: true, group: "Pockets",
     desc: "Pockets score (0-1): mean of the P2Rank probability, the fpocket druggability and the PDB and AlphaFill ligand counts (each as n/(n+1)); any protein with a drug-like ligand in its own PDB structures is floored at 0.8. Tracks protein length (rho about 0.65); within length deciles P2Rank is near chance." },
   { key: "pockets_evidence", label: "Evidence", type: "tier", group: "Pockets",
     desc: "3 = this protein has its own PDB structure; 2 = an AlphaFill transplant and no structure; 1 = pocket scores only." },
   { key: "p2rank_score", label: "P2Rank", type: "num", group: "Pockets",
     desc: "Best P2Rank pocket probability-sum on the AlphaFold model (pLDDT >= 70 residues only)." },
-  { key: "fpocket_score", label: "fpocket", type: "num", group: "Pockets",
+  { key: "fpocket_score", label: "Fpocket", type: "num", group: "Pockets",
     desc: "Best fpocket druggability score on the AlphaFold model." },
-  { key: "n_ligands_pdb", label: "# PDB lig.", type: "int", group: "Pockets",
+  { key: "n_ligands_pdb", label: "PDB lig.", type: "int", group: "Pockets",
     desc: "Distinct drug-like ligand scaffolds seen in this protein's own PDB structures (measured). Fusion constructs can carry a partner's ligands." },
-  { key: "n_ligands_alphafill", label: "# AlphaFill lig.", type: "int", group: "Pockets",
+  { key: "n_ligands_alphafill", label: "AlphaFill lig.", type: "int", group: "Pockets",
     desc: "Distinct drug-like scaffolds transplanted from homologs (modelled, never summed with the PDB count)." },
-  { key: "n_pdb_structures", label: "# PDB", type: "int", group: "Pockets",
+  { key: "n_pdb_structures", label: "PDB entries", type: "int", group: "Pockets",
     desc: "PDB entries that are this protein (by sequence, >= 95% identity, >= 50% of the chain)." },
   { key: "af_plddt", label: "pLDDT", type: "plddt", group: "Pockets",
     desc: "Mean AlphaFold pLDDT (0-100). Low = disordered." },
@@ -202,21 +198,19 @@ const TABLE_COLUMNS = [
   // Orthology
   { key: "has_human_ortholog", label: "Human ortholog", type: "binary01", w: 132, summary: true, group: "Orthology",
     desc: "A human ortholog by either OrthoFinder or reciprocal best hit (union). Tick = has one (a selectivity liability)." },
-  { key: "bacterial_panel_orthologs", label: "Panel conserv.", type: "pct", group: "Orthology",
-    desc: "Fraction of 28 bacterial proteomes with an ortholog (species counted, not proteins). A fraction, not a count." },
+  { key: "bacterial_panel_orthologs", label: "Panel cons.", type: "ratio", group: "Orthology",
+    desc: "Bacterial proteomes, out of 28, that have an ortholog (species counted, not proteins). Sorts as the fraction." },
   { key: "orthology_evidence", label: "Evidence", type: "tier", group: "Orthology",
     desc: "3 = placed in a grouping, OrthoFinder and RBH both found a bacterial ortholog and do not conflict on the human call; 2 = placed but not corroborated; 1 = in no grouping (could not look)." },
 
   // Studiedness
-  { key: "studiedness_consensus", label: "Score", type: "score", summary: true, heat: true, group: "Studiedness",
+  { key: "studiedness_consensus", label: "Score", head: "Stud. score", type: "score", summary: true, heat: true, group: "Studiedness",
     desc: "Studiedness consensus (0-1): mean percentile of three paper counts. High = well studied. Proteins with no donor literature are pinned to 0 (S. aureus only)." },
   { key: "studiedness_evidence", label: "Evidence", type: "tier", group: "Studiedness",
     desc: "3 = a curated SwissProt donor at >= 95% identity (this protein's own literature); 2 = a donor at >= 40%; 1 = nothing in SwissProt resembles it." },
-  { key: "n_papers_uniprot_prokaryotic", label: "# papers", type: "int", group: "Studiedness",
+  { key: "n_papers_uniprot_prokaryotic", label: "Papers", type: "int", group: "Studiedness",
     desc: "Curated UniProt references of the best-cited prokaryotic donor at >= 40% identity (the ranking count)." },
-  { key: "n_papers_uniprot_own", label: "# papers (own)", type: "int", group: "Studiedness",
-    desc: "Union of curated references over this protein's own entries (accession, identical sequence, same species at >= 95%)." },
-  { key: "n_papers_pubtator_prokaryotic", label: "# PubTator", type: "int", group: "Studiedness",
+  { key: "n_papers_pubtator_prokaryotic", label: "PubTator", type: "int", group: "Studiedness",
     desc: "PubTator-annotated papers of the best PubTator donor, keyed on NCBI GeneID. Blank = no in-scope donor carried a GeneID (about 38% on K. pneumoniae)." },
 
   // Function
@@ -224,46 +218,45 @@ const TABLE_COLUMNS = [
     desc: "First COG category letter (COGclassifier 2.0 over CDD). 'none' = no hit (E. coli 84.5% classified, K. pneumoniae 79.1%). Multi-letter COGs (9-16%) are in the gene card." },
   { key: "function_evidence", label: "Evidence", type: "tier", group: "Function",
     desc: "3 = both COG and GO-slim annotate it, the GO is UniProt-curated and the COG informative (not R or S); 2 = annotated but not corroborated; 1 = neither." },
-  { key: "goslim_terms", label: "GO slim", type: "text", group: "Function",
-    desc: "GO-slim (prokaryote) terms, ';'-joined. Empty = not annotated, never 'ruled out'." },
-  { key: "proteomes_evidence", label: "Naming evid.", type: "tier", group: "Function",
-    desc: "3 = the entry carries its own identity (reviewed or a gene symbol) and a specific protein name; 2 = one of those; 1 = neither." },
+  { key: "goslim_terms", label: "GO slim", type: "goslim", w: 360, group: "Function",
+    desc: "GO-slim (prokaryote) terms by name. Empty = not annotated, never 'ruled out'." },
 ];
 
 const LEADING_COL_DESC = {
   rank: "Row rank under the current filters and sort.",
   name: "Gene name (italic) and UniProt accession, the canonical identifier.",
-  __c: "Weighted score (yours): the weighted mean of the radar's axes (default: Degradability, Essentiality, Ligand precedence and Pockets equally; Novelty off), renormalised over the axes that have a value. NOT a project score and never exported. Switch it off in the sidebar to sort by a single axis.",
+  __c: "Weighted score: the weighted mean of the radar's axes (default: Degradability, Essentiality, Ligand precedence and Pockets equally; Novelty off), renormalised over the axes that have a value. NOT a project score and never exported. Switch it off in the sidebar to sort by a single axis.",
   __conf: "Evidence support for essentiality and ligand precedence: dots reflect the evidence levels (3 = full, 2 = partial, 1 = none). Provenance, not outcome.",
 };
 
 // ---- methods / provenance panel ------------------------------------------------
 const METHODS = [
-  { title: "Reading the table", color: "var(--brand)", body:
-    "Each axis gives a <b>score</b> (0-1, within that species: a percentile for most axes, the inputs' own scales for Pockets) and an <b>evidence</b> level, shown as dots (1-3: how well the call is backed; provenance, not outcome). Scores cannot be compared between species. A dash means not annotated or not measured, never zero; a faded column has no data for this species. The <b>weighted score</b> is yours: drag the radar's spokes to set how much each axis counts (Novelty is 1 minus studiedness, off by default). It is computed in your browser only and never exported.",
-    refs: [] },
   { title: "Degradability", color: "var(--amber)", body:
-    "TabPFN-3.5 models on ESM-C and ProtT5 embeddings, trained on two <i>S. aureus</i> ClpP-activator screens (ADEP4, ONC212) and applied to every protein here. <b>These are predictions, not measurements</b>: no Gram-negative labels exist. Scores fall with protein length, and membrane proteins are protected from cytoplasmic ClpP. TabPFN is used under its non-commercial licence; this browser is a free, non-profit research resource.",
+    "TabPFN-3.5 models on ESM-C and ProtT5 embeddings, trained on two <i>S. aureus</i> ClpP-activator screens (ADEP4, ONC212) and applied to every protein. These are predictions, not measurements: no Gram-negative labels exist. Scores fall with protein length, and membrane proteins are protected from cytoplasmic ClpP. TabPFN is used under its non-commercial licence; this browser is a free, non-profit research resource.",
     refs: [
       ["TabPFN (Prior Labs)", "https://priorlabs.ai/"],
       ["ESM-C (EvolutionaryScale)", "https://www.evolutionaryscale.ai/"],
     ] },
   { title: "Essentiality", color: "var(--crimson)", body:
-    "Consensus of Geptop 2.0, ProteomeLM-Ess and models trained on published screens. Measured calls (DEG) exist for E. coli K-12 only, and the consensus is partly circular with them. K. pneumoniae HS11286 has no measured call.",
+    "Consensus of Geptop 2.0, ProteomeLM-Ess and models trained on published screens. Measured calls (DEG) exist for E. coli mostly.",
     refs: [
       ["DEG, Database of Essential Genes", "http://origin.tubic.org/deg/public/index.php"],
       ["ProteomeLM", "https://github.com/Bitbol-Lab/ProteomeLM"],
     ] },
-  { title: "Ligand precedence and pockets", color: "var(--cobalt)", body:
-    "Counts potent (pChEMBL 6 or more) ChEMBL molecules for the protein or bacterial homologs, plus recorded drugs. About 97% have none because nobody screened them. The pocket score averages P2Rank, fpocket, PDB and AlphaFill ligands on their own scales, with a measured PDB ligand counting at least 0.8; it tracks protein length.",
+  { title: "Ligand precedence", color: "var(--cobalt)", body:
+    "Counts potent (pChEMBL 6 or more) ChEMBL molecules for the protein or its bacterial homologs, plus recorded drugs. The majority have none, as expected.",
     refs: [
       ["ChEMBL", "https://www.ebi.ac.uk/chembl/"],
+    ] },
+  { title: "Pockets", color: "var(--cobalt)", body:
+    "The pocket score averages P2Rank, Fpocket, PDB and AlphaFill ligands on their own scales, with a measured PDB ligand counting the most.",
+    refs: [
       ["AlphaFold DB", "https://alphafold.ebi.ac.uk/"],
       ["P2Rank", "https://github.com/rdk/p2rank"],
-      ["fpocket", "https://github.com/Discngine/fpocket"],
+      ["Fpocket", "https://github.com/Discngine/fpocket"],
     ] },
   { title: "Localization, function, orthology, studiedness", color: "var(--lime)", body:
-    "Localization: DeepLocPro and TMbed, from sequence alone. Function: COG category and GO slim. Orthology: OrthoFinder on 30 proteomes plus reciprocal best hits. Studiedness: paper counts of the best curated donor protein.",
+    "Localization: DeepLocPro and TMbed, from sequence alone. Function: COG category and GO slim. Orthology: OrthoFinder on 30 proteomes (the four anchors and 26 bacterial comparators) plus reciprocal best hits. Studiedness: paper counts from UniProt and PubTator.",
     refs: [
       ["DeepLocPro", "https://services.healthtech.dtu.dk/services/DeepLocPro-1.0/"],
       ["OrthoFinder", "https://github.com/davidemms/OrthoFinder"],
@@ -321,7 +314,7 @@ const MAP_COLORS = [
   { key: "pockets_consensus", label: "Pockets" },
   { key: "studiedness_consensus", label: "Studiedness" },
   { key: "cytoplasmic_fraction", label: "Cytoplasmic fraction" },
-  { key: "__c", label: "Weighted score (yours)" },
+  { key: "__c", label: "Weighted score" },
   { key: "cog", label: "Function (COG)" },
   { key: "localization", label: "Localization" },
   { key: "essentiality_evidence", label: "Essentiality evidence" },
@@ -473,3 +466,60 @@ const GO_SLIM = {
   "GO:0140657": ["ATP-dependent activity", "F"],
   "GO:1901135": ["carbohydrate derivative metabolic process", "P"]
 };
+
+// ---- protein-card badges ----------------------------------------------------------------------
+// Every badge on the card comes from one rule below: a fixed list, each reading one column with a stated
+// threshold, so the badges are the same for every protein and the Methods dialog can list them all.
+// tone: good = helps a degrader target, bad = hurts, info = context. `test` returns the badge text or null.
+// (nz, isYes, isNo, plural, fmtN, LOC_LABEL and PANEL_SIZE are defined in app.js and used only when a card opens.)
+const FACT_TOP = 0.9, FACT_BOTTOM = 0.1;   // top / bottom decile of a within-species score
+const FACT_RULES = [
+  { id: "ess_measured", tone: "good", rule: "Called essential in at least one DEG screen on this strain",
+    test: (r) => isNum(r.deg_n_datasets) && r.deg_n_datasets > 0 && nz(r.deg_n_essential) ? `Essential in ${r.deg_n_essential} of ${r.deg_n_datasets} DEG screens` : null },
+  { id: "ess_not", tone: "bad", rule: "In DEG screens on this strain and called essential in none",
+    test: (r) => isNum(r.deg_n_datasets) && r.deg_n_datasets > 0 && !nz(r.deg_n_essential) ? `Not essential in ${plural(r.deg_n_datasets, "DEG screen")}` : null },
+  { id: "ess_pred", tone: "good", rule: "No DEG screen on this strain and essentiality score in the top decile",
+    test: (r) => !(isNum(r.deg_n_datasets) && r.deg_n_datasets > 0) && isNum(r.essentiality_consensus) && r.essentiality_consensus >= FACT_TOP ? "Predicted essential (top 10%)" : null },
+  { id: "deg_orth_yes", tone: "good", rule: "A measured S. aureus ortholog is depleted in the ADEP4 or ONC212 screen",
+    test: (r) => [r.adep4_ortholog_hit, r.onc212_ortholog_hit].some(isYes) ? `S. aureus ortholog degraded (${["ADEP4", "ONC212"].filter((_, i) => isYes([r.adep4_ortholog_hit, r.onc212_ortholog_hit][i])).join(", ")})` : null },
+  { id: "deg_orth_no", tone: "bad", rule: "Measured S. aureus orthologs exist and none is depleted",
+    test: (r) => ![r.adep4_ortholog_hit, r.onc212_ortholog_hit].some(isYes) && [r.adep4_ortholog_hit, r.onc212_ortholog_hit].some(isNo) ? "S. aureus ortholog not degraded" : null },
+  { id: "deg_top", tone: "good", rule: "Degradability score in the top decile",
+    test: (r) => isNum(r.degradability_consensus) && r.degradability_consensus >= FACT_TOP ? "Top 10% degradability" : null },
+  { id: "deg_bottom", tone: "bad", rule: "Degradability score in the bottom decile",
+    test: (r) => isNum(r.degradability_consensus) && r.degradability_consensus <= FACT_BOTTOM ? "Bottom 10% degradability" : null },
+  { id: "drugs", tone: "good", rule: "A drug in ChEMBL's mechanism table targets this protein or a >= 95% identical one",
+    test: (r) => nz(r.n_drugs) ? plural(r.n_drugs, "drug") : null },
+  { id: "lig_own", tone: "good", rule: "At least one potent (pChEMBL >= 6) ChEMBL ligand for this protein",
+    test: (r) => nz(r.n_ligands_own) ? plural(r.n_ligands_own, "potent ligand") : null },
+  { id: "lig_bact", tone: "good", rule: "No potent ligand for this protein, but some for bacterial homologs (>= 40% identity)",
+    test: (r) => !nz(r.n_ligands_own) && nz(r.n_ligands_bacterial) ? `${plural(r.n_ligands_bacterial, "potent ligand")} on homologs` : null },
+  { id: "assayed_none", tone: "bad", rule: "10 or more compounds assayed against this protein and none potent",
+    test: (r) => !nz(r.n_ligands_own) && isNum(r.n_assayed_own) && r.n_assayed_own >= 10 ? `${fmtN(r.n_assayed_own)} assayed, none potent` : null },
+  { id: "pdb_lig", tone: "good", rule: "A drug-like ligand in this protein's own PDB structures",
+    test: (r) => nz(r.n_ligands_pdb) ? `${plural(r.n_ligands_pdb, "ligand")} in PDB structures` : null },
+  { id: "pdb_struct", tone: "info", rule: "A PDB structure of this protein, with no drug-like ligand",
+    test: (r) => !nz(r.n_ligands_pdb) && nz(r.n_pdb_structures) ? plural(r.n_pdb_structures, "PDB structure") : null },
+  { id: "pdb_none", tone: "info", rule: "No PDB structure of this protein",
+    test: (r) => isNum(r.n_pdb_structures) && r.n_pdb_structures === 0 ? "No PDB structure" : null },
+  { id: "disordered", tone: "bad", rule: "AlphaFold model with mean pLDDT below 50",
+    test: (r) => isNum(r.af_plddt) && r.af_plddt < 50 ? `Mostly disordered (pLDDT ${Math.round(r.af_plddt)})` : null },
+  { id: "loc_cyto", tone: "good", rule: "DeepLocPro class is cytoplasm",
+    test: (r) => r.localization === "cytoplasm" ? "Cytoplasmic" : null },
+  { id: "loc_membrane", tone: "bad", rule: "DeepLocPro class is inner or outer membrane",
+    test: (r) => r.localization === "cytoplasmic_membrane" || r.localization === "outer_membrane" ? `${LOC_LABEL[r.localization]} protein` : null },
+  { id: "loc_other", tone: "info", rule: "DeepLocPro class is periplasm or extracellular",
+    test: (r) => r.localization === "periplasm" || r.localization === "extracellular" ? LOC_LABEL[r.localization] : null },
+  { id: "human_orth", tone: "bad", rule: "A human ortholog by OrthoFinder or reciprocal best hit",
+    test: (r) => isYes(r.has_human_ortholog) ? "Human ortholog" : null },
+  { id: "no_human_orth", tone: "good", rule: "No human ortholog by either method",
+    test: (r) => isNo(r.has_human_ortholog) ? "No human ortholog" : null },
+  { id: "human_lig", tone: "bad", rule: "Potent ligands on the closest human homolog",
+    test: (r) => nz(r.n_ligands_human) ? `${plural(r.n_ligands_human, "potent ligand")} on human homolog` : null },
+  { id: "conserved", tone: "info", rule: "Ortholog in at least 90% of the 28 bacterial proteomes",
+    test: (r) => isNum(r.bacterial_panel_orthologs) && r.bacterial_panel_orthologs >= 0.9 ? `Conserved in ${Math.round(r.bacterial_panel_orthologs * PANEL_SIZE)}/${PANEL_SIZE} bacteria` : null },
+  { id: "well_studied", tone: "info", rule: "30 or more papers on the best-cited homolog",
+    test: (r) => isNum(r.n_papers_uniprot_prokaryotic) && r.n_papers_uniprot_prokaryotic >= 30 ? `Well studied (${fmtN(r.n_papers_uniprot_prokaryotic)} papers)` : null },
+  { id: "unexplored", tone: "info", rule: "Nothing similar in SwissProt (studiedness evidence 1)",
+    test: (r) => r.studiedness_evidence === 1 ? "Nothing similar in SwissProt" : null },
+];
