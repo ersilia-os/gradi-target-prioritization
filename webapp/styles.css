@@ -595,7 +595,6 @@ thead th[data-sort]:focus-visible{outline:2px solid var(--brand);outline-offset:
 /* weighted column: hide control, map scope switch */
 .hidew{margin-left:5px;border:0;background:none;color:var(--faint);font-size:14px;line-height:1;padding:0 3px;cursor:pointer;border-radius:3px}
 .hidew:hover{color:var(--ink);background:var(--surface-2)}
-.mapscope button{padding:3px 10px;font-size:12px}
 .acount .cogall{margin-left:4px}
 th.colw .hc{white-space:nowrap}
 /* methods: the AI-first approach diagram */
