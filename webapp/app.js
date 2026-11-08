@@ -660,12 +660,6 @@ function methodsHero(roc) {
       + `<span class="rn">Degradability models on <i>S. aureus</i> proteins with a measured call (${a.n.toLocaleString()} and ${o.n.toLocaleString()}), out-of-fold scores.</span></figcaption></figure>` : "")
     + `</section>`;
 }
-// every badge on the protein card, listed from the same FACT_RULES that draw them
-function badgesSection() {
-  const rows = FACT_RULES.map((f) => `<li class="${f.tone}"><i></i>${esc(f.rule)}</li>`).join("");
-  return `<section class="mrow" style="--pc:var(--brand)"><h3>Badges on the protein card</h3>`
-    + `<p>${FACT_RULES.length} fixed rules, each reading one column. Green helps a degrader target, red hurts, grey is context.</p><ul class="mbadges">${rows}</ul></section>`;
-}
 let _roc;
 function openMethods() {
   const m = $("methodsModal");
@@ -676,7 +670,7 @@ function openMethods() {
     m.innerHTML = `<div class="modalhead"><h2>Methods</h2><button class="close" id="methodsClose" aria-label="Close">×</button></div>`
       + `<div class="modalbody">` + methodsHero(_roc)
       + METHODS.map((x) => `<section class="mrow" style="--pc:${x.color}"><h3>${x.title}</h3><p>${x.body}</p>${refsHTML(x.refs)}</section>`).join("")
-      + badgesSection() + `</div>`;
+      + `</div>`;
     $("methodsClose").onclick = closeMethods;
   };
   draw();
