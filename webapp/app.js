@@ -1686,19 +1686,21 @@ function drawMap() {
   const rad = (r) => 2 + 3 * Math.max(0, Math.min(1, isNum(r.__c) ? r.__c : 0));   // size ∝ composite
   syncMapSlider(catMode);
 
-  // base layer: every protein as faint context; also collect hit-test points
+  // with a filter on, only the proteins that pass it are drawn; the rest disappear (the frame stays fixed)
+  const narrowed = filtered.length < DATA.rows.length;
+  const shown = narrowed ? filtered : DATA.rows;
+  // base layer: the faint context dot of each drawn protein; also collect hit-test points
   mapPts = [];
   ctx.fillStyle = `rgba(${faint.r},${faint.g},${faint.b},0.16)`;
-  for (const r of DATA.rows) {
+  for (const r of shown) {
     if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
     const px = X(r.tsne_x), py = Y(r.tsne_y);
     ctx.beginPath(); ctx.arc(px, py, 1.3, 0, 6.283); ctx.fill();
     mapPts.push({ sx: px, sy: py, row: r });
   }
-  // colour layer: every protein, coloured by the chosen field; the ones that pass the filters get a ring below
+  // highlight layer: the drawn proteins, coloured by the chosen field
   let hi = 0;
   ctx.lineWidth = 0.6; ctx.strokeStyle = "rgba(255,255,255,0.85)";
-  const shown = DATA.rows;
   for (const r of shown) {
     if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
     let fill;
@@ -1750,19 +1752,9 @@ function drawMap() {
     }
     ctx.restore();
   }
-  // ring the proteins that pass the filters, so the selection reads against the whole proteome
-  const ringed = filtered.length < DATA.rows.length;
-  if (ringed) {
-    ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(25,25,35,0.9)";
-    for (const r of filtered) {
-      if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
-      ctx.beginPath(); ctx.arc(X(r.tsne_x), Y(r.tsne_y), rad(r) + 1.5, 0, 6.283); ctx.stroke();
-    }
-  }
   const cnt = $("mapHiCount");
-  if (cnt) cnt.textContent = ringed
-    ? `${filtered.length.toLocaleString()} ringed (match filters) of ${DATA.rows.length.toLocaleString()}`
-    : `${hi.toLocaleString()} ${catMode ? "shown" : "highlighted"} of ${DATA.rows.length.toLocaleString()}`;
+  if (cnt) cnt.textContent = `${hi.toLocaleString()} ${catMode ? "shown" : "highlighted"} of ${shown.length.toLocaleString()}`
+    + (narrowed ? ` filtered (${DATA.rows.length.toLocaleString()} in all)` : "");
   drawMapOverlay();
   renderMapLegend();
 }
