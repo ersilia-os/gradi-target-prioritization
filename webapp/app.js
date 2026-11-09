@@ -17,7 +17,6 @@ const state = {
   mapColorBy: "degradability_consensus",
   mapThr: {},             // map: per colour-by field, the threshold the reader set (else a data-derived default)
   mapLabels: true,        // map: draw cluster labels in categorical colour modes
-  mapScope: "filtered",   // map: colour only the proteins passing the filters ("filtered") or every protein ("all")
   weights: {},            // key -> {on, weight}
   orthoTransfer: true,    // include ortholog-transferred knowledge (essentiality track)
   filters: { search: "", ranges: {}, cats: {}, bools: {} },
@@ -81,7 +80,7 @@ const cleanMapColor = (k) => (MAP_COLORS.some((m) => m.key === k) ? k : "degrada
 function save() {
   const s = {
     org: state.org, view: state.view, mapColorBy: state.mapColorBy,
-    mapThr: state.mapThr, mapLabels: state.mapLabels, mapScope: state.mapScope,
+    mapThr: state.mapThr, mapLabels: state.mapLabels,
     weights: state.weights, orthoTransfer: state.orthoTransfer,
     filters: { search: state.filters.search, ranges: state.filters.ranges,
       cats: Object.fromEntries(Object.entries(state.filters.cats).map(([k, v]) => [k, [...v]])),
@@ -103,7 +102,6 @@ function load() {
     state.mapColorBy = cleanMapColor(s.mapColorBy);
     state.mapThr = (s.mapThr && typeof s.mapThr === "object") ? s.mapThr : {};
     if (typeof s.mapLabels === "boolean") state.mapLabels = s.mapLabels;
-    if (s.mapScope === "all" || s.mapScope === "filtered") state.mapScope = s.mapScope;
     state.weights = cleanWeights(s.weights);
     if (typeof s.orthoTransfer === "boolean") state.orthoTransfer = s.orthoTransfer;
     if (s.filters) {
@@ -652,19 +650,12 @@ function diagramHTML() {
 }
 function methodsHero(roc) {
   const a = roc && roc.adep4, o = roc && roc.onc212;
-  return `<section class="mhero"><h3>Targeted protein degradation</h3>`
-    + `<p>A degrader joins a target protein to a bacterial protease, so the cell destroys the target. This browser ranks every protein of <i>E. coli</i> and <i>K. pneumoniae</i> as a candidate target.</p>`
+  return `<section class="mhero"><h3>Prediction-first approach</h3>`
     + diagramHTML()
     + (roc ? `<figure class="mroc">${rocSVG(roc)}<figcaption><span class="rk"><i style="background:var(--amber)"></i>ADEP4 <b>AUROC ${a.auc.toFixed(2)}</b></span>`
       + `<span class="rk"><i style="background:var(--cobalt)"></i>ONC212 <b>AUROC ${o.auc.toFixed(2)}</b></span>`
       + `<span class="rn">Degradability models on <i>S. aureus</i> proteins with a measured call (${a.n.toLocaleString()} and ${o.n.toLocaleString()}), out-of-fold scores.</span></figcaption></figure>` : "")
     + `</section>`;
-}
-// every badge on the protein card, listed from the same FACT_RULES that draw them
-function badgesSection() {
-  const rows = FACT_RULES.map((f) => `<li class="${f.tone}"><i></i>${esc(f.rule)}</li>`).join("");
-  return `<section class="mrow" style="--pc:var(--brand)"><h3>Badges on the protein card</h3>`
-    + `<p>${FACT_RULES.length} fixed rules, each reading one column. Green helps a degrader target, red hurts, grey is context.</p><ul class="mbadges">${rows}</ul></section>`;
 }
 let _roc;
 function openMethods() {
@@ -674,9 +665,9 @@ function openMethods() {
       ? `<a href="${url}" target="_blank" rel="noopener">${txt} ↗</a>` : txt}</li>`).join("") + `</ul>`;
   const draw = () => {
     m.innerHTML = `<div class="modalhead"><h2>Methods</h2><button class="close" id="methodsClose" aria-label="Close">×</button></div>`
-      + `<div class="modalbody">` + methodsHero(_roc)
+      + `<div class="modalbody">`
       + METHODS.map((x) => `<section class="mrow" style="--pc:${x.color}"><h3>${x.title}</h3><p>${x.body}</p>${refsHTML(x.refs)}</section>`).join("")
-      + badgesSection() + `</div>`;
+      + methodsHero(_roc) + `</div>`;
     $("methodsClose").onclick = closeMethods;
   };
   draw();
@@ -1704,10 +1695,10 @@ function drawMap() {
     ctx.beginPath(); ctx.arc(px, py, 1.3, 0, 6.283); ctx.fill();
     mapPts.push({ sx: px, sy: py, row: r });
   }
-  // highlight layer: passing rows, coloured by the chosen field
+  // colour layer: every protein, coloured by the chosen field; the ones that pass the filters get a ring below
   let hi = 0;
   ctx.lineWidth = 0.6; ctx.strokeStyle = "rgba(255,255,255,0.85)";
-  const shown = state.mapScope === "all" ? DATA.rows : filtered;
+  const shown = DATA.rows;
   for (const r of shown) {
     if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
     let fill;
@@ -1759,7 +1750,19 @@ function drawMap() {
     }
     ctx.restore();
   }
-  const cnt = $("mapHiCount"); if (cnt) cnt.textContent = `${hi.toLocaleString()} ${catMode ? "shown" : "highlighted"} of ${DATA.rows.length.toLocaleString()}`;
+  // ring the proteins that pass the filters, so the selection reads against the whole proteome
+  const ringed = filtered.length < DATA.rows.length;
+  if (ringed) {
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(25,25,35,0.9)";
+    for (const r of filtered) {
+      if (!isNum(r.tsne_x) || !isNum(r.tsne_y)) continue;
+      ctx.beginPath(); ctx.arc(X(r.tsne_x), Y(r.tsne_y), rad(r) + 1.5, 0, 6.283); ctx.stroke();
+    }
+  }
+  const cnt = $("mapHiCount");
+  if (cnt) cnt.textContent = ringed
+    ? `${filtered.length.toLocaleString()} ringed (match filters) of ${DATA.rows.length.toLocaleString()}`
+    : `${hi.toLocaleString()} ${catMode ? "shown" : "highlighted"} of ${DATA.rows.length.toLocaleString()}`;
   drawMapOverlay();
   renderMapLegend();
 }
@@ -1873,12 +1876,6 @@ function initMap() {
   };
   thr.ondblclick = () => { delete state.mapThr[state.mapColorBy]; syncMapSlider(); save(); if (state.view === "map") drawMap(); };   // double-click: back to the default
 
-  const sc = $("mapScope");
-  if (sc) {
-    const paint = () => { sc.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", b.dataset.s === state.mapScope)); syncSeg(sc); };
-    sc.querySelectorAll("button").forEach((b) => b.onclick = () => { state.mapScope = b.dataset.s; paint(); save(); if (state.view === "map") drawMap(); });
-    paint();
-  }
   const ml = $("mapLabels");
   if (ml) {
     ml.checked = state.mapLabels !== false;

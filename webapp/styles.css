@@ -592,15 +592,9 @@ thead th[data-sort]:focus-visible{outline:2px solid var(--brand);outline-offset:
 .mroc .rk{display:flex;align-items:center;gap:7px}
 .mroc .rk i{width:14px;height:3px;border-radius:2px;flex:none}
 .mroc .rn{font-size:11.5px;color:var(--muted);line-height:1.45}
-.mbadges{list-style:none;margin:8px 0 0;padding:0;columns:2 260px;column-gap:20px;font-size:12px}
-.mbadges li{display:flex;gap:7px;align-items:baseline;padding:2px 0;break-inside:avoid;line-height:1.4}
-.mbadges i{width:7px;height:7px;border-radius:50%;flex:none;background:var(--faint);transform:translateY(-1px)}
-.mbadges .good i{background:#2a7047}
-.mbadges .bad i{background:#b02a37}
 /* weighted column: hide control, map scope switch */
 .hidew{margin-left:5px;border:0;background:none;color:var(--faint);font-size:14px;line-height:1;padding:0 3px;cursor:pointer;border-radius:3px}
 .hidew:hover{color:var(--ink);background:var(--surface-2)}
-.mapscope button{padding:3px 10px;font-size:12px}
 .acount .cogall{margin-left:4px}
 th.colw .hc{white-space:nowrap}
 /* methods: the AI-first approach diagram */
