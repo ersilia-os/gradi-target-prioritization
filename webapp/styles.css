@@ -145,7 +145,7 @@ th.colgene{padding-left:10px}
 .acc.accsolo{font-size:12px;color:var(--ink);font-style:normal;font-weight:600}
 .adot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;vertical-align:0}
 .pdesc{font-size:11.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;margin-top:1px}
-.star{position:absolute;top:50%;right:8px;transform:translateY(-50%);background:none;border:0;cursor:pointer;color:var(--border);font-size:14px;padding:2px}
+.star{position:absolute;top:50%;right:8px;transform:translateY(-50%);background:none;border:0;cursor:pointer;color:var(--faint);font-size:14px;padding:2px}
 .star:hover{color:var(--amber)}
 .star.on{color:var(--amber)}
 td.colgene{position:sticky}

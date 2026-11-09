@@ -693,6 +693,7 @@ function updateShortlistBtn() {
   b.innerHTML = `★<span class="lbl"> Starred</span> (${state.shortlist.length})`;
   b.setAttribute("aria-pressed", state.shortlistOnly ? "true" : "false");
   b.classList.toggle("on", state.shortlistOnly);
+  const u = $("unstarBtn"); if (u) u.style.visibility = state.shortlist.length ? "visible" : "hidden";   // hidden, not removed: the toolbar must not shift
 }
 function updateMapSelChip() {
   const c = $("mapSelChip");
@@ -1982,6 +1983,7 @@ function init() {
   $("methodsBtn").onclick = openMethods;
   $("methodsScrim").onclick = closeMethods;
   updateShortlistBtn();
+  $("unstarBtn").onclick = () => { state.shortlist = []; state.shortlistOnly = false; updateShortlistBtn(); save(); recompute(); };
   $("shortlistBtn").onclick = () => { state.shortlistOnly = !state.shortlistOnly; updateShortlistBtn(); save(); recompute(); };
   $("scrim").onclick = closeDrawer;
   let _tx = null, _ty = null;
